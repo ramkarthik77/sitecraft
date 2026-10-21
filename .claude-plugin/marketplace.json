@@ -1,0 +1,11 @@
+{
+  "name": "sitecraft",
+  "owner": { "name": "Sitecraft" },
+  "plugins": [
+    {
+      "name": "sitecraft",
+      "source": "./claude-plugin",
+      "description": "Build and edit Sitecraft websites from Claude Code."
+    }
+  ]
+}

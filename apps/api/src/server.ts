@@ -97,5 +97,5 @@ function isPlatformHost(cfg: Config, host: string): boolean {
   const h = host.toLowerCase().split(":")[0]!;
   const platform = new URL(cfg.publicUrl).hostname.toLowerCase();
   const editor = new URL(cfg.editorUrl).hostname.toLowerCase();
-  return h === platform || h === editor || h === "localhost" || h === "127.0.0.1" || h === "api" || /^\d+\.\d+\.\d+\.\d+$/.test(h);
+  return h === platform || h === editor || h === "localhost" || h === "127.0.0.1" || h === "api" || h === "app" || /^\d+\.\d+\.\d+\.\d+$/.test(h);
 }

@@ -183,6 +183,7 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
     `<meta name="generator" content="Sitecraft">`,
     fontLinks(doc),
     `<style>${css}</style>`,
+    withAnim ? `<noscript><style>.sc-anim{opacity:1!important;transform:none!important}</style></noscript>` : "",
   ]
     .filter(Boolean)
     .join("\n");

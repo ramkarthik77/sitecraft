@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "sitecraft": {
+      "type": "http",
+      "url": "${SITECRAFT_MCP_URL:-http://localhost:4100/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${SITECRAFT_TOKEN}"
+      }
+    }
+  }
+}

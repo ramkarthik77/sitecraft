@@ -1,0 +1,18 @@
+{
+  "$comment": "Example Claude Code managed settings for rolling Sitecraft out to an Enterprise org. Merge into your existing managed settings (server-managed in the Claude admin console, or managed-settings.json via MDM). Replace the host and repo with yours, and check key names against https://code.claude.com/docs/en/managed-mcp and https://code.claude.com/docs/en/plugins/org before deploying. Note: allowedMcpServers is an allowlist, so include your other approved servers or remove the key.",
+  "extraKnownMarketplaces": {
+    "sitecraft": {
+      "source": { "source": "github", "repo": "ramkarthik77/sitecraft" }
+    }
+  },
+  "enabledPlugins": {
+    "sitecraft@sitecraft": true
+  },
+  "allowedMcpServers": [
+    { "serverUrl": "https://mcp.sitecraft.example.com/*" },
+    { "serverUrl": "http://localhost:4100/*" }
+  ],
+  "env": {
+    "SITECRAFT_MCP_URL": "https://mcp.sitecraft.example.com/mcp"
+  }
+}

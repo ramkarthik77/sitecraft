@@ -1,0 +1,7 @@
+{
+  "name": "sitecraft",
+  "version": "0.1.0",
+  "description": "Build and edit Sitecraft websites from Claude Code: MCP tools, a site-building skill, and a confirmation step before anything goes live.",
+  "author": { "name": "Sitecraft" },
+  "keywords": ["website", "builder", "mcp", "design"]
+}

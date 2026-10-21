@@ -120,3 +120,17 @@ describe("operations", () => {
     expect(out).toContain('section "Hero"');
   });
 });
+
+describe("diff", () => {
+  it("reports inserted sections without flagging shifted siblings", async () => {
+    const { diffDocuments } = await import("../src/index.js");
+    const d = doc();
+    const root = d.pages[0]!.root;
+    const { document: d2 } = applyOperations(d, [{ op: "add_block", parentId: root.id, block: "contact-form", index: 2 }]);
+    const diff = diffDocuments(d, d2);
+    expect(diff.summary).toHaveLength(1);
+    expect(diff.summary[0]).toMatch(/^\+ section "Contact"/);
+    const { document: d3 } = applyOperations(d2, [{ op: "move_node", nodeId: root.children![0]!.id, parentId: root.id, index: 3 }]);
+    expect(diffDocuments(d2, d3).changed).toContain(root.children![0]!.id);
+  });
+});

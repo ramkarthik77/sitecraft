@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sitecraft
+          POSTGRES_PASSWORD: sitecraft
+          POSTGRES_DB: sitecraft_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sitecraft"
+          --health-interval 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Unit, API and MCP tests
+        run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgres://sitecraft:sitecraft@localhost:5432/sitecraft_test
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Browser end-to-end tests
+        run: pnpm test:e2e
+        env:
+          DATABASE_URL: postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/

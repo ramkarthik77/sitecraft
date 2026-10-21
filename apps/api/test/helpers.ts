@@ -22,6 +22,9 @@ export async function startTestServer(overrides: Partial<Record<string, string>>
   const cfg: Config = loadConfig({
     DATABASE_URL: TEST_DB,
     STORAGE_DIR: dir,
+    ...(process.env.TEST_S3_ENDPOINT
+      ? { STORAGE_DRIVER: "s3", S3_ENDPOINT: process.env.TEST_S3_ENDPOINT, S3_BUCKET: "sitecraft-test", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test" }
+      : {}),
     ADMIN_TOKEN: ADMIN,
     EDITOR_TOKEN: EDITOR,
     AGENT_TOKEN: AGENT,

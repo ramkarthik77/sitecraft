@@ -1,0 +1,18 @@
+{
+  "description": "Ask a person before Claude merges a branch or publishes a live site.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__(plugin_sitecraft_)?sitecraft__(publish_site|merge_branch)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/confirm-ship.mjs"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
