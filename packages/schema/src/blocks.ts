@@ -70,7 +70,11 @@ const BUILDERS: Record<string, (c: Content) => SiteNode> = {
             {},
             { base: { display: "flex", flexDirection: "row", gap: "28px", alignItems: "center" }, mobile: { gap: "16px" } },
             [
-              ...links.map((l) => n("link", { href: l.href ?? "#" }, { base: { color: "var(--color-muted)", textDecoration: "none", fontSize: "15px" } }, [n("text", { text: l.label ?? l.title ?? "Link" }, { base: { margin: "0" } })])),
+              ...links.map((l) => {
+                const link = n("link", { href: l.href ?? "#" }, { base: { color: "var(--color-muted)", textDecoration: "none", fontSize: "15px" } }, [n("text", { text: l.label ?? l.title ?? "Link" }, { base: { margin: "0" } })]);
+                link.hidden = { mobile: true };
+                return link;
+              }),
               button(str(c, "ctaLabel", "Get started"), str(c, "ctaHref", "#cta")),
             ],
             "Links",
@@ -84,7 +88,7 @@ const BUILDERS: Record<string, (c: Content) => SiteNode> = {
     const node = section(
       "Hero",
       [
-        n("text", { text: str(c, "eyebrow", "New — now in beta") }, { base: { color: "var(--color-primary)", fontWeight: 600, fontSize: "14px", letterSpacing: "0.04em", textTransform: "uppercase", margin: "0" } }, undefined, "Eyebrow"),
+        n("text", { text: str(c, "eyebrow", "New — now in beta") }, { base: { color: "var(--color-primary)", fontWeight: 600, fontSize: "15px", margin: "0" } }, undefined, "Eyebrow"),
         heading(str(c, "headline", "Build beautiful sites, faster"), 1, { fontSize: "64px", lineHeight: "1.05", letterSpacing: "-0.02em", maxWidth: "820px" }, { fontSize: "40px" }),
         text(str(c, "subheadline", "Design visually, let Claude handle the busywork, and ship to the web in one click."), { fontSize: "20px", maxWidth: "640px" }),
         n("stack", {}, { base: { display: "flex", flexDirection: "row", gap: "12px", flexWrap: "wrap" } }, [
@@ -126,7 +130,7 @@ const BUILDERS: Record<string, (c: Content) => SiteNode> = {
   logos(c) {
     const list = items(c, "items", [{ title: "Northwind" }, { title: "Globex" }, { title: "Initech" }, { title: "Umbrella" }, { title: "Hooli" }]);
     return section("Logos", [
-      text(str(c, "headline", "Trusted by teams at"), { textAlign: "center", fontSize: "14px", textTransform: "uppercase", letterSpacing: "0.08em" }),
+      text(str(c, "headline", "Trusted by teams at"), { textAlign: "center", fontSize: "15px" }),
       n("stack", {}, { base: { display: "flex", flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: "48px" }, mobile: { gap: "24px" } },
         list.map((l) => n("text", { text: l.title ?? "Logo" }, { base: { fontWeight: 700, fontSize: "22px", color: "var(--color-muted)", opacity: 0.7, margin: "0" } }))),
     ], { padding: "48px 24px" });

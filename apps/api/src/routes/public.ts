@@ -40,7 +40,7 @@ export async function serveHostedSite(ctx: AppContext, host: string, url: string
     hostCache.set(key, hit);
   }
   if (!hit.site) return false;
-  if (url.startsWith("/forms/") || url.startsWith("/assets/")) return false;
+  if (url.startsWith("/forms/") || url.startsWith("/media/")) return false;
   const site = await ctx.repo.getSite(hit.site.id); // fresh deployment pointer
   await sendDeployedFile(ctx, site, url, reply);
   return true;
@@ -103,7 +103,7 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     reply.header("Access-Control-Allow-Origin", "*").header("Access-Control-Allow-Methods", "POST").header("Access-Control-Allow-Headers", "Content-Type").status(204).send(),
   );
 
-  app.get<{ Params: { siteId: string; file: string } }>("/assets/:siteId/:file", async (req, reply) => {
+  app.get<{ Params: { siteId: string; file: string } }>("/media/:siteId/:file", async (req, reply) => {
     const { siteId, file } = req.params;
     if (!/^[0-9a-f-]{36}$/i.test(siteId) || !/^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/i.test(file)) return reply.status(404).send("Not found");
     const body = await ctx.storage.get(`assets/${siteId}/${file}`);

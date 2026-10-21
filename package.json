@@ -8,8 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm -r --filter ./packages/** run build && pnpm -r --filter ./apps/** run build",
-    "dev": "pnpm -r --parallel --filter ./apps/** run dev",
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel --filter \"./apps/*\" run dev",
     "typecheck": "pnpm -r run typecheck",
     "test": "vitest run",
     "test:e2e": "node scripts/e2e.mjs",
@@ -17,7 +17,9 @@
     "seed": "pnpm --filter @sitecraft/api run seed"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@types/node": "^22.10.0",
+    "pg": "^8.23.1",
     "typescript": "^5.7.2",
     "vitest": "^3.2.4"
   }

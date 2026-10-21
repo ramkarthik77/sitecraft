@@ -278,13 +278,13 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     const asset = await repo.addAsset(req.actor, site.id, name, type, buf.length);
     await ctx.storage.put(`assets/${site.id}/${asset.id}.${ext}`, buf, type);
     reply.status(201);
-    return { id: asset.id, url: `${cfg.publicUrl}/assets/${site.id}/${asset.id}.${ext}`, fileName: name };
+    return { id: asset.id, url: `${cfg.publicUrl}/media/${site.id}/${asset.id}.${ext}`, fileName: name };
   });
 
   app.get<{ Params: Params }>("/sites/:siteId/assets", async (req) => {
     const site = await repo.getSite(req.params.siteId);
     const rows = await repo.listAssets(site.id);
     const ext: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
-    return rows.map((a: Record<string, string>) => ({ id: a.id, fileName: a.file_name, url: `${cfg.publicUrl}/assets/${site.id}/${a.id}.${ext[a.content_type]}`, createdAt: a.created_at }));
+    return rows.map((a: Record<string, string>) => ({ id: a.id, fileName: a.file_name, url: `${cfg.publicUrl}/media/${site.id}/${a.id}.${ext[a.content_type]}`, createdAt: a.created_at }));
   });
 }

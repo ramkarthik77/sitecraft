@@ -1,0 +1,137 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const EDITOR = process.env.E2E_EDITOR_TOKEN ?? "e2e-editor";
+const AGENT = process.env.E2E_AGENT_TOKEN ?? "e2e-agent";
+
+async function apiCall(page: Page, token: string, method: string, path: string, data?: unknown) {
+  const res = await page.request.fetch(`/api${path}`, { method, headers: { authorization: `Bearer ${token}` }, data });
+  expect(res.ok(), `${method} ${path}: ${await res.text()}`).toBeTruthy();
+  return res.json();
+}
+
+const canvas = (page: Page) => page.frameLocator("iframe[title='Page canvas']");
+const saved = (page: Page) => expect(page.locator(".save-state")).toHaveText("Saved");
+
+test.describe.configure({ mode: "serial" });
+
+let siteId = "";
+
+test("sign in and create a site", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.fill("#token", "wrong");
+  await page.click("form.login button.primary");
+  await expect(page.locator(".err")).toContainText("wasn't accepted");
+  await page.fill("#token", EDITOR);
+  await page.click("form.login button.primary");
+  await expect(page.getByRole("heading", { name: "Your sites" })).toBeVisible();
+
+  await page.getByLabel("Site name").fill("Northstar Coffee");
+  await page.getByLabel("Template").selectOption("saas");
+  await page.getByRole("button", { name: "Create site" }).click();
+  await expect(page).toHaveURL(/\/sites\//);
+  siteId = page.url().split("/sites/")[1]!.split("?")[0]!;
+  await expect(canvas(page).locator("h1")).toContainText("Build beautiful sites");
+});
+
+test("edit text on the canvas, insert a section and style for phones", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  // Inline text editing by double-click.
+  const h1 = canvas(page).locator("h1");
+  await h1.dblclick();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.type("Coffee worth waking up for");
+  await page.keyboard.press("Enter");
+  await expect(h1).toHaveText("Coffee worth waking up for");
+  await saved(page);
+
+  // Insert a section from the panel.
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await page.locator(".block-card", { hasText: "contact form" }).click();
+  await expect(canvas(page).getByText("Get in touch")).toBeVisible();
+  await saved(page);
+
+  // Undo and redo the insert.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(canvas(page).getByText("Get in touch")).toHaveCount(0);
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(canvas(page).getByText("Get in touch")).toBeVisible();
+
+  // Phone-only override from the inspector.
+  await page.getByRole("button", { name: "Phone" }).click();
+  await h1.click();
+  await page.getByLabel("Size", { exact: true }).fill("36px");
+  await saved(page);
+  const head = await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main`);
+  const json = JSON.stringify(head.document);
+  expect(json).toContain("Coffee worth waking up for");
+  expect(json).toContain('"mobile":{"fontSize":"36px"}');
+});
+
+test("Claude's edits on a branch appear live, then a person merges and publishes", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+
+  // Claude Code (agent token) starts a branch, as it would over MCP.
+  await apiCall(page, AGENT, "POST", `/sites/${siteId}/branches`, { name: "agent/menu" });
+  await page.goto(`/sites/${siteId}?branch=agent%2Fmenu`, { waitUntil: "domcontentloaded" });
+  await expect(canvas(page).locator("h1")).toHaveText("Coffee worth waking up for");
+
+  const doc = (await apiCall(page, AGENT, "GET", `/sites/${siteId}/branches/agent%2Fmenu`)).document;
+  await apiCall(page, AGENT, "POST", `/sites/${siteId}/branches/agent%2Fmenu/ops`, {
+    ops: [
+      { op: "add_block", parentId: doc.pages[0].root.id, index: 2, block: "features", content: { headline: "Today's menu", items: [{ title: "Flat white", body: "Double ristretto, silky milk." }] } },
+      { op: "set_theme", colors: { primary: "#7c2d12" } },
+    ],
+    message: "Add menu section and roast-brown theme",
+  });
+
+  // The open editor picks it up without a reload.
+  await expect(page.locator(".toast.agent")).toContainText("Add menu section");
+  await expect(canvas(page).getByText("Today's menu")).toBeVisible();
+
+  // Review and merge.
+  await page.getByRole("button", { name: "Review and merge" }).click();
+  await expect(page.locator(".diff-line.add").first()).toBeVisible();
+  await expect(page.locator(".callout").first()).toContainText("made 1 change");
+  await page.getByRole("button", { name: "Merge into main" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Merged agent/menu");
+  await expect(page.getByRole("combobox", { name: "Branch" })).toHaveValue("main");
+  await expect(canvas(page).getByText("Today's menu")).toBeVisible();
+
+  // Publish and check the live site.
+  await page.getByRole("button", { name: "Publish" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Published to");
+  const site = await apiCall(page, EDITOR, "GET", `/sites/${siteId}`);
+  await page.goto(site.liveUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("h1")).toHaveText("Coffee worth waking up for");
+  await expect(page.getByText("Today's menu")).toBeVisible();
+
+  // Phone layout on the live site uses the override.
+  await page.setViewportSize({ width: 390, height: 800 });
+  await expect(page.locator("h1")).toHaveCSS("font-size", "36px");
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  // Submit the contact form on the live site.
+  await page.getByLabel("Name").fill("Grace");
+  await page.getByLabel("Email").fill("grace@example.com");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByText("Thanks! We'll be in touch.")).toBeVisible();
+  const subs = await apiCall(page, EDITOR, "GET", `/sites/${siteId}/forms`);
+  expect(subs[0].data).toMatchObject({ name: "Grace", email: "grace@example.com" });
+});
+
+test("restore an earlier version from history", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "History" }).click();
+  const rows = page.locator(".drawer table").first().locator("tbody tr");
+  await expect(rows.first()).toContainText("Merge branch agent/menu");
+  await rows.last().getByRole("button", { name: "Restore" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Restored version");
+  await page.keyboard.press("Escape");
+  await expect(canvas(page).locator("h1")).toContainText("Build beautiful sites");
+});
