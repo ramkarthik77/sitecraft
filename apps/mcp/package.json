@@ -1,0 +1,21 @@
+{
+  "name": "@sitecraft/mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "sitecraft-mcp": "./dist/main.js" },
+  "main": "./dist/main.js",
+  "scripts": {
+    "dev": "tsx watch src/main.ts --http",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js --http",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@sitecraft/schema": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}
