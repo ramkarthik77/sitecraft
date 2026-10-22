@@ -1,0 +1,56 @@
+{
+  // Sitecraft on Cloudflare: one Worker in front of two Containers.
+  // Replace every example.com value with your domains (see docs/CLOUDFLARE.md).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sitecraft",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "vars": {
+    "APP_HOST": "sitecraft.example.com",
+    "MCP_HOST": "sitecraft-mcp.example.com",
+    // Published sites at https://<slug>.sites.example.com. Remove to serve them at APP_HOST/s/<slug>.
+    "SITES_DOMAIN": "sites.example.com",
+    "APP_INSTANCES": "2",
+    "CLOUDFLARE_ACCOUNT_ID": "your-account-id",
+    "R2_BUCKET": "sitecraft",
+    "AGENT_CAN_PUBLISH": "false",
+    "AGENT_CAN_EDIT_MAIN": "false"
+  },
+
+  "routes": [
+    { "pattern": "sitecraft.example.com", "custom_domain": true },
+    { "pattern": "sitecraft-mcp.example.com", "custom_domain": true },
+    { "pattern": "*.sites.example.com/*", "zone_name": "example.com" }
+  ],
+
+  "containers": [
+    {
+      "class_name": "SitecraftApp",
+      "image": "../../Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "basic",
+      "max_instances": 4
+    },
+    {
+      "class_name": "SitecraftMcp",
+      "image": "../../Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "basic",
+      "max_instances": 2
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "APP", "class_name": "SitecraftApp" },
+      { "name": "MCP", "class_name": "SitecraftMcp" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SitecraftApp", "SitecraftMcp"] }],
+
+  // Ping every instance so nobody waits on a cold start.
+  "triggers": { "crons": ["*/5 * * * *"] }
+}

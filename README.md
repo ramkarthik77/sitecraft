@@ -69,13 +69,18 @@ Then ask, for example: *"Create a Sitecraft site for Northstar Coffee with a men
 
 The plugin adds the MCP server, the `build-site` skill and the confirm-before-publish hook.
 
-**For your whole organization (Claude Code Enterprise):** deploy the MCP server somewhere reachable (see [docs/DEPLOY.md](docs/DEPLOY.md)), mint one agent token per person (`pnpm --filter @sitecraft/api exec tsx src/cli.ts token "Jane Doe" agent`), and push the plugin and MCP allowlist through managed settings. [deploy/claude-code/managed-settings.example.json](deploy/claude-code/managed-settings.example.json) is a starting point.
+**For your whole organization (Claude Code Enterprise):** deploy it (on Cloudflare: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md); elsewhere: [docs/DEPLOY.md](docs/DEPLOY.md)), mint one agent token per person (`pnpm --filter @sitecraft/api exec tsx src/cli.ts token "Jane Doe" agent`), and push the plugin and MCP allowlist through managed settings. [deploy/claude-code/managed-settings.example.json](deploy/claude-code/managed-settings.example.json) is a starting point.
 
 ### What Claude can do
 
 `list_sites`, `create_site`, `get_site` (outline with node ids), `get_node`, `list_blocks`, `list_branches`, `create_branch`, `edit_site` (any batch of operations), `add_section`, `update_text`, `update_style`, `set_theme`, `add_page`, `get_diff`, `list_versions`, `restore_version`, `get_preview_url`, `request_review`, `merge_branch`, `publish_site`.
 
 By default an agent token can do everything except edit `main`, merge or publish. Set `AGENT_CAN_PUBLISH=true` to let agents ship; the plugin's hook still asks the person first.
+
+## Deploy
+
+- **Cloudflare** (Containers, R2, DNS, edge cache) with Neon Postgres: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md). After a one-time setup, every push to `main` that passes CI deploys automatically.
+- **Anywhere else** that runs containers: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Tests
 
@@ -105,6 +110,7 @@ apps/api            REST API, auth and roles, versions, publishing, hosting, for
 apps/mcp            MCP server (Streamable HTTP and stdio)
 apps/editor         React editor (Vite)
 claude-plugin       Claude Code plugin: MCP config, skill, hook
+deploy/cloudflare   Cloudflare Worker and Containers config
 e2e                 Playwright tests
 ```
 

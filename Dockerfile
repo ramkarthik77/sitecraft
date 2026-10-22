@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# One image, two targets:
+# Targets:
 #   app — API, published-site hosting and the editor (port 4000)
 #   mcp — MCP server Claude Code connects to (port 4100)
+#   combined (default) — either one, picked by ROLE=app or ROLE=mcp
 
 FROM node:22-alpine AS build
 RUN corepack enable
@@ -34,3 +35,10 @@ ENV PORT=4000 EDITOR_DIST=/app/apps/editor/dist
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=3s CMD wget -qO- http://127.0.0.1:4000/healthz || exit 1
 CMD ["node", "apps/api/dist/main.js"]
+
+# Default target: one image that runs either service, chosen by ROLE
+# (used by Cloudflare Containers, which builds the last stage).
+FROM base AS combined
+ENV EDITOR_DIST=/app/apps/editor/dist
+EXPOSE 4000 4100
+CMD ["sh", "-c", "if [ \"$ROLE\" = mcp ]; then exec node apps/mcp/dist/main.js --http; else exec node apps/api/dist/main.js; fi"]

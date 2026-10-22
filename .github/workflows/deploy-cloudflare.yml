@@ -1,0 +1,87 @@
+name: Deploy to Cloudflare
+
+# Runs after CI passes on main (or by hand). Builds the image, rolls out the
+# Worker and both Containers, then checks the site is up.
+#
+# Setup (once): see docs/CLOUDFLARE.md. You need these in Settings → Secrets and variables → Actions:
+#   Variables: CLOUDFLARE_DOMAIN (e.g. acme.com), CLOUDFLARE_ACCOUNT_ID
+#   Secrets:   CLOUDFLARE_API_TOKEN, DATABASE_URL, SITECRAFT_SECRET, SITECRAFT_ADMIN_TOKEN,
+#              R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.CLOUDFLARE_DOMAIN != '' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DOMAIN: ${{ vars.CLOUDFLARE_DOMAIN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Point the config at your domain and account
+        run: |
+          sed -i "s/example\.com/${DOMAIN}/g; s/your-account-id/${CLOUDFLARE_ACCOUNT_ID}/" deploy/cloudflare/wrangler.jsonc
+          grep -n "HOST\|pattern\|ACCOUNT" deploy/cloudflare/wrangler.jsonc
+
+      - name: Make sure the R2 bucket exists
+        working-directory: deploy/cloudflare
+        run: pnpm exec wrangler r2 bucket create sitecraft 2>&1 | tee /tmp/r2.log || grep -qi "already exists" /tmp/r2.log
+
+      - name: Write secrets for this deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SECRET: ${{ secrets.SITECRAFT_SECRET }}
+          ADMIN_TOKEN: ${{ secrets.SITECRAFT_ADMIN_TOKEN }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          umask 077
+          node -e '
+            const keys = ["DATABASE_URL", "SECRET", "ADMIN_TOKEN", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"];
+            const missing = keys.filter((k) => !process.env[k]);
+            if (missing.length) { console.error("Missing GitHub secrets for: " + missing.join(", ")); process.exit(1); }
+            if (process.env.SECRET.length < 32) { console.error("SITECRAFT_SECRET must be at least 32 characters"); process.exit(1); }
+            require("fs").writeFileSync(process.env.RUNNER_TEMP + "/secrets.json", JSON.stringify(Object.fromEntries(keys.map((k) => [k, process.env[k]]))));
+          '
+
+      - name: Deploy Worker and Containers
+        working-directory: deploy/cloudflare
+        run: pnpm exec wrangler deploy --secrets-file "$RUNNER_TEMP/secrets.json"
+
+      - name: Remove secrets file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/secrets.json"
+
+      - name: Check the app is up
+        run: |
+          # A first rollout can take a few minutes while Cloudflare pulls the image.
+          for i in $(seq 1 40); do
+            if curl -fsS "https://sitecraft.${DOMAIN}/healthz" && curl -fsS "https://sitecraft-mcp.${DOMAIN}/healthz"; then
+              echo; echo "Live at https://sitecraft.${DOMAIN}"; exit 0
+            fi
+            sleep 15
+          done
+          echo "Sitecraft didn't answer on https://sitecraft.${DOMAIN}/healthz within 10 minutes." >&2
+          echo "Check: npx wrangler containers list, and the Worker's logs in the Cloudflare dashboard." >&2
+          exit 1

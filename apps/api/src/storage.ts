@@ -56,9 +56,16 @@ class S3Storage implements Storage {
   async init() {
     try {
       await this.client.send(new HeadBucketCommand({ Bucket: this.cfg.bucket }));
-    } catch {
-      // Local MinIO starts empty; create the bucket on first boot.
-      await this.client.send(new CreateBucketCommand({ Bucket: this.cfg.bucket }));
+    } catch (e) {
+      const status = (e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (status === 404 || (e as { name?: string }).name === "NotFound") {
+        // Local MinIO starts empty; create the bucket on first boot.
+        await this.client.send(new CreateBucketCommand({ Bucket: this.cfg.bucket }));
+        return;
+      }
+      // Bucket-scoped tokens (common with R2) may not be allowed to inspect
+      // the bucket itself; reads and writes are checked on first use.
+      console.warn(`Couldn't check bucket "${this.cfg.bucket}" (${status ?? (e as Error).message}); continuing.`);
     }
   }
   async put(key: string, body: Buffer | string, contentType: string) {

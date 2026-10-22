@@ -1,5 +1,7 @@
 # Deploying Sitecraft
 
+On Cloudflare? Follow [CLOUDFLARE.md](CLOUDFLARE.md) instead; it's automated end to end. This page covers other container hosts.
+
 ## What you need
 
 | Piece | Local | Production |

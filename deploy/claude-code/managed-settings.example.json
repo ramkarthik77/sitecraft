@@ -9,10 +9,10 @@
     "sitecraft@sitecraft": true
   },
   "allowedMcpServers": [
-    { "serverUrl": "https://mcp.sitecraft.example.com/*" },
+    { "serverUrl": "https://sitecraft-mcp.example.com/*" },
     { "serverUrl": "http://localhost:4100/*" }
   ],
   "env": {
-    "SITECRAFT_MCP_URL": "https://mcp.sitecraft.example.com/mcp"
+    "SITECRAFT_MCP_URL": "https://sitecraft-mcp.example.com/mcp"
   }
 }
