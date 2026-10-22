@@ -12,6 +12,7 @@ export interface SiteRow {
   created_by: string;
   created_at: string;
   current_deployment_id: string | null;
+  brand_id?: string | null;
 }
 
 export interface BranchRow {

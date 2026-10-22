@@ -273,8 +273,17 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
           <TextInput label="Embed URL" value={str("url")} placeholder="https://www.youtube.com/embed/…" onChange={(v) => set("url", v)} />
         </Field>
       );
-    case "instance":
-      return <p className="muted small" style={{ margin: 0 }}>Instance of {doc.components.find((c) => c.id === p.componentId)?.name ?? "a component"}. Edits inside it change every copy.</p>;
+    case "instance": {
+      const comp = doc.components.find((c) => c.id === p.componentId);
+      if (comp?.brandId && doc.brand) {
+        return (
+          <p className="muted small" style={{ margin: 0 }}>
+            {comp.name} from the {doc.brand.name} brand.{doc.brand.locked ? " It's edited in Brands and updates every site at once." : " Brand updates replace edits made here."}
+          </p>
+        );
+      }
+      return <p className="muted small" style={{ margin: 0 }}>Instance of {comp?.name ?? "a component"}. Edits inside it change every copy.</p>;
+    }
     default:
       return null;
   }
@@ -471,7 +480,28 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
           </button>
         )}
       </div>
-      <div className="group">
+      {doc.brand && (
+        <div className="group bind-group">
+          <h3>
+            <span>{doc.brand.name} brand</span>
+            <span className="type-chip">{doc.brand.locked ? "Locked" : `v${doc.brand.version}`}</span>
+          </h3>
+          <span className="small" style={{ lineHeight: 1.5 }}>
+            {doc.brand.locked
+              ? "Colors, fonts, corner radius and the brand's shared components come from the brand. Use theme colors (var(--color-…)) on elements. Admins change the brand in Brands."
+              : "Theme changes here apply to this site only, until the next brand update replaces them."}
+          </span>
+          {doc.brand.guidelines && (
+            <details>
+              <summary className="small">Brand guidelines</summary>
+              <p className="small muted" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                {doc.brand.guidelines}
+              </p>
+            </details>
+          )}
+        </div>
+      )}
+      <fieldset className="group plain" disabled={!!doc.brand?.locked}>
         <h3>Theme colors</h3>
         {Object.entries(theme.colors).map(([name, v]) => (
           <Field key={name} label={name.replace(/-/g, " ")}>
@@ -483,8 +513,8 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
             <option key={n} value={`var(--color-${n})`} />
           ))}
         </datalist>
-      </div>
-      <div className="group">
+      </fieldset>
+      <fieldset className="group plain" disabled={!!doc.brand?.locked}>
         <h3>Theme type and shape</h3>
         <Field label="Headings">
           <TextInput label="Heading font" value={theme.fonts.heading} onChange={(v) => apply([{ op: "set_theme", fonts: { heading: v } }], "theme:fh")} />
@@ -496,7 +526,7 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
           <TextInput label="Corner radius" value={theme.radius} onChange={(v) => apply([{ op: "set_theme", radius: v }], "theme:r")} />
         </Field>
         <span className="muted small">Google Fonts load automatically when named in quotes, like 'Fraunces', serif.</span>
-      </div>
+      </fieldset>
     </div>
   );
 }

@@ -229,7 +229,18 @@ export const documentSchema = z
         radius: cssValue,
       })
       .strict(),
-    components: z.array(z.object({ id: idSchema, name: z.string().min(1).max(120), root: nodeSchema }).strict()),
+    components: z.array(z.object({ id: idSchema, name: z.string().min(1).max(120), root: nodeSchema, brandId: idSchema.optional() }).strict()),
+    brand: z
+      .object({
+        id: idSchema,
+        name: z.string().min(1).max(80),
+        version: z.number().int().min(1),
+        locked: z.boolean(),
+        logo: z.string().refine(isSafeSrc, "Unsafe logo").optional(),
+        guidelines: z.string().max(20_000).optional(),
+      })
+      .strict()
+      .optional(),
     collections: z.array(collectionSchema).max(50).optional(),
     pages: z.array(pageSchema).min(1),
     settings: z

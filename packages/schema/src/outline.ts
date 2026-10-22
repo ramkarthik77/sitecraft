@@ -29,6 +29,11 @@ function truncate(s: string, max: number) {
 export function outlineDocument(doc: SiteDocument, opts: { pageId?: string; maxDepth?: number } = {}): string {
   const lines: string[] = [];
   const maxDepth = opts.maxDepth ?? 8;
+  if (doc.brand && !opts.pageId) {
+    lines.push(`Brand: ${doc.brand.name}${doc.brand.locked ? " (locked: use only theme colors var(--color-*) and fonts var(--font-heading|body); brand components can't be edited here)" : ""}`);
+    if (doc.brand.guidelines) lines.push(`Brand guidelines (follow these when writing or designing):\n${doc.brand.guidelines.trim().slice(0, 4000)}`);
+    lines.push("");
+  }
   const pages = opts.pageId ? doc.pages.filter((p) => p.id === opts.pageId || p.path === opts.pageId) : doc.pages;
   for (const page of pages) {
     const tpl = page.collectionId ? findCollection(doc, page.collectionId) : undefined;

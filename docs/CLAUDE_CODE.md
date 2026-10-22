@@ -120,7 +120,8 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | Tool | What it does |
 |---|---|
 | `list_sites` | Sites with ids, slugs and live addresses |
-| `create_site` | New site from a template: `blank`, `landing`, `saas` or `blog` |
+| `list_templates` | Saved site templates your team made |
+| `create_site` | New site from a built-in template (`blank`, `landing`, `saas`, `blog`) or a saved one |
 | `get_site` | Outline of a site's pages and elements, with the ids edits need |
 | `get_node` | Full detail of one element: content, styles per screen size, children |
 | `list_blocks` | The ready-made sections and the content each one takes |

@@ -9,7 +9,7 @@ Sitecraft is the team's visual website builder. People edit in the browser; you 
 
 ## Workflow
 
-1. **Find the site.** `list_sites`, or `create_site` with a template (`landing` for a single page, `saas` for a full product site, `blog` for a site with a blog, `blank` to start empty).
+1. **Find the site.** `list_sites`, or `create_site` with a template. Check `list_templates` first: a saved template from the team (often tied to a brand) beats the built-ins (`landing`, `saas`, `blog`, `blank`).
 2. **Read before editing.** `get_site` returns every page as an outline with node ids. Use those ids; never guess them. `get_node` shows one element's full props and styles.
 3. **Branch for the task.** `create_branch` named `agent/<short-task>`, for example `agent/pricing-page`. Never try to edit `main`.
 4. **Make the change.**
@@ -28,6 +28,8 @@ Sitecraft is the team's visual website builder. People edit in the browser; you 
 7. **Hand off.** Finish with `request_review` and a short summary. Pass on the review link it returns. Don't call `merge_branch` or `publish_site` unless the person explicitly asks you to ship.
 
 ## Quality bar
+
+- **Follow the brand.** If `get_site` starts with "Brand: …", read the guidelines there and write in that voice. Locked brands only accept theme colors (`var(--color-…)`) and fonts (`var(--font-heading)`, `var(--font-body)`); the brand's shared components can't be edited in a site. `request_review` lists anything off-brand you added: fix it before handing over.
 
 - Write real copy for the person's business, specific and plain. No lorem ipsum, no "Feature 1".
 - Use theme tokens (`var(--color-primary)`, `var(--font-heading)`, `var(--radius)`) instead of hard-coded colors so rebrands stay one change.

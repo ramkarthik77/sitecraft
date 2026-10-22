@@ -8,3 +8,5 @@ export * from "./starter.js";
 export * from "./outline.js";
 export * from "./diff.js";
 export * from "./collections.js";
+export * from "./brand.js";
+export * from "./templates.js";

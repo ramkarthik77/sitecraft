@@ -88,13 +88,30 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
     "create_site",
     {
       title: "Create site",
-      description: "Create a new site from a template: blank, landing (navbar, hero, features, cta, footer) or saas (adds logos, testimonial, pricing, faq).",
-      inputSchema: { name: z.string().min(1), template: z.enum(["blank", "landing", "saas", "blog"]).optional(), slug: z.string().optional() },
+      description:
+        "Create a new site from a template. Built in: blank, landing (navbar, hero, features, cta, footer), saas (adds logos, testimonial, pricing, faq) or blog. Or the name or id of a saved template from list_templates; sites made from one also get its brand.",
+      inputSchema: { name: z.string().min(1), template: z.string().optional().describe("Built-in template, or a saved template's name or id"), slug: z.string().optional() },
     },
     ({ name, template, slug }) =>
       run(async () => {
         const s = await client.post<{ id: string; slug: string }>("/sites", { name, template, slug });
         return `Created site "${name}" (slug ${s.slug}, id ${s.id}). Next: create_branch, then edit.`;
+      }),
+  );
+
+  server.registerTool(
+    "list_templates",
+    {
+      title: "List templates",
+      description: "Saved site templates your team made (name, description, brand), plus the built-in ones. Use a name with create_site.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    () =>
+      run(async () => {
+        const saved = await client.get<{ id: string; name: string; description: string; brandName: string | null; pages?: number }[]>("/site-templates");
+        const lines = saved.map((t) => `- ${t.name}${t.brandName ? ` (brand ${t.brandName})` : ""}${t.description ? `: ${t.description}` : ""} [id ${t.id}]`);
+        return `Saved templates:\n${lines.join("\n") || "(none yet)"}\n\nBuilt in: blank, landing, saas, blog.`;
       }),
   );
 
@@ -433,10 +450,11 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
       run(async () => {
         const id = await resolveId(s);
         const [d, links] = await Promise.all([
-          client.get<{ summary: string[] }>(`/sites/${id}/branches/${enc(b)}/diff`),
+          client.get<{ summary: string[]; brandIssues?: string[] }>(`/sites/${id}/branches/${enc(b)}/diff`),
           client.get<{ url: string; editorUrl: string }>(`/sites/${id}/branches/${enc(b)}/preview-url`),
         ]);
-        return `Ready for review.\n\n${summary}\n\nChanges:\n${d.summary.join("\n") || "(none)"}\n\nPreview: ${links.url}\nReview and merge: ${links.editorUrl}&review=1`;
+        const brand = d.brandIssues?.length ? `\n\nOff-brand (fix these before asking for review if you can):\n${d.brandIssues.map((x) => `- ${x}`).join("\n")}` : "";
+        return `Ready for review.\n\n${summary}\n\nChanges:\n${d.summary.join("\n") || "(none)"}${brand}\n\nPreview: ${links.url}\nReview and merge: ${links.editorUrl}&review=1`;
       }),
   );
 

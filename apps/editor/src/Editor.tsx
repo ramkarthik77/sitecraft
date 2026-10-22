@@ -214,6 +214,19 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     }
   };
 
+  const insertComponent = (componentId: string, at?: number) => {
+    if (!page || !doc) return;
+    const comp = doc.components.find((c) => c.id === componentId);
+    if (!comp) return;
+    const after = at ?? topLevelIndex(page.root, selectedId);
+    const index = after === null ? undefined : after + (at === undefined ? 1 : 0);
+    const created = apply([{ op: "add_node", parentId: page.root.id, index, node: { type: "instance", name: comp.name, props: { componentId }, style: {} } as never }]);
+    if (created?.[0]) {
+      setSelectedId(created[0]);
+      setScrollTick((t) => t + 1);
+    }
+  };
+
   const insertElement = (key: string, targetId = selectedId, before = false, preferInside = true) => {
     const el = ELEMENTS[key];
     const where = placementFor(targetId, before, preferInside);
@@ -230,11 +243,12 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       if (n) apply([{ op: "update_node", nodeId: e.id, props: { [n.type === "button" ? "label" : "text"]: e.text } }]);
     } else if (e.type === "drop") {
       const [kind, value] = [e.payload.split(":")[0], e.payload.slice(e.payload.indexOf(":") + 1)];
-      if (kind === "block" || kind === "list") {
+      if (kind === "block" || kind === "list" || kind === "comp") {
         const idx = topLevelIndex(page.root, e.id);
         const at = idx === null ? page.root.children?.length ?? 0 : idx + (e.before ? 0 : 1);
         if (kind === "block") insertBlock(value, at);
-        else insertList(value, at);
+        else if (kind === "list") insertList(value, at);
+        else insertComponent(value, at);
       } else if (kind === "el") insertElement(value, e.id, e.before, true);
       else if (kind === "move" && e.id && value !== e.id) {
         const where = placementFor(e.id, e.before, false);
@@ -521,6 +535,9 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
                 onInsertElement={(k) => insertElement(k)}
                 collections={doc.collections ?? []}
                 onInsertList={(id) => insertList(id)}
+                components={doc.components}
+                brandName={doc.brand?.name}
+                onInsertComponent={(id) => insertComponent(id)}
                 onOpenCms={() => setTab("cms")}
               />
             )}
@@ -672,7 +689,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         />
       )}
       {drawer === "history" && <HistoryDrawer siteId={siteId} branch={branch} toast={toast} onClose={() => setDrawer(null)} onRestored={() => void ed.reload()} />}
-      {drawer === "settings" && site && <SettingsDrawer site={site} toast={toast} onClose={() => setDrawer(null)} onSaved={setSite} />}
+      {drawer === "settings" && site && (
+        <SettingsDrawer
+          site={site}
+          toast={toast}
+          isAdmin={me.role === "admin"}
+          canEdit={me.role !== "agent"}
+          onClose={() => setDrawer(null)}
+          onSaved={setSite}
+          onBrandChanged={() => (branch === "main" ? void ed.reload() : toast("The brand is on main now. Merge or start a new branch to see it here."))}
+        />
+      )}
     </div>
   );
 }

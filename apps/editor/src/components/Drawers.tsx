@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, Sites, type Deployment, type Diff, type SiteSummary, type Version } from "../api";
+import { ApiError, Brands, Sites, Templates, type Brand, type Deployment, type Diff, type SiteSummary, type Version } from "../api";
 import { Icon } from "./Icon";
 
 function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -80,6 +80,19 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
           ))}
         </div>
       </section>
+      {!!diff?.brandIssues?.length && (
+        <section className="brand-check" aria-label="Brand check">
+          <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
+            Off-brand <span className="badge">{diff.brandIssues.length}</span>
+          </h3>
+          <ul>
+            {diff.brandIssues.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+          <span className="muted small">Use the theme colors and fonts instead, or merge anyway if this is intentional.</span>
+        </section>
+      )}
       {conflict ? (
         <div className="callout human">
           Main changed after this branch was created. Merging anyway replaces main with this branch's version; earlier main versions stay in history.
@@ -206,7 +219,16 @@ export function HistoryDrawer(props: { siteId: string; branch: string; onClose: 
   );
 }
 
-export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; onSaved: (s: SiteSummary) => void; toast: (m: string, tone?: "error") => void }) {
+export function SettingsDrawer(props: {
+  site: SiteSummary;
+  onClose: () => void;
+  onSaved: (s: SiteSummary) => void;
+  toast: (m: string, tone?: "error") => void;
+  isAdmin?: boolean;
+  canEdit?: boolean;
+  /** Called after the site's brand changed, so the editor reloads main. */
+  onBrandChanged?: () => void;
+}) {
   const [name, setName] = useState(props.site.name);
   const [domain, setDomain] = useState(props.site.domain ?? "");
   const [exportUrl, setExportUrl] = useState(props.site.domain ? `https://${props.site.domain}` : "");
@@ -243,6 +265,8 @@ export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; 
           Save settings
         </button>
       </section>
+      <BrandSection site={props.site} isAdmin={!!props.isAdmin} toast={props.toast} onChanged={(brandId) => (props.onSaved({ ...props.site, brandId }), props.onBrandChanged?.())} />
+      {props.canEdit && <SaveAsTemplate site={props.site} toast={props.toast} />}
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: 13 }}>Export</h3>
         <span className="muted small">Download the site as plain HTML to host anywhere, such as Cloudflare Pages or Netlify. Exports the main version.</span>
@@ -354,5 +378,89 @@ function FormDataTools(props: { siteId: string; slug: string; toast: (m: string,
       </div>
       <span className="muted small">Submissions are deleted automatically after the server's retention period (one year by default).</span>
     </div>
+  );
+}
+
+function BrandSection(props: { site: SiteSummary; isAdmin: boolean; toast: (m: string, tone?: "error") => void; onChanged: (brandId: string | null) => void }) {
+  const [brands, setBrands] = useState<Brand[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    Brands.list().then(setBrands).catch(() => setBrands([]));
+  }, []);
+  const current = brands?.find((b) => b.id === props.site.brandId);
+  if (!brands) return null;
+  if (!props.isAdmin && !current) return null;
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Brand</h3>
+      {props.isAdmin ? (
+        <div className="row">
+          <label htmlFor="s-brand">Follows</label>
+          <select
+            id="s-brand"
+            className="select"
+            disabled={busy}
+            value={props.site.brandId ?? ""}
+            onChange={async (e) => {
+              setBusy(true);
+              try {
+                const r = await Sites.setBrand(props.site.id, e.target.value || null);
+                const b = brands.find((x) => x.id === r.brandId);
+                props.toast(b ? `This site now follows the ${b.name} brand` : "This site no longer follows a brand");
+                props.onChanged(r.brandId);
+              } catch (err) {
+                props.toast((err as Error).message, "error");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <option value="">No brand</option>
+            {brands.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+                {b.locked ? " (locked)" : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <span className="small">
+          Follows the {current!.name} brand{current!.locked ? ", which is locked" : ""}. Admins change this.
+        </span>
+      )}
+      <span className="muted small">The brand's colors, fonts and shared components are copied into main as a new version, and updates arrive the same way.</span>
+    </section>
+  );
+}
+
+function SaveAsTemplate(props: { site: SiteSummary; toast: (m: string, tone?: "error") => void }) {
+  const [name, setName] = useState("");
+  const [items, setItems] = useState(false);
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Save as template</h3>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input className="input" aria-label="Template name" placeholder="Template name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button
+          className="btn"
+          disabled={!name.trim()}
+          onClick={async () => {
+            try {
+              await Templates.create({ siteId: props.site.id, name: name.trim(), includeItems: items });
+              props.toast(`Saved "${name.trim()}". Find it in Templates.`);
+              setName("");
+            } catch (e) {
+              props.toast((e as Error).message, "error");
+            }
+          }}
+        >
+          Save
+        </button>
+      </div>
+      <label className="check">
+        <input type="checkbox" checked={items} onChange={(e) => setItems(e.target.checked)} /> Include CMS items
+      </label>
+    </section>
   );
 }

@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  applyBrand,
   BLOCK_DESCRIPTIONS,
   BLOCK_NAMES,
+  brandIssues,
+  brandViolations,
+  renameInDocument,
   createStarterDocument,
   diffDocuments,
   outlineDocument,
@@ -14,6 +18,7 @@ import { authenticate, canAccessSite, clearTokenCache, createToken, requireRole,
 import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import { toCsv } from "../security.js";
+import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -76,7 +81,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     createdAt: s.created_at,
     liveUrl: s.current_deployment_id ? siteLocation(cfg, s).url : null,
     publishUrl: siteLocation(cfg, s).url,
+    brandId: s.brand_id ?? null,
   });
+  const { getBrand, syncBrand } = libraryHelpers(ctx);
 
   app.get("/me", async (req) => ({ name: req.actor.name, role: req.actor.role, agentCanPublish: cfg.agentCanPublish, local: !!req.actor.local }));
 
@@ -141,11 +148,26 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/sites", async (req, reply) => {
     if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
-    const b = body<{ name?: string; slug?: string; template?: TemplateName; document?: SiteDocument }>(req);
+    const b = body<{ name?: string; slug?: string; template?: string; templateId?: string; document?: SiteDocument }>(req);
     if (!b.name || typeof b.name !== "string") throw new HttpError(400, "Give the site a name.");
-    if (b.template && !TEMPLATES.includes(b.template)) throw new HttpError(400, `Template must be one of ${TEMPLATES.join(", ")}.`);
-    const document = b.document ?? createStarterDocument({ name: b.name, template: b.template ?? "landing" });
+    let document = b.document;
+    let brandId: string | null = null;
+    // A saved template, by id or name (also accepted as "template").
+    const saved = b.templateId ?? (b.template && !TEMPLATES.includes(b.template as TemplateName) ? b.template : undefined);
+    if (!document && saved) {
+      const { rows } = await ctx.db.query<{ document: SiteDocument; source_name: string; brand_id: string | null }>(
+        /^[0-9a-f-]{36}$/i.test(saved) ? "SELECT document, source_name, brand_id FROM site_templates WHERE id = $1" : "SELECT document, source_name, brand_id FROM site_templates WHERE lower(name) = lower($1)",
+        [saved],
+      );
+      if (!rows[0]) throw new HttpError(400, `There's no template called "${saved}". Built-in templates: ${TEMPLATES.join(", ")}.`);
+      document = renameInDocument(rows[0].document, rows[0].source_name, b.name);
+      brandId = rows[0].brand_id;
+    }
+    document ??= createStarterDocument({ name: b.name, template: (b.template as TemplateName) ?? "landing" });
+    if (brandId) document = applyBrand(document, kitOf(await getBrand(brandId)));
     const site = await repo.createSite(req.actor, { name: b.name, slug: b.slug, document });
+    if (brandId) await ctx.db.query("UPDATE sites SET brand_id = $2 WHERE id = $1", [site.id, brandId]);
+    site.brand_id = brandId;
     reply.status(201);
     return siteOut(site);
   });
@@ -211,7 +233,18 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     assertCanWrite(req.actor, req.params.branch);
     const b = body<{ document?: SiteDocument; baseVersion?: number; message?: string }>(req);
     if (!b.document) throw new HttpError(400, "Send the full document.");
-    const r = await repo.commit(req.actor, site.id, req.params.branch, () => ({ document: b.document!, message: b.message ?? "Edit in editor" }), b.baseVersion);
+    const r = await repo.commit(
+      req.actor,
+      site.id,
+      req.params.branch,
+      (cur) => {
+        // A locked brand applies to whole-document saves too, not just operations.
+        const off = brandViolations(cur, b.document!);
+        if (off.length) throw new HttpError(400, off.join(" "), { errors: off });
+        return { document: b.document!, message: b.message ?? "Edit in editor" };
+      },
+      b.baseVersion,
+    );
     return { versionId: Number(r.versionId) };
   });
 
@@ -252,7 +285,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     const target = await repo.getHead(site.id, req.params.branch);
     const against = req.query.against ?? "main";
     const base = against === "base" && target.branch.base_version_id ? await repo.getVersion(site.id, Number(target.branch.base_version_id)) : await repo.getHead(site.id, against);
-    return diffDocuments(base.document, target.document);
+    const d = diffDocuments(base.document, target.document);
+    // Off-brand colors and fonts in what this branch added or changed, as review warnings.
+    return { ...d, brandIssues: brandIssues(target.document, [...d.added, ...d.changed]) };
   });
 
   app.post<{ Params: Params }>("/sites/:siteId/branches/:branch/merge", async (req) => {
@@ -260,7 +295,10 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     assertCanShip(req.actor, site.id, req.params.branch, "merge into main");
     const { force } = body<{ force?: boolean }>(req);
     const r = await repo.merge(req.actor, site.id, req.params.branch, !!force);
-    return { versionId: Number(r.versionId) };
+    // A branch started before the brand changed would bring back the old brand; keep main on the current one.
+    const synced = await syncBrand(req.actor, site.id, "Keep the current brand after merging").catch(() => false);
+    const head = synced ? await repo.getHead(site.id, "main") : null;
+    return { versionId: Number(head?.versionId ?? r.versionId) };
   });
 
   app.get<{ Params: Params }>("/sites/:siteId/branches/:branch/preview-url", async (req) => {
@@ -412,4 +450,6 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     const ext: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
     return rows.map((a: Record<string, string>) => ({ id: a.id, fileName: a.file_name, url: `${cfg.publicUrl}/media/${site.id}/${a.id}.${ext[a.content_type]}`, createdAt: a.created_at }));
   });
+
+  await libraryRoutes(app, ctx);
 }

@@ -1,4 +1,5 @@
-import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, type Collection, type SiteNode } from "@sitecraft/schema";
+import { Icon } from "./Icon";
+import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, type Collection, type ComponentDef, type SiteNode } from "@sitecraft/schema";
 
 type NewNode = Omit<SiteNode, "id" | "children"> & { children?: NewNode[] };
 
@@ -98,9 +99,40 @@ function BlockThumb({ name }: { name: string }) {
   }
 }
 
-export function Insert(props: { onInsertBlock: (name: string) => void; onInsertElement: (key: string) => void; collections: Collection[]; onInsertList: (collectionId: string) => void; onOpenCms: () => void }) {
+export function Insert(props: {
+  onInsertBlock: (name: string) => void;
+  onInsertElement: (key: string) => void;
+  collections: Collection[];
+  onInsertList: (collectionId: string) => void;
+  onOpenCms: () => void;
+  components?: ComponentDef[];
+  brandName?: string;
+  onInsertComponent?: (componentId: string) => void;
+}) {
+  const comps = props.components ?? [];
   return (
     <div>
+      {comps.length > 0 && (
+        <>
+          <div className="section-title">Components</div>
+          <div className="comp-list">
+            {comps.map((c) => (
+              <button
+                key={c.id}
+                className="list-row comp-row"
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData("text/plain", `comp:${c.id}`)}
+                onClick={() => props.onInsertComponent?.(c.id)}
+                title={`Add a copy of ${c.name}; edits to it change every copy`}
+              >
+                <Icon name="copy" size={13} />
+                <span className="grow">{c.name}</span>
+                {c.brandId && <span className="type-chip">{props.brandName ?? "Brand"}</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <div className="section-title">From the CMS</div>
       {props.collections.length ? (
         <div className="block-grid">

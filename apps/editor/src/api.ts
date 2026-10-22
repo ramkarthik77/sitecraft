@@ -109,6 +109,7 @@ export interface SiteSummary {
   liveUrl: string | null;
   publishUrl: string;
   updatedAt?: string;
+  brandId?: string | null;
 }
 export interface Branch {
   name: string;
@@ -133,6 +134,7 @@ export interface Diff {
   removed: string[];
   changed: string[];
   themeChanged: boolean;
+  brandIssues?: string[];
 }
 export interface Deployment {
   id: string;
@@ -145,7 +147,8 @@ export interface Deployment {
 
 export const Sites = {
   list: () => api<SiteSummary[]>("GET", "/sites"),
-  create: (name: string, template: string) => api<SiteSummary>("POST", "/sites", { name, template }),
+  create: (name: string, template: string, templateId?: string) => api<SiteSummary>("POST", "/sites", templateId ? { name, templateId } : { name, template }),
+  setBrand: (id: string, brandId: string | null) => api<{ brandId: string | null; changed: boolean }>("PUT", `/sites/${id}/brand`, { brandId }),
   get: (id: string) => api<SiteSummary>("GET", `/sites/${id}`),
   update: (id: string, patch: { name?: string; domain?: string | null }) => api<SiteSummary>("PATCH", `/sites/${id}`, patch),
   remove: (id: string) => api("DELETE", `/sites/${id}`),
@@ -171,4 +174,46 @@ export const Sites = {
   exportZip: (id: string, slug: string, url?: string) => download(`/sites/${id}/export${url ? `?url=${enc(url)}` : ""}`, `${slug}.zip`),
   upload: (id: string, file: File) =>
     api<{ url: string }>("POST", `/sites/${id}/assets?filename=${enc(file.name)}`, undefined, { contentType: file.type, data: file }),
+};
+
+export interface SavedTemplate {
+  id: string;
+  name: string;
+  description: string;
+  brandId: string | null;
+  brandName: string | null;
+  createdBy: string;
+  updatedAt: string;
+  pages?: number;
+}
+
+export const Templates = {
+  list: () => api<SavedTemplate[]>("GET", "/site-templates"),
+  get: (id: string) => api<SavedTemplate & { document: SiteDocument }>("GET", `/site-templates/${id}`),
+  create: (t: { siteId: string; name: string; description?: string; includeItems?: boolean }) => api<SavedTemplate>("POST", "/site-templates", t),
+  update: (id: string, t: { name?: string; description?: string; siteId?: string; includeItems?: boolean }) => api<SavedTemplate>("PATCH", `/site-templates/${id}`, t),
+  remove: (id: string) => api("DELETE", `/site-templates/${id}`),
+};
+
+export interface Brand {
+  id: string;
+  name: string;
+  version: number;
+  locked: boolean;
+  theme: SiteDocument["theme"];
+  logo: string | null;
+  guidelines: string;
+  components: { id: string; name: string }[];
+  sites?: number;
+  createdBy: string;
+  updatedAt: string;
+}
+
+export const Brands = {
+  list: () => api<Brand[]>("GET", "/brands"),
+  get: (id: string) => api<Brand & { siteList: { id: string; name: string; slug: string }[] }>("GET", `/brands/${id}`),
+  create: (b: { name: string; fromSite: string; components?: string[]; guidelines?: string; logo?: string; locked?: boolean }) => api<Brand>("POST", "/brands", b),
+  update: (id: string, b: Partial<{ name: string; guidelines: string; logo: string | null; locked: boolean; theme: SiteDocument["theme"]; fromSite: string; components: string[] }>) =>
+    api<Brand & { updatedSites: number }>("PATCH", `/brands/${id}`, b),
+  remove: (id: string) => api("DELETE", `/brands/${id}`),
 };

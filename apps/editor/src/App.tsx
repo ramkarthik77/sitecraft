@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { renderPage } from "@sitecraft/renderer";
 import type { SiteDocument } from "@sitecraft/schema";
-import { api, getToken, setToken, Sites, type Branch, type Me, type SiteSummary } from "./api";
+import { api, getToken, setToken, Sites, Templates, type Branch, type Me, type SavedTemplate, type SiteSummary } from "./api";
 import { Editor } from "./Editor";
 import { AccessPage } from "./components/Access";
+import { BrandsPage, TemplatesPage } from "./components/Library";
 import { Icon, Logo } from "./components/Icon";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
@@ -41,6 +42,20 @@ function Root() {
   if (m) {
     const q = new URLSearchParams(loc.search);
     return <Editor key={m[1]} siteId={m[1]!} me={me} branch={q.get("branch") ?? "main"} review={q.get("review") === "1"} />;
+  }
+  if (loc.path === "/templates") {
+    return (
+      <DashShell me={me} active="templates">
+        <TemplatesPage me={me} />
+      </DashShell>
+    );
+  }
+  if (loc.path === "/brands") {
+    return (
+      <DashShell me={me} active="brands">
+        <BrandsPage me={me} />
+      </DashShell>
+    );
   }
   if (loc.path === "/access") {
     return (
@@ -88,13 +103,18 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
 
 function Thumb({ siteId }: { siteId: string }) {
   const [doc, setDoc] = useState<SiteDocument | null>(null);
-  const [scale, setScale] = useState(0.22);
-  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     Sites.head(siteId, "main")
       .then((h) => setDoc(h.document))
       .catch(() => {});
   }, [siteId]);
+  return <DocThumb doc={doc} />;
+}
+
+/** A live, scaled-down render of a document's home page. */
+export function DocThumb({ doc }: { doc: SiteDocument | null }) {
+  const [scale, setScale] = useState(0.22);
+  const box = useRef<HTMLDivElement>(null);
   // Scale the 1200 px page to whatever width the card has.
   useEffect(() => {
     const el = box.current;
@@ -108,7 +128,7 @@ function Thumb({ siteId }: { siteId: string }) {
   return (
     <div className="thumb" ref={box}>
       {empty && <span className="blank">Blank page</span>}
-      {doc && !empty && <iframe title="Site thumbnail" srcDoc={html} tabIndex={-1} aria-hidden="true" loading="lazy" style={{ transform: `scale(${scale})` }} />}
+      {doc && !empty && <iframe title="Page thumbnail" srcDoc={html} tabIndex={-1} aria-hidden="true" loading="lazy" style={{ transform: `scale(${scale})` }} />}
     </div>
   );
 }
@@ -134,6 +154,8 @@ function connectCommand(me: Me): string {
 type NavKey = "sites" | "templates" | "brands" | "assets" | "access";
 const NAV: { key: NavKey; label: string; href: string; icon: string; admin?: boolean }[] = [
   { key: "sites", label: "Sites", href: "/", icon: "grid" },
+  { key: "templates", label: "Templates", href: "/templates", icon: "pages" },
+  { key: "brands", label: "Brands", href: "/brands", icon: "spark" },
   { key: "access", label: "Access", href: "/access", icon: "lock", admin: true },
 ];
 
@@ -205,6 +227,10 @@ function Home({ me }: { me: Me }) {
   const [reviews, setReviews] = useState<PendingReview[]>([]);
   const [name, setName] = useState("");
   const [template, setTemplate] = useState("landing");
+  const [saved, setSaved] = useState<SavedTemplate[]>([]);
+  useEffect(() => {
+    Templates.list().then(setSaved).catch(() => {});
+  }, []);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [query, setQueryText] = useState("");
@@ -232,7 +258,7 @@ function Home({ me }: { me: Me }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const s = await Sites.create(name.trim(), template);
+      const s = template.startsWith("t:") ? await Sites.create(name.trim(), "", template.slice(2)) : await Sites.create(name.trim(), template);
       navigate(`/sites/${s.id}`);
     } catch (err) {
       toast({ text: (err as Error).message, tone: "error" });
@@ -279,10 +305,22 @@ function Home({ me }: { me: Me }) {
           <form className="create-panel" onSubmit={create}>
             <input className="input" aria-label="Site name" placeholder="Name your site, e.g. Northstar Coffee" value={name} onChange={(e) => setName(e.target.value)} autoFocus={creating} />
             <select className="select" aria-label="Template" value={template} onChange={(e) => setTemplate(e.target.value)}>
-              <option value="landing">Landing page</option>
-              <option value="saas">Product site</option>
-              <option value="blog">Blog</option>
-              <option value="blank">Blank</option>
+              <optgroup label="Built in">
+                <option value="landing">Landing page</option>
+                <option value="saas">Product site</option>
+                <option value="blog">Blog</option>
+                <option value="blank">Blank</option>
+              </optgroup>
+              {saved.length > 0 && (
+                <optgroup label="Your templates">
+                  {saved.map((t) => (
+                    <option key={t.id} value={`t:${t.id}`}>
+                      {t.name}
+                      {t.brandName ? ` (${t.brandName})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
             <button className="btn light" disabled={!name.trim() || busy}>
               Create site

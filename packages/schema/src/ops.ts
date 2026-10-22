@@ -16,6 +16,7 @@ import {
 import { newId } from "./ids.js";
 import { cloneWithNewIds, collectIds, ensureUniqueIds, findInTree, findNodeInDocument, findPage } from "./tree.js";
 import { CONTAINER_TYPES, FIELD_TYPES, type Breakpoint, type Collection, type CollectionField, type FieldValue, type SiteDocument, type SiteNode, type Style } from "./types.js";
+import { brandViolations } from "./brand.js";
 import { validateDocument } from "./validate.js";
 
 /**
@@ -522,6 +523,8 @@ export function applyOperations(doc: SiteDocument, ops: Operation[]): ApplyResul
   ops.forEach((op, i) => created.push(applyOne(next, op, i)));
   const v = validateDocument(next);
   if (!v.ok) throw new OperationError(`result is not a valid site: ${v.errors.join("; ")}`, ops.length - 1);
+  const off = brandViolations(doc, v.document);
+  if (off.length) throw new OperationError(off.join(" "), ops.length - 1);
   return { document: v.document, created };
 }
 

@@ -102,6 +102,7 @@ export const STYLE_PROPERTIES = [
   "boxShadow",
   "opacity",
   "objectFit",
+  "objectPosition",
   "aspectRatio",
   "cursor",
   "transition",
@@ -170,6 +171,21 @@ export interface ComponentDef {
   id: string;
   name: string;
   root: SiteNode;
+  /** Set when the component comes from a brand kit and is updated with it. */
+  brandId?: string;
+}
+
+/** The brand a site follows, copied into the site when the brand is applied. */
+export interface BrandRef {
+  id: string;
+  name: string;
+  /** Brand version applied; bumps every time the brand is saved. */
+  version: number;
+  /** Locked brands: the theme, brand components and off-brand colors and fonts can't be changed in the site. */
+  locked: boolean;
+  logo?: string;
+  /** Written guidelines (voice, words to use and avoid, image style). Claude reads them before editing. */
+  guidelines?: string;
 }
 
 /** Kinds of content a collection field holds. */
@@ -220,6 +236,8 @@ export interface SiteDocument {
   components: ComponentDef[];
   /** CMS collections. Missing in sites made before collections existed. */
   collections?: Collection[];
+  /** The brand kit this site follows, if any. */
+  brand?: BrandRef;
   pages: Page[];
   settings: {
     /** Language code for <html lang>. */
