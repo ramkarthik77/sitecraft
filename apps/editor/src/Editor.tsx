@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CONTAINER_TYPES, findInTree, findNodeInDocument, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
+import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
 import { getToken, Sites, type Branch, type Me, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
+import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
 import { Icon, Logo } from "./components/Icon";
 import { ELEMENTS, Insert } from "./components/Insert";
@@ -12,7 +13,8 @@ import { useToast } from "./Toasts";
 import { useEditor } from "./useEditor";
 import { ago, initials } from "./format";
 
-type Tab = "layers" | "insert" | "pages";
+type Tab = "layers" | "insert" | "pages" | "cms";
+const TAB_LABEL: Record<Tab, string> = { layers: "Layers", insert: "Insert", pages: "Pages", cms: "CMS" };
 type DrawerKind = null | "review" | "history" | "settings";
 
 const SAVE_LABEL = { loading: "Loading…", saved: "Saved", unsaved: "Unsaved", saving: "Saving…", error: "Not saved", conflict: "Out of date" } as const;
@@ -51,11 +53,36 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [scrollTick, setScrollTick] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [work, setWork] = useState<BranchWork>(NO_WORK);
+  const [cmsId, setCmsId] = useState<string | null>(null);
+  const [cmsItemId, setCmsItemId] = useState<string | null>(null);
+  /** On a template page, the item the canvas shows. */
+  const [templateItem, setTemplateItem] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
 
   const doc = ed.doc;
   const page = doc?.pages.find((p) => p.id === pageId) ?? doc?.pages[0] ?? null;
   const selected = useMemo(() => (doc && selectedId ? findNodeInDocument(doc, selectedId)?.node ?? null : null), [doc, selectedId]);
+  const cmsCollection = doc && tab === "cms" && cmsId ? findCollection(doc, cmsId) ?? null : null;
+  const cmsItem = cmsCollection && cmsItemId ? cmsCollection.items.find((i) => i.id === cmsItemId) ?? null : null;
+  const pageCollection = doc && page?.collectionId ? findCollection(doc, page.collectionId) : undefined;
+  const shownItem = pageCollection ? pageCollection.items.find((i) => i.id === templateItem) ?? pageCollection.items[0] : undefined;
+
+  // Opening the CMS tab shows the first collection.
+  useEffect(() => {
+    if (tab !== "cms" || !doc) return;
+    const cols = doc.collections ?? [];
+    if (!cmsId || !cols.some((c) => c.id === cmsId)) {
+      setCmsId(cols[0]?.id ?? null);
+      setCmsItemId(null);
+    }
+  }, [tab, doc, cmsId]);
+
+  const openPage = (id: string, itemId?: string) => {
+    setTab("layers");
+    setPageId(id);
+    setSelectedId(null);
+    setTemplateItem(itemId ?? null);
+  };
 
   const loadBranches = useCallback(() => Sites.branches(siteId).then(setBranches).catch(() => {}), [siteId]);
   useEffect(() => {
@@ -154,6 +181,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     return { parentId: hit.parent.id, index: hit.index + (before ? 0 : 1) };
   };
 
+  const insertList = (collectionId: string, at?: number) => {
+    if (!page) return;
+    const after = at ?? topLevelIndex(page.root, selectedId);
+    const index = after === null ? undefined : after + (at === undefined ? 1 : 0);
+    const created = apply([{ op: "add_collection_list", parentId: page.root.id, collectionId, index }]);
+    if (created?.[0]) {
+      setSelectedId(created[0]);
+      setScrollTick((t) => t + 1);
+    }
+  };
+
   const insertElement = (key: string, targetId = selectedId, before = false, preferInside = true) => {
     const el = ELEMENTS[key];
     const where = placementFor(targetId, before, preferInside);
@@ -170,9 +208,11 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       if (n) apply([{ op: "update_node", nodeId: e.id, props: { [n.type === "button" ? "label" : "text"]: e.text } }]);
     } else if (e.type === "drop") {
       const [kind, value] = [e.payload.split(":")[0], e.payload.slice(e.payload.indexOf(":") + 1)];
-      if (kind === "block") {
+      if (kind === "block" || kind === "list") {
         const idx = topLevelIndex(page.root, e.id);
-        insertBlock(value, idx === null ? page.root.children?.length ?? 0 : idx + (e.before ? 0 : 1));
+        const at = idx === null ? page.root.children?.length ?? 0 : idx + (e.before ? 0 : 1);
+        if (kind === "block") insertBlock(value, at);
+        else insertList(value, at);
       } else if (kind === "el") insertElement(value, e.id, e.before, true);
       else if (kind === "move" && e.id && value !== e.id) {
         const where = placementFor(e.id, e.before, false);
@@ -185,6 +225,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     if (meta && key === "z") return shift ? ed.redo() : ed.undo();
     if (meta && key === "y") return ed.redo();
     if (key === "Escape") return setSelectedId(null);
+    if (cmsCollection) return; // the canvas is hidden; don't delete what's selected on it
     if (!selectedId || !page || selectedId === page.root.id) return;
     if (key === "Delete" || key === "Backspace") apply([{ op: "remove_node", nodeId: selectedId }]);
     if (meta && key === "d") {
@@ -266,7 +307,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     );
   }
 
-  const pageLabel = page.path === "/" ? "Home" : page.path;
+  const pageLabel = page.path === "/" ? "Home" : pageCollection && shownItem ? page.path.replace(":slug", shownItem.slug) : page.path;
 
   return (
     <div className="shell">
@@ -327,6 +368,21 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           </select>
           <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
         </span>
+        {pageCollection && !cmsCollection && (
+          <span className="picker cms hide-narrow" title={`Which ${pageCollection.name} item the template shows`}>
+            <Icon name="database" size={13} style={{ position: "absolute", left: 9, pointerEvents: "none", color: "var(--cms)" }} />
+            <select aria-label="Item shown" value={shownItem?.id ?? ""} onChange={(e) => setTemplateItem(e.target.value)} style={{ paddingLeft: 28 }}>
+              {pageCollection.items.length === 0 && <option value="">Example item</option>}
+              {pageCollection.items.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {itemTitle(pageCollection, i)}
+                  {i.draft ? " (draft)" : ""}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
+          </span>
+        )}
 
         <div className="spacer" />
         <div className="seg" role="group" aria-label="Breakpoint">
@@ -404,9 +460,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       <div className="workspace">
         <aside className="rail">
           <div className="tabs" role="tablist">
-            {(["layers", "insert", "pages"] as Tab[]).map((t) => (
-              <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-                {t[0]!.toUpperCase() + t.slice(1)}
+            {(["layers", "insert", "pages", "cms"] as Tab[]).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => {
+                  setTab(t);
+                  if (t === "cms") setSelectedId(null);
+                }}
+              >
+                {TAB_LABEL[t]}
               </button>
             ))}
           </div>
@@ -429,12 +493,31 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
                 filter={filter}
               />
             )}
-            {tab === "insert" && <Insert onInsertBlock={(n) => insertBlock(n)} onInsertElement={(k) => insertElement(k)} />}
+            {tab === "insert" && (
+              <Insert
+                onInsertBlock={(n) => insertBlock(n)}
+                onInsertElement={(k) => insertElement(k)}
+                collections={doc.collections ?? []}
+                onInsertList={(id) => insertList(id)}
+                onOpenCms={() => setTab("cms")}
+              />
+            )}
+            {tab === "cms" && (
+              <CmsRail
+                doc={doc}
+                activeId={cmsId}
+                apply={apply}
+                onOpen={(id) => {
+                  setCmsId(id);
+                  setCmsItemId(null);
+                }}
+              />
+            )}
             {tab === "pages" && (
               <div style={{ paddingTop: 8 }}>
                 {doc.pages.map((p) => (
                   <div key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} onClick={() => (setPageId(p.id), setSelectedId(null))}>
-                    <Icon name="pages" size={14} />
+                    <Icon name={p.collectionId ? "database" : "pages"} size={14} style={p.collectionId ? { color: "var(--cms)" } : undefined} />
                     <span className="grow">{p.title}</span>
                     <span className="mono muted">{p.path}</span>
                   </div>
@@ -489,9 +572,13 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         </aside>
 
         <div style={{ position: "relative", minWidth: 0, minHeight: 0, display: "grid" }}>
+          {cmsCollection ? (
+            <CmsTable doc={doc} collection={cmsCollection} itemId={cmsItem?.id ?? null} onSelect={setCmsItemId} apply={apply} onOpenPage={openPage} />
+          ) : (
           <Canvas
             doc={doc}
             page={page}
+            itemId={shownItem?.id}
             breakpoint={bp}
             selectedId={selectedId}
             zoom={1}
@@ -501,7 +588,8 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             agentLabel={work.onlyAgent ? "Claude" : "Changed on this branch"}
             pageLabel={pageLabel}
           />
-          {branch !== "main" && agentActive && (
+          )}
+          {branch !== "main" && agentActive && !cmsCollection && (
             <section className="agent-bar" aria-label="Claude's activity on this branch">
               <span className="who-line">
                 <span className={`pulse ${agentLive ? "live" : ""}`} aria-hidden="true" />
@@ -523,8 +611,26 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         </div>
 
         <aside className="inspector" aria-label="Inspector">
-          {selected ? (
-            <NodeInspector node={selected} bp={bp} apply={apply} siteId={siteId} doc={doc} isRoot={selected.id === page.root.id} />
+          {cmsCollection ? (
+            cmsItem ? (
+              <ItemInspector
+                key={cmsItem.id}
+                doc={doc}
+                collection={cmsCollection}
+                item={cmsItem}
+                siteId={siteId}
+                apply={apply}
+                onClose={() => setCmsItemId(null)}
+                onView={() => {
+                  const tpl = doc.pages.find((p) => p.collectionId === cmsCollection.id);
+                  if (tpl) openPage(tpl.id, cmsItem.id);
+                }}
+              />
+            ) : (
+              <CollectionInspector doc={doc} collection={cmsCollection} apply={apply} onDeleted={() => setCmsId(null)} onOpenPage={(id) => openPage(id)} />
+            )
+          ) : selected ? (
+            <NodeInspector node={selected} bp={bp} apply={apply} siteId={siteId} doc={doc} isRoot={selected.id === page.root.id} bindCollection={bindingCollection(doc, page, selected.id)} />
           ) : (
             <PageInspector doc={doc} page={page} apply={apply} onDeletePage={() => (apply([{ op: "remove_page", pageId: page.id }]), setPageId(null))} />
           )}

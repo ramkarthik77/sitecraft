@@ -113,3 +113,45 @@ describe("MCP server for Claude Code", () => {
     expect(live).toContain("Launch faster with Orbit");
   });
 });
+
+describe("CMS tools", () => {
+  it("creates a collection, adds items in bulk, lists them on a page and reviews the diff", async () => {
+    await client.callTool({ name: "create_site", arguments: { name: "Trailhead", template: "landing" } });
+    await client.callTool({ name: "create_branch", arguments: { site: "trailhead", name: "agent/journal" } });
+    const made = await client.callTool({ name: "create_collection", arguments: { site: "trailhead", branch: "agent/journal", name: "Journal", preset: "blog", sampleItems: false } });
+    expect(made.isError).toBeFalsy();
+    const added = await client.callTool({
+      name: "add_items",
+      arguments: {
+        site: "trailhead",
+        branch: "agent/journal",
+        collection: "journal",
+        items: [
+          { values: { title: "Packing for the high route", date: "2026-10-02", body: "## The list\n\n- Map\n- Water" }, draft: true },
+          { values: { Title: "First snow", Summary: "The pass closed early.", date: "2026-10-18" }, draft: true },
+        ],
+      },
+    });
+    expect(text(added)).toContain("Created ids: i_");
+    const bad = await client.callTool({ name: "add_items", arguments: { site: "trailhead", branch: "agent/journal", collection: "journal", items: [{ values: { colour: "red" } }] } });
+    expect(bad.isError).toBe(true);
+    expect(text(bad)).toContain('no field "colour"');
+
+    await client.callTool({ name: "update_item", arguments: { site: "trailhead", branch: "agent/journal", collection: "journal", item: "first-snow", draft: false } });
+    expect((await client.callTool({ name: "add_collection_list", arguments: { site: "trailhead", branch: "agent/journal", collection: "journal", index: 2, headline: "From the journal", limit: 3 } })).isError).toBeFalsy();
+
+    const col = JSON.parse(text(await client.callTool({ name: "get_collection", arguments: { site: "trailhead", branch: "agent/journal", collection: "Journal" } })));
+    expect(col.templatePage).toBe("/journal/:slug");
+    expect(col.items.map((i: { slug: string; draft?: boolean }) => [i.slug, !!i.draft])).toEqual([
+      ["packing-for-the-high-route", true],
+      ["first-snow", false],
+    ]);
+    expect(col.items[1].url).toBe("/journal/first-snow");
+
+    const outline = text(await client.callTool({ name: "get_site", arguments: { site: "trailhead", branch: "agent/journal" } }));
+    expect(outline).toContain("Journal (col_");
+    const review = text(await client.callTool({ name: "request_review", arguments: { site: "trailhead", branch: "agent/journal", summary: "Started a journal." } }));
+    expect(review).toContain("+ collection Journal (2 items)");
+    expect(review).toContain("+ page /journal/:slug");
+  });
+});

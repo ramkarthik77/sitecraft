@@ -1,8 +1,21 @@
 import { z } from "zod";
 import { BLOCK_NAMES, buildBlock } from "./blocks.js";
+import {
+  buildCollectionList,
+  buildListSection,
+  buildTemplateSections,
+  COLLECTION_PRESET_NAMES,
+  fieldKey,
+  pageRoot,
+  presetFields,
+  presetItems,
+  siteChrome,
+  slugify,
+  uniqueName,
+} from "./collections.js";
 import { newId } from "./ids.js";
 import { cloneWithNewIds, collectIds, ensureUniqueIds, findInTree, findNodeInDocument, findPage } from "./tree.js";
-import { CONTAINER_TYPES, type Breakpoint, type SiteDocument, type SiteNode, type Style } from "./types.js";
+import { CONTAINER_TYPES, FIELD_TYPES, type Breakpoint, type Collection, type CollectionField, type FieldValue, type SiteDocument, type SiteNode, type Style } from "./types.js";
 import { validateDocument } from "./validate.js";
 
 /**
@@ -27,6 +40,8 @@ const looseNode: z.ZodType<Partial<SiteNode> & { type: SiteNode["type"] }> = z.l
 ) as never;
 
 const breakpoint = z.enum(["base", "tablet", "mobile"]);
+const fieldInput = z.object({ name: z.string().min(1).max(80), type: z.enum(FIELD_TYPES), id: z.string().optional() });
+const valuesInput = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]));
 const styleValues = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
 
 export const operationSchema = z.discriminatedUnion("op", [
@@ -68,6 +83,8 @@ export const operationSchema = z.discriminatedUnion("op", [
     title: z.string(),
     description: z.string().optional(),
     blocks: z.array(z.enum(BLOCK_NAMES as [string, ...string[]])).optional(),
+    /** Make a template page that renders each item of this collection; path ends in /:slug. */
+    collectionId: z.string().optional(),
   }),
   z.object({
     op: z.literal("update_page"),
@@ -85,6 +102,58 @@ export const operationSchema = z.discriminatedUnion("op", [
     radius: z.string().optional(),
   }),
   z.object({ op: z.literal("create_component"), nodeId: z.string(), name: z.string() }),
+  z.object({
+    op: z.literal("add_collection"),
+    name: z.string().min(1).max(80),
+    slug: z.string().optional(),
+    /** Ready-made fields and example items: blog, team, products, jobs or blank. */
+    preset: z.enum(COLLECTION_PRESET_NAMES as [string, ...string[]]).optional(),
+    /** Fields to use instead of the preset's. The first is the title and must be text. */
+    fields: z.array(fieldInput).min(1).max(40).optional(),
+    /** Add the preset's example items (default true with a preset). */
+    sampleItems: z.boolean().optional(),
+    /** Also add a list page (/blog) and a template page (/blog/:slug). Default true. */
+    pages: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal("update_collection"), collectionId: z.string(), name: z.string().min(1).max(80).optional(), slug: z.string().optional() }),
+  z.object({ op: z.literal("remove_collection"), collectionId: z.string() }),
+  z.object({ op: z.literal("add_field"), collectionId: z.string(), name: z.string().min(1).max(80), type: z.enum(FIELD_TYPES), id: z.string().optional(), index: z.number().int().min(1).optional() }),
+  z.object({ op: z.literal("update_field"), collectionId: z.string(), fieldId: z.string(), name: z.string().min(1).max(80) }),
+  z.object({ op: z.literal("remove_field"), collectionId: z.string(), fieldId: z.string() }),
+  z.object({
+    op: z.literal("add_item"),
+    collectionId: z.string(),
+    /** Values by field key or field name. */
+    values: valuesInput,
+    slug: z.string().optional(),
+    draft: z.boolean().optional(),
+    index: z.number().int().min(0).optional(),
+  }),
+  z.object({
+    op: z.literal("update_item"),
+    collectionId: z.string(),
+    /** Item id or slug. */
+    itemId: z.string(),
+    /** Values to change; null clears a value. */
+    values: valuesInput.optional(),
+    slug: z.string().optional(),
+    draft: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal("remove_item"), collectionId: z.string(), itemId: z.string() }),
+  z.object({ op: z.literal("move_item"), collectionId: z.string(), itemId: z.string(), index: z.number().int().min(0) }),
+  z.object({
+    op: z.literal("add_collection_list"),
+    parentId: z.string(),
+    index: z.number().int().min(0).optional(),
+    collectionId: z.string(),
+    /** Wrap the list in a section with this heading (default: the collection name). */
+    headline: z.string().optional(),
+    /** false adds just the list, for placing inside an existing section. */
+    section: z.boolean().optional(),
+    limit: z.number().int().min(1).max(500).optional(),
+    sortBy: z.string().optional(),
+    sortDir: z.enum(["asc", "desc"]).optional(),
+  }),
 ]);
 
 export type Operation = z.infer<typeof operationSchema>;
@@ -130,6 +199,64 @@ function normalizePath(path: string): string {
   const p = path.trim().toLowerCase();
   if (p === "" || p === "/") return "/";
   return "/" + p.replace(/^\/+|\/+$/g, "");
+}
+
+function getCollection(doc: SiteDocument, idOrSlug: string, i: number): Collection {
+  const c = (doc.collections ?? []).find((x) => x.id === idOrSlug || x.slug === idOrSlug || x.name.toLowerCase() === idOrSlug.toLowerCase());
+  if (!c) throw new OperationError(`collection "${idOrSlug}" not found`, i);
+  return c;
+}
+
+function getItemIndex(c: Collection, idOrSlug: string, i: number): number {
+  const at = c.items.findIndex((x) => x.id === idOrSlug || x.slug === idOrSlug);
+  if (at < 0) throw new OperationError(`${c.name} has no item "${idOrSlug}"`, i);
+  return at;
+}
+
+function getField(c: Collection, idOrName: string, i: number): CollectionField {
+  const f = c.fields.find((x) => x.id === idOrName || x.name.toLowerCase() === idOrName.toLowerCase());
+  if (!f) throw new OperationError(`${c.name} has no field "${idOrName}". Fields: ${c.fields.map((x) => x.id).join(", ")}`, i);
+  return f;
+}
+
+/** Accept values by key or name, and the obvious conversions (\"12\" for a number, a full timestamp for a date). */
+function coerceValues(c: Collection, values: Record<string, FieldValue | null>, i: number): Record<string, FieldValue | null> {
+  const out: Record<string, FieldValue | null> = {};
+  for (const [k, raw] of Object.entries(values)) {
+    const f = getField(c, k, i);
+    let v = raw;
+    if (v !== null) {
+      if (f.type === "number" && typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) v = Number(v);
+      if (f.type === "boolean" && (v === "true" || v === "false")) v = v === "true";
+      if (f.type === "date" && typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) v = v.slice(0, 10);
+      if ((f.type === "text" || f.type === "richtext") && typeof v === "number") v = String(v);
+    }
+    out[f.id] = v;
+  }
+  return out;
+}
+
+function cleanSlug(raw: string, i: number): string {
+  const s = slugify(raw);
+  if (!s) throw new OperationError(`"${raw}" can't be used as a slug`, i);
+  return s;
+}
+
+function addPageWithRoot(doc: SiteDocument, path: string, title: string, children: SiteNode[], collectionId?: string) {
+  const page: SiteDocument["pages"][number] = { id: newId("p"), path, title, root: ensureUniqueIds(pageRoot(children), collectIds(doc)) };
+  if (collectionId) page.collectionId = collectionId;
+  doc.pages.push(page);
+  return page;
+}
+
+/** Remove every node matching a test from all pages and components. */
+function removeNodesWhere(doc: SiteDocument, test: (n: SiteNode) => boolean) {
+  const prune = (n: SiteNode) => {
+    if (n.children) n.children = n.children.filter((c) => !test(c));
+    n.children?.forEach(prune);
+  };
+  doc.pages.forEach((p) => prune(p.root));
+  doc.components.forEach((c) => prune(c.root));
 }
 
 function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
@@ -206,6 +333,15 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       return copy.id;
     }
     case "add_page": {
+      if (op.collectionId) {
+        const c = getCollection(doc, op.collectionId, i);
+        if (doc.pages.some((p) => p.collectionId === c.id)) throw new OperationError(`${c.name} already has a template page`, i);
+        let path = op.path.trim().toLowerCase().replace(/\/+$/, "");
+        if (!path.endsWith("/:slug")) path = `${normalizePath(path)}/:slug`.replace(/^\/\//, "/");
+        const chrome = siteChrome(doc);
+        const list = doc.pages.find((p) => p.path === path.replace(/\/:slug$/, ""));
+        return addPageWithRoot(doc, path, op.title, [...chrome.top, ...buildTemplateSections(c, list?.path), ...chrome.bottom], c.id).id;
+      }
       const path = normalizePath(op.path);
       if (doc.pages.some((p) => p.path === path)) throw new OperationError(`a page already uses ${path}`, i);
       const root: SiteNode = { id: newId(), type: "stack", name: "Page", props: {}, style: { base: { display: "flex", flexDirection: "column", minHeight: "100vh" } }, children: [] };
@@ -251,6 +387,127 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       doc.components.push({ id, name: op.name, root: hit.node });
       hit.parent.children![hit.index] = { id: newId(), type: "instance", name: op.name, props: { componentId: id }, style: {} };
       return id;
+    }
+    case "add_collection": {
+      doc.collections ??= [];
+      const preset = op.preset ?? "blank";
+      const taken = new Set(doc.collections.map((c) => c.slug));
+      const slug = uniqueName(cleanSlug(op.slug ?? op.name, i), taken);
+      let fields: CollectionField[];
+      if (op.fields) {
+        const keys = new Set<string>();
+        fields = op.fields.map((f) => {
+          const id = uniqueName(fieldKey(f.id ?? f.name), keys, "_");
+          keys.add(id);
+          return { id, name: f.name, type: f.type };
+        });
+      } else fields = presetFields(preset);
+      if (fields[0]!.type !== "text") throw new OperationError("the first field is the title and must be text", i);
+      const c: Collection = { id: newId("col"), name: op.name, slug, fields, items: [] };
+      if (!op.fields && (op.sampleItems ?? Boolean(op.preset))) c.items = presetItems(preset, c);
+      doc.collections.push(c);
+      if (op.pages ?? true) {
+        const chrome = siteChrome(doc);
+        const listPath = `/${slug}`;
+        const hasList = doc.pages.some((p) => p.path === listPath);
+        if (!hasList) addPageWithRoot(doc, listPath, op.name, [...chrome.top, buildListSection(c), ...chrome.bottom]);
+        const singular = op.name.replace(/ies$/i, "y").replace(/s$/i, "");
+        addPageWithRoot(doc, `${listPath}/:slug`, `${singular} page`, [...chrome.top, ...buildTemplateSections(c, listPath), ...chrome.bottom], c.id);
+      }
+      return c.id;
+    }
+    case "update_collection": {
+      const c = getCollection(doc, op.collectionId, i);
+      if (op.name !== undefined) c.name = op.name;
+      if (op.slug !== undefined) {
+        const slug = cleanSlug(op.slug, i);
+        if ((doc.collections ?? []).some((x) => x !== c && x.slug === slug)) throw new OperationError(`another collection uses the slug ${slug}`, i);
+        c.slug = slug;
+      }
+      return c.id;
+    }
+    case "remove_collection": {
+      const c = getCollection(doc, op.collectionId, i);
+      doc.collections = (doc.collections ?? []).filter((x) => x !== c);
+      doc.pages = doc.pages.filter((p) => p.collectionId !== c.id);
+      if (doc.pages.length === 0) throw new OperationError("a site needs at least one page", i);
+      removeNodesWhere(doc, (n) => n.type === "collection-list" && n.props.collectionId === c.id);
+      return null;
+    }
+    case "add_field": {
+      const c = getCollection(doc, op.collectionId, i);
+      const id = uniqueName(fieldKey(op.id ?? op.name), new Set(c.fields.map((f) => f.id)), "_");
+      const at = Math.min(op.index ?? c.fields.length, c.fields.length);
+      c.fields.splice(Math.max(1, at), 0, { id, name: op.name, type: op.type });
+      return id;
+    }
+    case "update_field": {
+      const c = getCollection(doc, op.collectionId, i);
+      getField(c, op.fieldId, i).name = op.name;
+      return null;
+    }
+    case "remove_field": {
+      const c = getCollection(doc, op.collectionId, i);
+      const f = getField(c, op.fieldId, i);
+      if (c.fields[0] === f) throw new OperationError("the title field can't be removed", i);
+      c.fields = c.fields.filter((x) => x !== f);
+      for (const item of c.items) delete item.values[f.id];
+      return null;
+    }
+    case "add_item": {
+      const c = getCollection(doc, op.collectionId, i);
+      const values: Record<string, FieldValue> = {};
+      for (const [k, v] of Object.entries(coerceValues(c, op.values, i))) if (v !== null) values[k] = v;
+      const taken = new Set(c.items.map((x) => x.slug));
+      let slug: string;
+      if (op.slug) {
+        slug = cleanSlug(op.slug, i);
+        if (taken.has(slug)) throw new OperationError(`${c.name} already has an item with the slug ${slug}`, i);
+      } else slug = uniqueName(slugify(String(values[c.fields[0]!.id] ?? "item")), taken);
+      const item = { id: newId("i"), slug, values, ...(op.draft ? { draft: true } : {}) };
+      c.items.splice(Math.min(op.index ?? c.items.length, c.items.length), 0, item);
+      return item.id;
+    }
+    case "update_item": {
+      const c = getCollection(doc, op.collectionId, i);
+      const item = c.items[getItemIndex(c, op.itemId, i)]!;
+      if (op.values) {
+        for (const [k, v] of Object.entries(coerceValues(c, op.values, i))) {
+          if (v === null) delete item.values[k];
+          else item.values[k] = v;
+        }
+      }
+      if (op.slug !== undefined) {
+        const slug = cleanSlug(op.slug, i);
+        if (c.items.some((x) => x !== item && x.slug === slug)) throw new OperationError(`${c.name} already has an item with the slug ${slug}`, i);
+        item.slug = slug;
+      }
+      if (op.draft !== undefined) {
+        if (op.draft) item.draft = true;
+        else delete item.draft;
+      }
+      return item.id;
+    }
+    case "remove_item": {
+      const c = getCollection(doc, op.collectionId, i);
+      c.items.splice(getItemIndex(c, op.itemId, i), 1);
+      return null;
+    }
+    case "move_item": {
+      const c = getCollection(doc, op.collectionId, i);
+      const [item] = c.items.splice(getItemIndex(c, op.itemId, i), 1);
+      c.items.splice(Math.min(op.index, c.items.length), 0, item!);
+      return item!.id;
+    }
+    case "add_collection_list": {
+      const c = getCollection(doc, op.collectionId, i);
+      const parent = locateParent(doc, op.parentId, i);
+      const sortBy = op.sortBy && op.sortBy !== "slug" ? getField(c, op.sortBy, i).id : op.sortBy;
+      const opts = { limit: op.limit, sortBy, sortDir: op.sortDir };
+      const built = op.section === false ? buildCollectionList(c, opts) : buildListSection(c, { headline: op.headline, ...opts });
+      const node = ensureUniqueIds(built, collectIds(doc));
+      insertAt(parent, node, op.index);
+      return node.id;
     }
   }
 }

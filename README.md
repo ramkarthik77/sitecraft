@@ -9,9 +9,10 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | | |
 |---|---|
 | **Visual editor** | Canvas that renders exactly what publishes, drag-and-drop sections and elements, double-click text editing, layers tree, inspector for layout, type, fill, border and motion, desktop/tablet/phone layouts with per-breakpoint overrides, undo/redo, reusable components, image uploads |
+| **CMS** | Collections for posts, products, people or jobs, with your own fields (text, rich text, image, date, link, number, yes/no). A template page gives every item its own page; lists show items anywhere, sorted and limited. Drafts stay unpublished |
 | **Sections library** | Navbar, hero, features, logos, testimonial, pricing, FAQ, call to action, contact form, text, image, footer — all responsive and driven by theme tokens |
 | **Branches and history** | Every save is a version. Branches for experiments and agents, diff against main, merge, restore any version, roll back any deploy |
-| **Claude Code integration** | MCP server with 20 tools, a site-building skill, and a hook that asks before anything ships. Agent edits show up live in open editors |
+| **Claude Code integration** | MCP server with 26 tools (including the CMS), a site-building skill, and a hook that asks before anything ships. Agent edits show up live in open editors |
 | **Guardrails** | Roles (admin, editor, agent). Agents can't edit main, merge or publish unless an admin allows it. Audit log of who did what |
 | **Publishing** | Static HTML/CSS per page with SEO tags, sitemap, robots.txt and 404. Served at `/s/<slug>`, `<slug>.<your-domain>`, or a custom domain. Instant rollback |
 | **Forms** | Form sections store submissions; view them in site settings |
@@ -21,6 +22,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | Guide | For |
 |---|---|
 | [Local setup](docs/LOCAL_SETUP.md) | Running Sitecraft on your computer, with or without Docker; tokens; tests; every setting |
+| [CMS](docs/CMS.md) | Collections, item pages, lists, drafts |
 | [Claude Code](docs/CLAUDE_CODE.md) | Connecting Claude Code, the plugin, example requests, every tool, guardrails |
 | [Deploy on Cloudflare](docs/CLOUDFLARE.md) | The live setup at `sitecraft.guduriphaniram1988.workers.dev`, deployed from GitHub Actions |
 | [Deploy elsewhere](docs/DEPLOY.md) | AWS, Google Cloud or any container host |
@@ -90,4 +92,4 @@ The key design choice: one JSON document per site version, changed only through 
 
 ## Not built yet
 
-Real-time multi-cursor collaboration (edits sync on save and live-reload today), CMS collections, A/B tests, analytics, localization, SSO login for the editor (token sign-in today), code components, and a plugin API. The document model and operations were designed so these slot in without changing how agents work.
+Real-time multi-cursor collaboration (edits sync on save and live-reload today), scheduled publishing for CMS items, a content API, A/B tests, analytics, multiple languages, SSO login for the editor (token sign-in today), code components, and a plugin API. The document model and operations were designed so these slot in without changing how agents work.

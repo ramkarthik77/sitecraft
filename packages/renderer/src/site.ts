@@ -1,4 +1,4 @@
-import type { SiteDocument } from "@sitecraft/schema";
+import { siteRoutes, type SiteDocument } from "@sitecraft/schema";
 import { escapeHtml, renderPage, type RenderOptions } from "./html.js";
 
 /** The storage key a page path publishes to: "/" -> "index.html", "/pricing" -> "pricing/index.html". */
@@ -8,8 +8,8 @@ export function pageFileName(path: string): string {
 
 export function renderSitemap(doc: SiteDocument, siteUrl: string): string {
   const base = siteUrl.replace(/\/$/, "");
-  const urls = doc.pages
-    .map((p) => `  <url><loc>${escapeHtml(base + (p.path === "/" ? "/" : p.path))}</loc></url>`)
+  const urls = siteRoutes(doc)
+    .map((r) => `  <url><loc>${escapeHtml(base + (r.path === "/" ? "/" : r.path))}</loc></url>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
@@ -29,8 +29,9 @@ export function renderNotFound(doc: SiteDocument): string {
  */
 export function renderSite(doc: SiteDocument, opts: Omit<RenderOptions, "mode">): Map<string, string> {
   const files = new Map<string, string>();
-  for (const page of doc.pages) {
-    files.set(pageFileName(page.path), renderPage(doc, page, { ...opts, mode: "publish" }));
+  // One file per page, and one per published item of each template page.
+  for (const r of siteRoutes(doc)) {
+    files.set(pageFileName(r.path), renderPage(doc, r.page, { ...opts, mode: "publish", itemId: r.item?.id }));
   }
   if (opts.siteUrl) files.set("sitemap.xml", renderSitemap(doc, opts.siteUrl));
   files.set("robots.txt", renderRobots(opts.siteUrl));

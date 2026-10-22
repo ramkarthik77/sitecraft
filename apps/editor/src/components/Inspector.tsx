@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef, useState } from "react";
-import type { Breakpoint, Operation, Page, SiteDocument, SiteNode, Style, StyleProperty } from "@sitecraft/schema";
+import { findCollection, type Breakpoint, type Collection, type Operation, type Page, type SiteDocument, type SiteNode, type Style, type StyleProperty } from "@sitecraft/schema";
 import { Sites } from "../api";
+import { BindingFields, ListFields } from "./Cms";
 import { nodeLabel } from "./Layers";
 
 type Apply = (ops: Operation[], coalesceKey?: string) => void;
@@ -98,6 +99,9 @@ function StyleRow(props: { node: SiteNode; bp: Breakpoint; prop: StyleProperty; 
 
 function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Apply; siteId: string; doc: SiteDocument }) {
   const p = node.props;
+  // Props bound to a collection field come from each item, so there's nothing to type.
+  const bound = new Set(Object.keys((p.bind as Record<string, string> | undefined) ?? {}));
+  const free = (prop: string) => !bound.has(prop);
   const set = (key: string, v: unknown) => apply([{ op: "update_node", nodeId: node.id, props: { [key]: v === "" ? null : v } }], `${node.id}:props:${key}`);
   const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
   const file = useRef<HTMLInputElement>(null);
@@ -115,9 +119,11 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
     case "heading":
       return (
         <>
-          <Field label="Text">
-            <textarea className="textarea" aria-label="Text" value={str("text")} onChange={(e) => set("text", e.target.value)} />
-          </Field>
+          {free("text") && (
+            <Field label="Text">
+              <textarea className="textarea" aria-label="Text" value={str("text")} onChange={(e) => set("text", e.target.value)} />
+            </Field>
+          )}
           <Field label="Level">
             <select className="select" aria-label="Heading level" value={String(p.level ?? 2)} onChange={(e) => set("level", Number(e.target.value))}>
               {[1, 2, 3, 4, 5, 6].map((l) => (
@@ -130,22 +136,34 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
         </>
       );
     case "text":
-      return (
+      return free("text") ? (
         <Field label="Text">
           <textarea className="textarea" aria-label="Text" value={str("text")} onChange={(e) => set("text", e.target.value)} />
         </Field>
-      );
+      ) : null;
+    case "richtext":
+      return free("markdown") ? (
+        <Field label="Text">
+          <textarea className="textarea rich" aria-label="Rich text" value={str("markdown")} placeholder="## Heading, **bold**, - list, [link](https://…)" onChange={(e) => set("markdown", e.target.value)} />
+        </Field>
+      ) : null;
+    case "collection-list":
+      return <ListFields node={node} doc={doc} apply={apply as never} />;
     case "button":
       return (
         <>
-          <Field label="Label">
-            <TextInput label="Label" value={str("label")} onChange={(v) => set("label", v)} />
-          </Field>
+          {free("label") && (
+            <Field label="Label">
+              <TextInput label="Label" value={str("label")} onChange={(v) => set("label", v)} />
+            </Field>
+          )}
           {!p.submit && (
             <>
-              <Field label="Link to">
-                <TextInput label="Link" value={str("href")} placeholder="/pricing or https://" list="page-links" onChange={(v) => set("href", v)} />
-              </Field>
+              {free("href") && (
+                <Field label="Link to">
+                  <TextInput label="Link" value={str("href")} placeholder="/pricing or https://" list="page-links" onChange={(v) => set("href", v)} />
+                </Field>
+              )}
               <label className="check">
                 <input type="checkbox" checked={!!p.newTab} onChange={(e) => set("newTab", e.target.checked || null)} /> Open in a new tab
               </label>
@@ -157,9 +175,11 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
     case "link":
       return (
         <>
-          <Field label="Link to">
-            <TextInput label="Link" value={str("href")} list="page-links" onChange={(v) => set("href", v)} />
-          </Field>
+          {free("href") && (
+            <Field label="Link to">
+              <TextInput label="Link" value={str("href")} list="page-links" onChange={(v) => set("href", v)} />
+            </Field>
+          )}
           <label className="check">
             <input type="checkbox" checked={!!p.newTab} onChange={(e) => set("newTab", e.target.checked || null)} /> Open in a new tab
           </label>
@@ -167,6 +187,13 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
         </>
       );
     case "image":
+      if (!free("src")) {
+        return free("alt") ? (
+          <Field label="Alt text">
+            <TextInput label="Alt text" value={str("alt")} placeholder="Describe the image" onChange={(v) => set("alt", v)} />
+          </Field>
+        ) : null;
+      }
       return (
         <>
           <Field label="Image URL">
@@ -195,9 +222,11 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
               }}
             />
           </Field>
-          <Field label="Alt text">
-            <TextInput label="Alt text" value={str("alt")} placeholder="Describe the image" onChange={(v) => set("alt", v)} />
-          </Field>
+          {free("alt") && (
+            <Field label="Alt text">
+              <TextInput label="Alt text" value={str("alt")} placeholder="Describe the image" onChange={(v) => set("alt", v)} />
+            </Field>
+          )}
         </>
       );
     case "section":
@@ -251,10 +280,10 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
   }
 }
 
-const TEXTY = new Set(["heading", "text", "button", "link", "input"]);
-const BOXY = new Set(["section", "stack", "grid", "form", "link", "instance"]);
+const TEXTY = new Set(["heading", "text", "button", "link", "input", "richtext"]);
+const BOXY = new Set(["section", "stack", "grid", "form", "link", "instance", "collection-list"]);
 
-export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Apply; siteId: string; doc: SiteDocument; isRoot: boolean }) {
+export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Apply; siteId: string; doc: SiteDocument; isRoot: boolean; bindCollection?: Collection }) {
   const { node, bp, apply } = props;
   const S = (prop: StyleProperty, label: string, kind?: "color" | "select", options?: string[]) => (
     <StyleRow key={prop} node={node} bp={bp} prop={prop} label={label} apply={apply} kind={kind} options={options} />
@@ -273,12 +302,14 @@ export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Ap
           <TextInput label="Layer name" value={node.name ?? ""} placeholder={node.type} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, name: v }], `${node.id}:name`)} />
         </Field>
         <ContentFields node={node} apply={apply} siteId={props.siteId} doc={props.doc} />
-        {!props.isRoot && node.type !== "instance" && BOXY.has(node.type) && (
+        {!props.isRoot && node.type !== "instance" && node.type !== "collection-list" && BOXY.has(node.type) && (
           <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => apply([{ op: "create_component", nodeId: node.id, name: node.name || "Component" }])}>
             Make reusable component
           </button>
         )}
       </div>
+
+      {props.bindCollection && <BindingFields node={node} collection={props.bindCollection} apply={apply as never} />}
 
       {bp !== "base" && (
         <div className="group" style={{ paddingBottom: 0, borderBottom: 0 }}>
@@ -405,8 +436,21 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
   const { doc, page, apply } = props;
   const theme = doc.theme;
   const setColor = (name: string, v: string) => apply([{ op: "set_theme", colors: { [name]: v } }], `theme:${name}`);
+  const collection = page.collectionId ? findCollection(doc, page.collectionId) : undefined;
   return (
     <div>
+      {collection && (
+        <div className="group bind-group">
+          <h3>
+            <span>{collection.name} template</span>
+            <span className="type-chip">CMS</span>
+          </h3>
+          <span className="small" style={{ lineHeight: 1.5 }}>
+            Every {collection.name} item gets a page at <span className="mono">{page.path}</span> built from this design. Select an element and use <b>Content from</b> to show a field.
+          </span>
+          <span className="muted small">Each item page uses the item's title, first text field and first image for its title, description and share image.</span>
+        </div>
+      )}
       <div className="group">
         <h3>Page</h3>
         <Field label="Title">

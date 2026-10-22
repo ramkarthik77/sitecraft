@@ -18,6 +18,8 @@ export const NODE_TYPES = [
   "input",
   "embed",
   "instance",
+  "richtext",
+  "collection-list",
 ] as const;
 
 export type NodeType = (typeof NODE_TYPES)[number];
@@ -29,6 +31,7 @@ export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
   "grid",
   "form",
   "link",
+  "collection-list",
 ]);
 
 export const BREAKPOINTS = ["base", "tablet", "mobile"] as const;
@@ -142,8 +145,13 @@ export interface SiteNode {
 
 export interface Page {
   id: string;
-  /** URL path, e.g. "/" or "/pricing". */
+  /**
+   * URL path, e.g. "/" or "/pricing". A collection's template page ends in
+   * "/:slug" (e.g. "/blog/:slug") and publishes once per item.
+   */
   path: string;
+  /** Set on a template page: the collection whose items it renders. */
+  collectionId?: string;
   title: string;
   /** SEO meta description. */
   description?: string;
@@ -164,11 +172,54 @@ export interface ComponentDef {
   root: SiteNode;
 }
 
+/** Kinds of content a collection field holds. */
+export const FIELD_TYPES = ["text", "richtext", "image", "date", "link", "number", "boolean"] as const;
+export type FieldType = (typeof FIELD_TYPES)[number];
+
+export interface CollectionField {
+  /** Key used in item values and bindings, e.g. "cover_image". */
+  id: string;
+  /** Label shown in the editor, e.g. "Cover image". */
+  name: string;
+  type: FieldType;
+}
+
+export type FieldValue = string | number | boolean;
+
+export interface CollectionItem {
+  id: string;
+  /** URL segment for the item's page, unique within the collection. */
+  slug: string;
+  /** Drafts show in the editor and previews but are left out when publishing. */
+  draft?: boolean;
+  values: Record<string, FieldValue>;
+}
+
+/**
+ * Structured content (blog posts, products, team members). Items render
+ * through a template page ("/blog/:slug") and collection-list nodes, whose
+ * elements bind props to fields with props.bind, e.g. { text: "title" }.
+ */
+export interface Collection {
+  id: string;
+  name: string;
+  /** Used in default page paths, e.g. "blog". */
+  slug: string;
+  /** The first field is the title and must be text. */
+  fields: CollectionField[];
+  items: CollectionItem[];
+}
+
+/** Binding sources every item has besides its fields. */
+export const ITEM_BUILTINS = ["slug", "url"] as const;
+
 export interface SiteDocument {
   schemaVersion: 1;
   theme: Theme;
   /** Reusable components; place them with "instance" nodes. */
   components: ComponentDef[];
+  /** CMS collections. Missing in sites made before collections existed. */
+  collections?: Collection[];
   pages: Page[];
   settings: {
     /** Language code for <html lang>. */

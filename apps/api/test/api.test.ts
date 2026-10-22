@@ -215,3 +215,40 @@ describe("publishing, hosting and forms", () => {
     expect(actions).toEqual(expect.arrayContaining(["site.create", "branch.create", "branch.merge", "site.publish", "site.rollback"]));
   });
 });
+
+describe("collections", () => {
+  it("Claude adds posts on a branch; previews show drafts; publishing serves a page per post", async () => {
+    const site = (await call("POST", "/api/sites", EDITOR, { name: "Field Notes", template: "landing" })).body;
+    const head = (await call("GET", `/api/sites/${site.id}/branches/main`, EDITOR)).body;
+    const made = await call("POST", `/api/sites/${site.id}/branches/main/ops`, EDITOR, { ops: [{ op: "add_collection", name: "Blog", preset: "blog" }], baseVersion: head.versionId });
+    expect(made.status).toBe(200);
+
+    await call("POST", `/api/sites/${site.id}/branches`, AGENT, { name: "agent/posts" });
+    const ops = await call("POST", `/api/sites/${site.id}/branches/agent%2Fposts/ops`, AGENT, {
+      ops: [
+        { op: "add_item", collectionId: "blog", values: { title: "Spring field notes", date: "2026-10-20", body: "Notes from the **field**." } },
+        { op: "add_item", collectionId: "blog", values: { title: "Unfinished" }, draft: true },
+      ],
+      message: "Add two posts",
+    });
+    expect(ops.status).toBe(200);
+    const diff = (await call("GET", `/api/sites/${site.id}/branches/agent%2Fposts/diff`, EDITOR)).body;
+    expect(diff.summary).toEqual(expect.arrayContaining(['+ Blog item "Spring field notes"', '+ Blog item "Unfinished" (draft)']));
+
+    const p = await call("GET", `/api/sites/${site.id}/branches/agent%2Fposts/preview-url`, AGENT);
+    const base = new URL(p.body.url).pathname;
+    const draft = await app.inject({ method: "GET", url: base + "blog/unfinished" });
+    expect(draft.statusCode).toBe(200);
+    expect(draft.body).toContain("<title>Unfinished</title>");
+    expect((await app.inject({ method: "GET", url: base + "blog/nope" })).statusCode).toBe(404);
+
+    expect((await call("POST", `/api/sites/${site.id}/branches/agent%2Fposts/merge`, EDITOR, {})).status).toBe(200);
+    const pub = await call("POST", `/api/sites/${site.id}/publish`, EDITOR, {});
+    expect(pub.body.files).toEqual(expect.arrayContaining(["blog/index.html", "blog/spring-field-notes/index.html"]));
+    expect(pub.body.files).not.toContain("blog/unfinished/index.html");
+    const post = await app.inject({ method: "GET", url: `/s/${site.slug}/blog/spring-field-notes` });
+    expect(post.statusCode).toBe(200);
+    expect(post.body).toContain("Notes from the <strong>field</strong>.");
+    expect((await app.inject({ method: "GET", url: `/s/${site.slug}/blog` })).body).toContain(`href="/s/${site.slug}/blog/spring-field-notes"`);
+  });
+});

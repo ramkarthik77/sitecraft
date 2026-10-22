@@ -7,3 +7,4 @@ export * from "./ops.js";
 export * from "./starter.js";
 export * from "./outline.js";
 export * from "./diff.js";
+export * from "./collections.js";

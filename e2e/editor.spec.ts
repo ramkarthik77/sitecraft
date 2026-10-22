@@ -141,3 +141,47 @@ test("restore an earlier version from history", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(canvas(page).locator("h1")).toContainText("Build beautiful sites");
 });
+
+test("CMS: make a blog, write a post, list it on the home page and publish", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  // A collection from the Blog preset, with its list and item pages.
+  await page.getByRole("tab", { name: "CMS" }).click();
+  await page.getByRole("button", { name: "Create collection" }).click();
+  await expect(page.getByRole("heading", { name: "Blog", exact: true })).toBeVisible();
+  await expect(page.locator(".cms-table tbody tr")).toHaveCount(2);
+
+  // A new post: starts as a draft whose slug follows the title.
+  await page.getByRole("button", { name: "New item" }).click();
+  await page.getByLabel("Title", { exact: true }).fill("Seasonal menu");
+  await page.getByRole("textbox", { name: "Body" }).fill("## New this week\n\nA **pumpkin** latte.");
+  await expect(page.locator("#item-slug")).toHaveValue("seasonal-menu");
+  await page.getByText("Draft (left out when you publish)").click();
+  await saved(page);
+
+  // Its page renders from the template, with the post's fields.
+  await page.getByRole("button", { name: "View on its page" }).click();
+  await expect(canvas(page).locator("h1")).toHaveText("Seasonal menu");
+  await expect(canvas(page).locator(".sc-rich strong")).toHaveText("pumpkin");
+  await canvas(page).locator("h1").click();
+  await expect(page.getByLabel("Text", { exact: true })).toHaveValue("title");
+
+  // A list of posts on the home page.
+  await page.getByRole("combobox", { name: "Page", exact: true }).selectOption({ label: "Home" });
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await page.locator(".block-card", { hasText: "Blog list" }).click();
+  await expect(canvas(page).getByText("Seasonal menu")).toBeVisible();
+  await saved(page);
+
+  await page.getByRole("button", { name: "Publish" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Published to");
+  const site = await apiCall(page, EDITOR, "GET", `/sites/${siteId}`);
+  await page.goto(site.liveUrl, { waitUntil: "domcontentloaded" });
+  await page.getByRole("link", { name: /Seasonal menu/ }).click();
+  await expect(page).toHaveURL(/\/blog\/seasonal-menu$/);
+  await expect(page.locator("h1")).toHaveText("Seasonal menu");
+  await expect(page).toHaveTitle("Seasonal menu");
+  await expect(page.locator("h2", { hasText: "New this week" })).toBeVisible();
+});

@@ -19,7 +19,7 @@ const BRIDGE = `
   function post(m){parent.postMessage(Object.assign({source:'sc-canvas'},m),'*')}
   function nodeOf(t){return t&&t.closest?t.closest('[data-node-id]'):null}
   var agent=[], agentLabel='Claude', zoom=1, overlay=document.getElementById('sc-overlay');
-  var TYPE={heading:'H',text:'Text',image:'Image',button:'Button',link:'Link',section:'Section',stack:'Stack',grid:'Grid',form:'Form',input:'Field',embed:'Embed',divider:'Divider',spacer:'Spacer'};
+  var TYPE={heading:'H',text:'Text',image:'Image',button:'Button',link:'Link',section:'Section',stack:'Stack',grid:'Grid',form:'Form',input:'Field',embed:'Embed',divider:'Divider',spacer:'Spacer',richtext:'Rich text','collection-list':'List'};
   function tag(cls,txt,x,y){var d=document.createElement('span');d.className=cls;d.textContent=txt;d.style.left=x+'px';d.style.top=y+'px';if(zoom<1){d.style.transform='scale('+(1/zoom)+')'}overlay.appendChild(d)}
   function mark(){
     document.querySelectorAll('.sc-sel').forEach(function(e){e.classList.remove('sc-sel')});
@@ -53,7 +53,7 @@ const BRIDGE = `
   document.addEventListener('mouseleave',function(){document.querySelectorAll('.sc-hov').forEach(function(x){x.classList.remove('sc-hov')})});
   document.addEventListener('dblclick',function(e){
     var n=nodeOf(e.target); if(!n)return; var t=n.getAttribute('data-node-type');
-    if(['heading','text','button'].indexOf(t)<0)return;
+    if(['heading','text','button'].indexOf(t)<0||n.getAttribute('data-bound'))return;
     e.preventDefault(); editing=n; var before=n.innerText; n.contentEditable='plaintext-only'; if(n.contentEditable!=='plaintext-only')n.contentEditable='true';
     overlay.textContent=''; n.focus(); var r=document.createRange(); r.selectNodeContents(n); var s=getSelection(); s.removeAllRanges(); s.addRange(r);
     function done(commit){ n.removeEventListener('blur',onBlur); n.removeEventListener('keydown',onKey); n.contentEditable='false'; editing=null;
@@ -89,6 +89,8 @@ const UI_CSS = `
 .sc-tag{position:absolute;transform-origin:0 0;white-space:nowrap;font:500 10px/1 "Geist Mono",ui-monospace,Menlo,monospace;padding:4px 6px;border-radius:4px;pointer-events:none}
 .sc-tag-sel{background:#5b8cff;color:#fff}
 .sc-tag-agent{background:#2a1f3d;color:#e9dcff;font-family:"Geist",system-ui,sans-serif;font-size:11px;padding:4px 8px;border-radius:999px}
+[data-bound="1"].sc-sel{outline-color:#2bb5a3!important}
+[data-node-type="richtext"]:empty{min-height:40px;background:repeating-linear-gradient(45deg,#f3f4f1,#f3f4f1 6px,#fff 6px,#fff 12px)}
 [data-node-type="stack"]:empty,[data-node-type="grid"]:empty,[data-node-type="section"]:empty,[data-node-type="form"]:empty{min-height:56px;background:repeating-linear-gradient(45deg,#f3f4f1,#f3f4f1 6px,#fff 6px,#fff 12px)}
 a,button{cursor:default}
 `;
@@ -104,6 +106,8 @@ export function Canvas(props: {
   agentIds?: string[];
   agentLabel?: string;
   pageLabel?: string;
+  /** On a template page: the collection item to show. */
+  itemId?: string;
   onEvent: (e: CanvasEvent) => void;
 }) {
   const { doc, page, breakpoint, selectedId, onEvent } = props;
@@ -116,7 +120,7 @@ export function Canvas(props: {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
-  const parts = useMemo(() => renderPageParts(doc, page, { mode: "editor" }), [doc, page]);
+  const parts = useMemo(() => renderPageParts(doc, page, { mode: "editor", itemId: props.itemId }), [doc, page, props.itemId]);
 
   const shell = useMemo(
     () =>

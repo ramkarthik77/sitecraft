@@ -1,5 +1,21 @@
-import { isSafeHref, isSafeSrc, type Page, type SiteDocument, type SiteNode } from "@sitecraft/schema";
+import {
+  findCollection,
+  formatValue,
+  isSafeHref,
+  isSafeSrc,
+  itemPath,
+  itemTitle,
+  itemUrl,
+  listItems,
+  placeholderItem,
+  type Collection,
+  type CollectionItem,
+  type Page,
+  type SiteDocument,
+  type SiteNode,
+} from "@sitecraft/schema";
 import { animationAttrs, assembleCss, collectNodeCss, newCollector, nodeClass, type CssCollector } from "./css.js";
+import { renderMarkdown } from "./markdown.js";
 
 export type RenderMode = "publish" | "preview" | "editor";
 
@@ -13,6 +29,11 @@ export interface RenderOptions {
   formAction?: (formName: string) => string;
   /** Extra HTML injected before </body> (the editor bridge script). */
   bodyEnd?: string;
+  /**
+   * For a template page: the item (id or slug) to render. Without one, the
+   * editor and previews show the first item, or example content.
+   */
+  itemId?: string;
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -32,6 +53,26 @@ interface Ctx {
   seen: Set<string>;
   /** Guards against components that (indirectly) contain themselves. */
   componentStack: string[];
+  /** The collection item bound elements read from (template page or list). */
+  item?: { collection: Collection; item: CollectionItem };
+}
+
+/** Props after applying field bindings for the current item. */
+function boundProps(n: SiteNode, ctx: Ctx): Record<string, unknown> {
+  const bind = n.props.bind as Record<string, string> | undefined;
+  if (!bind || !ctx.item) return n.props;
+  const { collection, item } = ctx.item;
+  const out: Record<string, unknown> = { ...n.props };
+  for (const [prop, key] of Object.entries(bind)) {
+    if (key === "slug") out[prop] = item.slug;
+    else if (key === "url") out[prop] = (item.id === "placeholder" ? null : itemUrl(ctx.doc, collection, item)) ?? "#";
+    else {
+      const field = collection.fields.find((f) => f.id === key);
+      const raw = item.values[key];
+      out[prop] = prop === "src" || prop === "href" ? (typeof raw === "string" && raw ? raw : prop === "href" ? "#" : "") : formatValue(field, raw, ctx.doc.settings.lang);
+    }
+  }
+  return out;
 }
 
 function resolveHref(href: string, ctx: Ctx): string {
@@ -47,7 +88,10 @@ function attrs(n: SiteNode, ctx: Ctx, extraClass: string[] = [], editorId?: stri
   let out = ` class="${cls}"`;
   if (anim.style) out += ` style="${anim.style}"`;
   out += anim.attrs;
-  if (ctx.opts.mode === "editor") out += ` data-node-id="${escapeHtml(editorId ?? n.id)}" data-node-type="${n.type}"`;
+  if (ctx.opts.mode === "editor") {
+    out += ` data-node-id="${escapeHtml(editorId ?? n.id)}" data-node-type="${n.type}"`;
+    if (n.props.bind && ctx.item) out += ` data-bound="1"`;
+  }
   return out;
 }
 
@@ -57,7 +101,7 @@ function children(n: SiteNode, ctx: Ctx): string {
 
 export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
   collectNodeCss(n, ctx.css, ctx.seen);
-  const p = n.props;
+  const p = boundProps(n, ctx);
   const a = (extra: string[] = []) => attrs(n, ctx, extra, editorId);
   switch (n.type) {
     case "section": {
@@ -76,6 +120,8 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
       return `<p${a()}>${escapeText(p.text)}</p>`;
     case "image": {
       const src = typeof p.src === "string" && isSafeSrc(p.src) ? p.src : "";
+      // A bound image whose item has no picture: leave it out (a placeholder in the editor).
+      if (!src && n.props.bind && ctx.item) return ctx.opts.mode === "editor" ? `<div${a(["sc-img-empty"])}></div>` : "";
       return `<img${a()} src="${escapeHtml(src)}" alt="${escapeHtml(p.alt ?? "")}" loading="lazy" decoding="async">`;
     }
     case "button": {
@@ -112,6 +158,23 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
     case "embed": {
       const url = typeof p.url === "string" && /^https:\/\//i.test(p.url) ? p.url : "";
       return `<iframe${a(["sc-embed"])} src="${escapeHtml(url)}" title="${escapeHtml(p.title ?? "Embedded content")}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups allow-presentation" allowfullscreen></iframe>`;
+    }
+    case "richtext": {
+      const md = typeof p.markdown === "string" ? p.markdown : "";
+      return `<div${a(["sc-rich"])}>${renderMarkdown(md, (h) => resolveHref(h, ctx))}</div>`;
+    }
+    case "collection-list": {
+      const { collection, items } = listItems(ctx.doc, n, { includeDrafts: ctx.opts.mode !== "publish" });
+      if (!collection || items.length === 0) return `<div${a()}><p class="sc-empty">${escapeHtml(p.empty ?? "Nothing here yet.")}</p></div>`;
+      const outer = ctx.item;
+      const html = items
+        .map((item) => {
+          ctx.item = { collection, item };
+          return children(n, ctx);
+        })
+        .join("");
+      ctx.item = outer;
+      return `<div${a()}>${html}</div>`;
     }
     case "instance": {
       const comp = ctx.doc.components.find((c) => c.id === p.componentId);
@@ -162,21 +225,47 @@ function fontLinks(doc: SiteDocument): string {
   return `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?${q}&display=swap">`;
 }
 
+/** The item a template page renders: the one asked for, else the first, else example content. */
+export function pageItem(doc: SiteDocument, page: Page, itemId: string | undefined, includeDrafts: boolean): Ctx["item"] {
+  if (!page.collectionId) return undefined;
+  const collection = findCollection(doc, page.collectionId);
+  if (!collection) return undefined;
+  const items = collection.items.filter((i) => includeDrafts || !i.draft);
+  const item = (itemId && items.find((i) => i.id === itemId || i.slug === itemId)) || (itemId ? undefined : items[0]) || placeholderItem(collection);
+  return { collection, item };
+}
+
+/** Title, description, share image and path for a page, taken from its item on a template page. */
+function pageMeta(page: Page, item: Ctx["item"]) {
+  if (!item) return { title: page.title, description: page.description, ogImage: page.ogImage, path: page.path };
+  const { collection: c, item: it } = item;
+  const text = c.fields.slice(1).find((f) => f.type === "text" && typeof it.values[f.id] === "string" && it.values[f.id]);
+  const image = c.fields.find((f) => f.type === "image" && typeof it.values[f.id] === "string" && it.values[f.id]);
+  return {
+    title: itemTitle(c, it),
+    description: text ? String(it.values[text.id]) : page.description,
+    ogImage: image ? String(it.values[image.id]) : page.ogImage,
+    path: itemPath(page.path, it.slug),
+  };
+}
+
 /** Render one page to a complete HTML document. */
 export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): string {
-  const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [] };
+  const item = pageItem(doc, page, opts.itemId, opts.mode !== "publish");
+  const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [], item };
   const body = renderNode(page.root, ctx);
   const withAnim = opts.mode !== "editor";
   const css = assembleCss(doc, ctx.css, withAnim);
-  const canonical = opts.siteUrl ? `${opts.siteUrl.replace(/\/$/, "")}${page.path === "/" ? "/" : page.path}` : "";
+  const meta = pageMeta(page, item);
+  const canonical = opts.siteUrl ? `${opts.siteUrl.replace(/\/$/, "")}${meta.path === "/" ? "/" : meta.path}` : "";
   const head = [
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
-    `<title>${escapeHtml(page.title)}</title>`,
-    page.description ? `<meta name="description" content="${escapeHtml(page.description)}">` : "",
-    `<meta property="og:title" content="${escapeHtml(page.title)}">`,
-    page.description ? `<meta property="og:description" content="${escapeHtml(page.description)}">` : "",
-    page.ogImage && isSafeSrc(page.ogImage) ? `<meta property="og:image" content="${escapeHtml(page.ogImage)}">` : "",
+    `<title>${escapeHtml(meta.title)}</title>`,
+    meta.description ? `<meta name="description" content="${escapeHtml(meta.description)}">` : "",
+    `<meta property="og:title" content="${escapeHtml(meta.title)}">`,
+    meta.description ? `<meta property="og:description" content="${escapeHtml(meta.description)}">` : "",
+    meta.ogImage && isSafeSrc(meta.ogImage) ? `<meta property="og:image" content="${escapeHtml(meta.ogImage)}">` : "",
     canonical ? `<link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:url" content="${escapeHtml(canonical)}">` : "",
     doc.settings.favicon && isSafeSrc(doc.settings.favicon) ? `<link rel="icon" href="${escapeHtml(doc.settings.favicon)}">` : "",
     opts.mode !== "publish" ? `<meta name="robots" content="noindex">` : "",
@@ -193,7 +282,8 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
 
 /** Render just the body markup and stylesheet (used for live editor updates). */
 export function renderPageParts(doc: SiteDocument, page: Page, opts: RenderOptions): { body: string; css: string } {
-  const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [] };
+  const item = pageItem(doc, page, opts.itemId, opts.mode !== "publish");
+  const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [], item };
   const body = renderNode(page.root, ctx);
   return { body, css: assembleCss(doc, ctx.css, opts.mode !== "editor") };
 }

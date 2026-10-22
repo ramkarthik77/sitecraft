@@ -1,4 +1,4 @@
-import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, type SiteNode } from "@sitecraft/schema";
+import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, type Collection, type SiteNode } from "@sitecraft/schema";
 
 type NewNode = Omit<SiteNode, "id" | "children"> & { children?: NewNode[] };
 
@@ -43,6 +43,11 @@ export const ELEMENTS: Record<string, { label: string; glyph: string; make: () =
     label: "Section",
     glyph: "▭",
     make: () => ({ type: "section", props: {}, style: { base: { padding: "96px 24px", display: "flex", flexDirection: "column", gap: "24px" }, mobile: { padding: "64px 20px" } }, children: [] }),
+  },
+  richtext: {
+    label: "Rich text",
+    glyph: "❡",
+    make: () => ({ type: "richtext", props: { markdown: "## A short heading\n\nWrite longer text here, with **bold**, *italic*, lists and [links](https://example.com)." }, style: { base: { fontSize: "18px", lineHeight: "1.7", color: "var(--color-text)", maxWidth: "720px" } } }),
   },
   divider: { label: "Divider", glyph: "—", make: () => ({ type: "divider", props: {}, style: { base: { border: "0", borderTop: "1px solid var(--color-border)", margin: "0", width: "100%" } } }) },
   spacer: { label: "Spacer", glyph: "↕", make: () => ({ type: "spacer", props: {}, style: { base: { height: "48px" } } }) },
@@ -93,9 +98,44 @@ function BlockThumb({ name }: { name: string }) {
   }
 }
 
-export function Insert(props: { onInsertBlock: (name: string) => void; onInsertElement: (key: string) => void }) {
+export function Insert(props: { onInsertBlock: (name: string) => void; onInsertElement: (key: string) => void; collections: Collection[]; onInsertList: (collectionId: string) => void; onOpenCms: () => void }) {
   return (
     <div>
+      <div className="section-title">From the CMS</div>
+      {props.collections.length ? (
+        <div className="block-grid">
+          {props.collections.map((c) => (
+            <button
+              key={c.id}
+              className="block-card"
+              draggable
+              onDragStart={(e) => e.dataTransfer.setData("text/plain", `list:${c.id}`)}
+              onClick={() => props.onInsertList(c.id)}
+              title={`A section listing ${c.name} items`}
+            >
+              <span className="thumb">
+                <div style={{ position: "absolute", inset: 6, display: "flex", gap: 3 }}>
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+                      <span style={{ flex: 1, background: "#a8e6dc", borderRadius: 2 }} />
+                      <span style={{ height: 4, width: "80%", background: "#c9cdc6", borderRadius: 2 }} />
+                    </span>
+                  ))}
+                </div>
+              </span>
+              <span className="name">{c.name} list</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="muted small" style={{ padding: "0 18px", margin: "4px 0 8px", lineHeight: 1.5 }}>
+          Lists of posts, products or people come from collections.{" "}
+          <button className="linkish" onClick={props.onOpenCms}>
+            Make one in the CMS tab
+          </button>
+          .
+        </p>
+      )}
       <div className="section-title">Elements</div>
       <div className="el-grid">
         {Object.entries(ELEMENTS).map(([key, el]) => (

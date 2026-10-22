@@ -85,6 +85,17 @@ export const RESET_CSS = [
   "button.sc-btn{font:inherit;cursor:pointer}",
   "a.sc-btn:hover,button.sc-btn:hover{opacity:.92}",
   ".sc-embed{width:100%;border:0;aspect-ratio:16/9}",
+  ".sc-empty{grid-column:1/-1;margin:0;color:var(--color-muted)}",
+  ".sc-img-empty{min-height:120px;background:repeating-linear-gradient(45deg,var(--color-surface),var(--color-surface) 8px,var(--color-border) 8px,var(--color-border) 9px)}",
+  ".sc-rich>*{margin:0 0 1em}.sc-rich>*:last-child{margin-bottom:0}",
+  ".sc-rich h2,.sc-rich h3,.sc-rich h4{font-family:var(--font-heading);line-height:1.25;margin-top:1.6em}",
+  ".sc-rich h2{font-size:1.6em}.sc-rich h3{font-size:1.3em}.sc-rich h4{font-size:1.1em}",
+  ".sc-rich ul,.sc-rich ol{padding-left:1.4em}.sc-rich li{margin:.3em 0}",
+  ".sc-rich a{color:var(--color-primary)}.sc-rich img{border-radius:var(--radius);height:auto}",
+  ".sc-rich blockquote{margin-left:0;padding-left:1em;border-left:3px solid var(--color-border);color:var(--color-muted)}",
+  ".sc-rich pre{background:var(--color-surface);padding:16px;border-radius:var(--radius);overflow:auto;font-size:.9em}",
+  ".sc-rich code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}",
+  ".sc-rich hr{border:0;border-top:1px solid var(--color-border)}",
 ].join("");
 
 export const ANIMATION_CSS = [

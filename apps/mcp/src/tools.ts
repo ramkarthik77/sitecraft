@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, STYLE_PROPERTIES } from "@sitecraft/schema";
+import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, FIELD_TYPES, STYLE_PROPERTIES } from "@sitecraft/schema";
 import { z } from "zod";
 import { ApiError, enc, SitecraftClient } from "./client.js";
 
@@ -29,8 +29,14 @@ const OPS_HELP = `Each operation is an object with an "op" field:
 - add_page {path, title, description?, blocks?[]} · update_page {pageId, path?, title?, description?, ogImage?} · remove_page {pageId}
 - set_theme {colors?:{primary,on-primary,background,surface,text,muted,border}, fonts?:{heading,body}, radius?}
 - create_component {nodeId, name}
-Node types: section, stack, grid, heading{text,level}, text{text}, image{src,alt}, button{label,href}, link{href}, divider, spacer, form{formName}, input{name,label,inputType,required}, embed{url}, instance{componentId}.
-Containers (can have children): section, stack, grid, form, link.
+- CMS: add_collection {name, preset?, fields?[{name,type}], sampleItems?, pages?} · update_collection {collectionId, name?, slug?} · remove_collection {collectionId}
+  add_field {collectionId, name, type, index?} · update_field {collectionId, fieldId, name} · remove_field {collectionId, fieldId}
+  add_item {collectionId, values, slug?, draft?, index?} · update_item {collectionId, itemId, values?, slug?, draft?} · remove_item · move_item {collectionId, itemId, index}
+  add_collection_list {parentId, collectionId, headline?, section?, limit?, sortBy?, sortDir?} · add_page {path, title, collectionId} makes a template page (/blog/:slug)
+  Field types: ${FIELD_TYPES.join(", ")}. collectionId/itemId/fieldId also accept the slug or name.
+Node types: section, stack, grid, heading{text,level}, text{text}, image{src,alt}, button{label,href}, link{href}, divider, spacer, form{formName}, input{name,label,inputType,required}, embed{url}, instance{componentId}, richtext{markdown}, collection-list{collectionId,limit?,sortBy?,sortDir?} (children are the card repeated per item).
+Inside a template page or a collection-list, props.bind maps a prop to a field: {text:"title"}, {src:"cover_image"}, {href:"url"} (the item's page), {markdown:"body"}.
+Containers (can have children): section, stack, grid, form, link, collection-list.
 Style keys (camelCase CSS): ${STYLE_PROPERTIES.join(", ")}. Use theme tokens like var(--color-primary), var(--font-heading), var(--radius).
 All operations in one call apply atomically.`;
 
@@ -47,7 +53,7 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
     { name: "sitecraft", version: "0.1.0" },
     {
       instructions:
-        "Sitecraft is a visual website builder. Workflow: get_site to read the outline (node ids), create_branch for your task, make edits with edit_site or the helper tools, check get_preview_url, then request_review so a person can merge and publish. Prefer add_block for new sections so pages stay on-brand, and theme tokens over hard-coded colors.",
+        "Sitecraft is a visual website builder with a CMS. Workflow: get_site to read the outline (node ids and collections), create_branch for your task, make edits with edit_site or the helper tools, check get_preview_url, then request_review so a person can merge and publish. Prefer add_block for new sections so pages stay on-brand, and theme tokens over hard-coded colors. For repeated content (posts, products, people, jobs) use a collection: create_collection, then add_items; its template page and lists update by themselves. Write rich text fields in Markdown. Add new items as drafts unless asked to make them live.",
     },
   );
 
@@ -77,7 +83,7 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
     {
       title: "Create site",
       description: "Create a new site from a template: blank, landing (navbar, hero, features, cta, footer) or saas (adds logos, testimonial, pricing, faq).",
-      inputSchema: { name: z.string().min(1), template: z.enum(["blank", "landing", "saas"]).optional(), slug: z.string().optional() },
+      inputSchema: { name: z.string().min(1), template: z.enum(["blank", "landing", "saas", "blog"]).optional(), slug: z.string().optional() },
     },
     ({ name, template, slug }) =>
       run(async () => {
@@ -277,6 +283,124 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
         const id = await resolveId(s);
         const r = await client.post<{ versionId: number }>(`/sites/${id}/branches/${enc(b)}/restore`, { versionId });
         return `Restored. New version ${r.versionId}.`;
+      }),
+  );
+
+
+  // --- CMS -----------------------------------------------------------------
+
+  const collectionArg = z.string().describe("Collection id, slug or name, e.g. blog");
+  const valuesArg = z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).describe("Field values by field key or name. Rich text is Markdown; dates are YYYY-MM-DD; images are https:// URLs.");
+
+  server.registerTool(
+    "get_collection",
+    {
+      title: "Read collection",
+      description: "List a collection's fields and items (slug, draft, values). Long rich text is shortened unless full is true.",
+      inputSchema: { site, branch: branch.default("main"), collection: collectionArg, full: z.boolean().optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s, branch: b, collection, full }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const r = await client.get<{ document: { collections?: { id: string; name: string; slug: string; fields: { id: string; name: string; type: string }[]; items: { id: string; slug: string; draft?: boolean; values: Record<string, unknown> }[] }[]; pages: { path: string; collectionId?: string }[] } }>(
+          `/sites/${id}/branches/${enc(b)}`,
+        );
+        const cols = r.document.collections ?? [];
+        const c = cols.find((x) => x.id === collection || x.slug === collection || x.name.toLowerCase() === collection.toLowerCase());
+        if (!c) throw new Error(`No collection "${collection}". Collections: ${cols.map((x) => `${x.name} (${x.slug})`).join(", ") || "none yet"}`);
+        const tpl = r.document.pages.find((p) => p.collectionId === c.id);
+        const short = (v: unknown) => (typeof v === "string" && !full && v.length > 160 ? `${v.slice(0, 157)}…` : v);
+        const items = c.items.map((i) => ({ id: i.id, slug: i.slug, ...(i.draft ? { draft: true } : {}), ...(tpl ? { url: tpl.path.replace(":slug", i.slug) } : {}), values: Object.fromEntries(Object.entries(i.values).map(([k, v]) => [k, short(v)])) }));
+        return JSON.stringify({ id: c.id, name: c.name, slug: c.slug, templatePage: tpl?.path ?? null, fields: c.fields, items }, null, 2);
+      }),
+  );
+
+  server.registerTool(
+    "create_collection",
+    {
+      title: "Create collection",
+      description:
+        "Add a CMS collection. A preset gives ready-made fields and example items: blog (title, summary, cover_image, date, author, body), team, products, jobs, or blank. Unless pages is false it also adds a list page (/<slug>) and a template page (/<slug>/:slug) for each item, with the site's navbar and footer.",
+      inputSchema: {
+        site,
+        branch,
+        name: z.string().min(1),
+        preset: z.enum(COLLECTION_PRESET_NAMES as [string, ...string[]]).optional(),
+        fields: z
+          .array(z.object({ name: z.string(), type: z.enum(FIELD_TYPES) }))
+          .optional()
+          .describe("Your own fields instead of the preset's. The first is the title and must be text."),
+        sampleItems: z.boolean().optional().describe("Include the preset's example items (default true with a preset). Use false when you'll add real items."),
+        pages: z.boolean().optional(),
+      },
+    },
+    ({ site: s, branch: b, name, preset, fields, sampleItems, pages }) => run(() => applyOps(s, b, [{ op: "add_collection", name, preset, fields, sampleItems, pages }], `Add ${name} collection`)),
+  );
+
+  server.registerTool(
+    "add_items",
+    {
+      title: "Add collection items",
+      description: "Add up to 100 items to a collection in one save. Slugs come from the title unless given. Each item's page and every list showing the collection update automatically.",
+      inputSchema: {
+        site,
+        branch,
+        collection: collectionArg,
+        items: z.array(z.object({ values: valuesArg, slug: z.string().optional(), draft: z.boolean().optional() })).min(1).max(100),
+        message: z.string().optional(),
+      },
+    },
+    ({ site: s, branch: b, collection, items, message }) =>
+      run(() => applyOps(s, b, items.map((i) => ({ op: "add_item", collectionId: collection, ...i })), message ?? `Add ${items.length} ${items.length === 1 ? "item" : "items"} to ${collection}`)),
+  );
+
+  server.registerTool(
+    "update_item",
+    {
+      title: "Update collection item",
+      description: "Change an item's values (null clears one), slug or draft status. Set draft false to make it publishable.",
+      inputSchema: { site, branch, collection: collectionArg, item: z.string().describe("Item id or slug"), values: valuesArg.optional(), slug: z.string().optional(), draft: z.boolean().optional() },
+    },
+    ({ site: s, branch: b, collection, item, values, slug, draft }) =>
+      run(() => applyOps(s, b, [{ op: "update_item", collectionId: collection, itemId: item, values, slug, draft }], `Update ${item}`)),
+  );
+
+  server.registerTool(
+    "remove_item",
+    {
+      title: "Remove collection item",
+      description: "Delete an item from a collection. Its page goes away the next time the site is published.",
+      inputSchema: { site, branch, collection: collectionArg, item: z.string().describe("Item id or slug") },
+      annotations: { destructiveHint: true },
+    },
+    ({ site: s, branch: b, collection, item }) => run(() => applyOps(s, b, [{ op: "remove_item", collectionId: collection, itemId: item }], `Remove ${item}`)),
+  );
+
+  server.registerTool(
+    "add_collection_list",
+    {
+      title: "Add collection list",
+      description: "Show a collection's items on a page: a section with a heading and a responsive grid of cards bound to the fields, linking to each item's page. Sorted by date (newest first) when the collection has a date field.",
+      inputSchema: {
+        site,
+        branch,
+        collection: collectionArg,
+        page: z.string().optional().describe("Page id or path, default /"),
+        index: z.number().int().min(0).optional().describe("Position among the page's sections"),
+        headline: z.string().optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+        sortBy: z.string().optional().describe("Field key, or slug"),
+        sortDir: z.enum(["asc", "desc"]).optional(),
+      },
+    },
+    ({ site: s, branch: b, collection, page, index, headline, limit, sortBy, sortDir }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const r = await client.get<{ document: { pages: { id: string; path: string; root: { id: string } }[] } }>(`/sites/${id}/branches/${enc(b)}`);
+        const p = r.document.pages.find((x) => x.id === page || x.path === (page ?? "/"));
+        if (!p) throw new Error(`Page ${page ?? "/"} not found`);
+        return applyOps(s, b, [{ op: "add_collection_list", parentId: p.root.id, collectionId: collection, index, headline, limit, sortBy, sortDir }], `Add ${headline ?? collection} list`);
       }),
   );
 

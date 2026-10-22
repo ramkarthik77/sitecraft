@@ -20,6 +20,16 @@
 | `claude-plugin` | Claude Code plugin: MCP config, `build-site` skill, confirm-before-shipping hook |
 | `scripts/local.mjs` | `pnpm start`: builds if needed and runs the API and MCP server as the local app |
 
+### Collections (the CMS)
+
+Collections live in the site document (`doc.collections`), next to pages and components, so content gets the same versions, branches, diffs and review as design changes. `packages/schema/src/collections.ts` has the pure helpers; the edit operations are in `ops.ts`.
+
+- **Collection:** `{ id, name, slug, fields[], items[] }`. A field is `{ id (key), name, type }`; the first is the title and must be text. An item is `{ id, slug, draft?, values }`, and values are checked against their field's type (`checkFieldValue` in `validate.ts`: safe image and link URLs, ISO dates, finite numbers).
+- **Template page:** a page with `collectionId` and a path ending in `/:slug`. `siteRoutes(doc)` expands it to one route per published item; publishing, previews, the sitemap and export all go through it. Item paths may not clash with other pages.
+- **Bindings:** any heading, text, rich text, image, button or link can set `props.bind`, e.g. `{ text: "title", href: "url" }`. The renderer resolves them against the current item: the template page's item, or each item inside a `collection-list` node. `url` is the item's page and `slug` its slug.
+- **Lists:** a `collection-list` node repeats its children once per item, after `sortBy`/`sortDir` and `limit`. Drafts render in the editor and previews, not on the published site.
+- **Rich text:** a `richtext` node renders a small Markdown subset (`packages/renderer/src/markdown.ts`). Everything is escaped first; links and images go through `isSafeHref`/`isSafeSrc`.
+
 ### The local app
 
 `pnpm start` runs the same API and MCP server with `SITECRAFT_LOCAL=1` and `DATABASE_URL=pglite:<folder>`:

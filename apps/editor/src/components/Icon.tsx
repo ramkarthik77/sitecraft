@@ -30,6 +30,7 @@ const PATHS: Record<string, string> = {
   spark: "M8 1.5v13 M1.5 8h13 M3.4 3.4l9.2 9.2 M12.6 3.4l-9.2 9.2",
   logout: "M6 2.5H2.5v11H6 M10 5l3 3-3 3 M13 8H6",
   download: "M8 2.5v8 M4.5 7.5 8 11l3.5-3.5 M2.5 13.5h11",
+  database: "M2.5 4c0-1.1 2.5-2 5.5-2s5.5.9 5.5 2-2.5 2-5.5 2-5.5-.9-5.5-2Z M2.5 4v8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2V4 M2.5 8c0 1.1 2.5 2 5.5 2s5.5-.9 5.5-2",
 };
 
 export function Icon({ name, size = 16, label, style }: { name: keyof typeof PATHS | string; size?: number; label?: string; style?: CSSProperties }) {

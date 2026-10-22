@@ -1,6 +1,6 @@
 ---
 name: build-site
-description: Build or change a website in Sitecraft through the sitecraft MCP tools — new sites, new pages or sections, copy edits, rebrands and responsive fixes. Use whenever the person asks for website or landing-page work in Sitecraft.
+description: Build or change a website in Sitecraft through the sitecraft MCP tools — new sites, new pages or sections, copy edits, rebrands, responsive fixes, and CMS content such as blog posts, products, team members or job openings. Use whenever the person asks for website, landing-page or site-content work in Sitecraft.
 ---
 
 # Building sites in Sitecraft
@@ -9,7 +9,7 @@ Sitecraft is the team's visual website builder. People edit in the browser; you 
 
 ## Workflow
 
-1. **Find the site.** `list_sites`, or `create_site` with a template (`landing` for a single page, `saas` for a full product site, `blank` to start empty).
+1. **Find the site.** `list_sites`, or `create_site` with a template (`landing` for a single page, `saas` for a full product site, `blog` for a site with a blog, `blank` to start empty).
 2. **Read before editing.** `get_site` returns every page as an outline with node ids. Use those ids; never guess them. `get_node` shows one element's full props and styles.
 3. **Branch for the task.** `create_branch` named `agent/<short-task>`, for example `agent/pricing-page`. Never try to edit `main`.
 4. **Make the change.**
@@ -18,8 +18,14 @@ Sitecraft is the team's visual website builder. People edit in the browser; you 
    - Look and feel: `set_theme` for brand colors, fonts and radius across the site; `update_style` for one element.
    - Anything else, or several changes at once: `edit_site` with a list of operations (they apply atomically).
    - New pages: `add_page` with starting blocks, then fill them in.
-5. **Check it.** Call `get_site` again to confirm the structure, and `get_preview_url` to get a link. If the person can open links, give them the preview.
-6. **Hand off.** Finish with `request_review` and a short summary. Pass on the review link it returns. Don't call `merge_branch` or `publish_site` unless the person explicitly asks you to ship.
+5. **Content that repeats goes in the CMS.** Posts, products, people, jobs, case studies: don't build one section per item.
+   - `get_site` lists existing collections at the end; `get_collection` shows fields and items.
+   - `create_collection` with a preset (`blog`, `team`, `products`, `jobs`) or your own `fields`; pass `sampleItems: false` when you'll add real items. It adds a list page and a template page (`/<slug>/:slug`).
+   - `add_items` in batches (up to 100), values by field key. Rich text is Markdown, dates `YYYY-MM-DD`, images `https://` URLs. Add new items as `draft: true` unless the person asked for them to go live; `update_item` with `draft: false` makes one publishable.
+   - `add_collection_list` shows items on any page (for example "Latest posts" on the home page, `limit: 3`).
+   - To change how every item's page looks, edit the template page's elements; bound elements have `props.bind` (shown as `← text:title` in the outline).
+6. **Check it.** Call `get_site` again to confirm the structure, and `get_preview_url` to get a link. If the person can open links, give them the preview.
+7. **Hand off.** Finish with `request_review` and a short summary. Pass on the review link it returns. Don't call `merge_branch` or `publish_site` unless the person explicitly asks you to ship.
 
 ## Quality bar
 

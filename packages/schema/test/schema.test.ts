@@ -16,7 +16,7 @@ const doc = () => createStarterDocument({ name: "Test Co", template: "saas" });
 
 describe("document model", () => {
   it("starter templates validate", () => {
-    for (const template of ["blank", "landing", "saas"] as const) {
+    for (const template of ["blank", "landing", "saas", "blog"] as const) {
       const v = validateDocument(createStarterDocument({ template }));
       expect(v.ok, JSON.stringify(v)).toBe(true);
     }

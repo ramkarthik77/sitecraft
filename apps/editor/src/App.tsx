@@ -259,6 +259,7 @@ function Home({ me }: { me: Me }) {
             <select className="select" aria-label="Template" value={template} onChange={(e) => setTemplate(e.target.value)}>
               <option value="landing">Landing page</option>
               <option value="saas">Product site</option>
+              <option value="blog">Blog</option>
               <option value="blank">Blank</option>
             </select>
             <button className="btn light" disabled={!name.trim() || busy}>

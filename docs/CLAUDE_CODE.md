@@ -100,6 +100,9 @@ Plain requests work. Some to try:
 - *"On the Northstar site, add a /pricing page with three plans and an FAQ, then send me the preview."*
 - *"Make every hero headline on the Ledgerline site smaller on phones."*
 - *"What changed on the agent/menu branch?"*
+- *"Add a blog to the Northstar site and write three posts about our new seasonal drinks, as drafts. Show the latest three on the home page."*
+- *"Here's our product list (pasted CSV). Put it in a Products collection with name, price, image and a buy link."*
+- *"Rewrite the summaries of every Journal post to be under 140 characters."*
 
 Keep the editor open on Claude's branch to watch: the sections Claude adds get a dashed outline and a "Claude" tag, and the bar at the bottom of the canvas lists its latest changes.
 
@@ -117,7 +120,7 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | Tool | What it does |
 |---|---|
 | `list_sites` | Sites with ids, slugs and live addresses |
-| `create_site` | New site from a template: `blank`, `landing` or `saas` |
+| `create_site` | New site from a template: `blank`, `landing`, `saas` or `blog` |
 | `get_site` | Outline of a site's pages and elements, with the ids edits need |
 | `get_node` | Full detail of one element: content, styles per screen size, children |
 | `list_blocks` | The ready-made sections and the content each one takes |
@@ -129,6 +132,12 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `update_style` | Set styles on an element for desktop, tablet or phone |
 | `set_theme` | Change brand colors, fonts or corner radius across the site |
 | `add_page` | Add a page with starting sections |
+| `get_collection` | A collection's fields and items |
+| `create_collection` | New CMS collection from a preset (`blog`, `team`, `products`, `jobs`) or your own fields, with a list page and an item page template |
+| `add_items` | Add up to 100 items in one save |
+| `update_item` | Change an item's values, slug or draft status |
+| `remove_item` | Delete an item |
+| `add_collection_list` | Show a collection's items on a page, sorted and limited |
 | `get_diff` | What a branch changes compared to `main` |
 | `list_versions` | Recent saved versions of a branch |
 | `restore_version` | Go back to an earlier version (saved as a new one) |
