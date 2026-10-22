@@ -13,11 +13,23 @@ You: "Add a pricing page to the Northstar site"
  You: open the link, check the canvas, Merge into main, Publish
 ```
 
+## Using the local app?
+
+If you run Sitecraft with `pnpm start`, skip the token. Connect once:
+
+```bash
+claude mcp add --transport http --scope user sitecraft http://localhost:4100/mcp
+```
+
+Claude Code on your computer connects without a token, as an agent named "Claude Code". The server only accepts requests from this computer and refuses web pages, so nothing else can use that access. Then go to [Ask for things](#3-ask-for-things).
+
+For a team server, follow the steps below.
+
 ## 1. Get a token
 
 Claude Code acts with a Sitecraft token, so every change is attributed to that token and limited by its role. Use an **agent** token for Claude Code; it can do everything except edit `main`, merge and publish.
 
-- **Local:** `dev-agent-token` from your `.env`.
+- **Team server on your computer (Docker or `pnpm dev`):** `dev-agent-token` from your `.env`.
 - **Your deployment:** ask an admin, or mint one yourself with the admin token:
 
 ```bash

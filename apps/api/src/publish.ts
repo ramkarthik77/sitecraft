@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { renderSite } from "@sitecraft/renderer";
+import type { SiteDocument } from "@sitecraft/schema";
+import { strToU8, zipSync, type Zippable } from "fflate";
 import type { Actor } from "./auth.js";
 import type { Config } from "./config.js";
 import type { Repo, SiteRow } from "./repo.js";
@@ -40,4 +42,33 @@ export function fileForPath(path: string): string | null {
   if (/\.(xml|txt|html)$/.test(rel)) return rel;
   if (!/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(rel)) return null;
   return `${rel}/index.html`;
+}
+
+/**
+ * Render a branch as a self-contained zip: every page, a 404 page, robots.txt,
+ * a sitemap when the final address is known, and the uploaded images it uses
+ * (copied in and linked as /media/...).
+ */
+export async function exportSite(cfg: Config, repo: Repo, storage: Storage, site: SiteRow, branch: string, siteUrl?: string): Promise<Uint8Array> {
+  const head = await repo.getHead(site.id, branch);
+  const mediaPrefix = `${cfg.publicUrl}/media/${site.id}/`;
+  const json = JSON.stringify(head.document).split(mediaPrefix).join("/media/");
+  const doc = JSON.parse(json) as SiteDocument;
+  const files = renderSite(doc, { siteUrl, basePath: "", formAction: formActionFor(cfg, site.id) });
+
+  const zip: Zippable = {};
+  for (const [name, body] of files) zip[name] = strToU8(body);
+  const media = new Set(json.match(/\/media\/[0-9a-f-]{36}\.(?:png|jpg|gif|webp)/gi) ?? []);
+  for (const ref of media) {
+    const file = ref.slice("/media/".length);
+    const body = await storage.get(`assets/${site.id}/${file}`);
+    if (body) zip[`media/${file}`] = new Uint8Array(body);
+  }
+  zip["README.txt"] = strToU8(
+    `${site.name}, exported from Sitecraft.\n\n` +
+      `Upload everything in this folder to any static host (Cloudflare Pages, Netlify, GitHub Pages, S3).\n` +
+      `Pages link to each other with root paths like /pricing, so host it at the root of a domain.\n` +
+      `Forms post to ${cfg.publicUrl}/forms/; they work while that address is reachable.\n`,
+  );
+  return zipSync(zip, { level: 6 });
 }

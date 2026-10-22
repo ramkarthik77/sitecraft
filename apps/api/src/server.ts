@@ -6,7 +6,7 @@ import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { createToken } from "./auth.js";
 import type { Config } from "./config.js";
-import { createPool, migrate, type Db } from "./db.js";
+import { createDb, migrate, type Db } from "./db.js";
 import { HttpError } from "./errors.js";
 import { EventBus } from "./events.js";
 import { Repo } from "./repo.js";
@@ -23,12 +23,12 @@ export interface AppContext {
 }
 
 export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
-  const db = createPool(cfg.databaseUrl);
+  const db = await createDb(cfg.databaseUrl);
   await migrate(db);
   for (const t of cfg.seedTokens) await createToken(db, t.name, t.role, t.token);
   const storage = createStorage(cfg.storage);
   await storage.init();
-  const events = new EventBus(cfg.databaseUrl);
+  const events = new EventBus(cfg.databaseUrl, db);
   await events.start();
   const ctx: AppContext = { cfg, db, repo: new Repo(db), storage, events };
 

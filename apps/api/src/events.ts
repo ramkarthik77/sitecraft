@@ -1,4 +1,5 @@
 import pg from "pg";
+import type { Db, Queryable } from "./db.js";
 
 export interface SiteEvent {
   type: "version" | "branch" | "deploy";
@@ -24,24 +25,36 @@ export class EventBus {
   private client: pg.Client | null = null;
   private stopped = false;
 
-  constructor(private databaseUrl: string) {}
+  private unlisten: (() => Promise<void>) | null = null;
+
+  constructor(
+    private databaseUrl: string,
+    private db?: Db,
+  ) {}
 
   async start() {
     this.stopped = false;
+    if (this.db?.kind === "pglite" && this.db.pglite) {
+      // Embedded database: same process, so listen on the instance itself.
+      this.unlisten = await this.db.pglite.listen(CHANNEL, (payload) => this.dispatch(payload));
+      return;
+    }
     await this.connect();
+  }
+
+  private dispatch(payload: string | undefined) {
+    if (!payload) return;
+    try {
+      const e = JSON.parse(payload) as SiteEvent;
+      this.listeners.get(e.siteId)?.forEach((l) => l(e));
+    } catch {
+      /* ignore malformed payloads */
+    }
   }
 
   private async connect() {
     const client = new pg.Client({ connectionString: this.databaseUrl });
-    client.on("notification", (msg) => {
-      if (!msg.payload) return;
-      try {
-        const e = JSON.parse(msg.payload) as SiteEvent;
-        this.listeners.get(e.siteId)?.forEach((l) => l(e));
-      } catch {
-        /* ignore malformed payloads */
-      }
-    });
+    client.on("notification", (msg) => this.dispatch(msg.payload));
     client.on("error", () => {
       this.client = null;
       if (!this.stopped) setTimeout(() => this.connect().catch(() => {}), 1000);
@@ -53,6 +66,8 @@ export class EventBus {
 
   async stop() {
     this.stopped = true;
+    await this.unlisten?.().catch(() => {});
+    this.unlisten = null;
     await this.client?.end().catch(() => {});
     this.client = null;
   }
@@ -67,7 +82,7 @@ export class EventBus {
     };
   }
 
-  static async publish(q: { query: (sql: string, params: unknown[]) => Promise<unknown> }, e: Omit<SiteEvent, "at">) {
+  static async publish(q: Queryable, e: Omit<SiteEvent, "at">) {
     await q.query("SELECT pg_notify($1, $2)", [CHANNEL, JSON.stringify({ ...e, at: new Date().toISOString() })]);
   }
 }

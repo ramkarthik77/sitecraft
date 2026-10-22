@@ -29,6 +29,7 @@ const PATHS: Record<string, string> = {
   terminal: "M2 2.5h12v11H2z M4.5 6l2 2-2 2 M8 10.5h3.5",
   spark: "M8 1.5v13 M1.5 8h13 M3.4 3.4l9.2 9.2 M12.6 3.4l-9.2 9.2",
   logout: "M6 2.5H2.5v11H6 M10 5l3 3-3 3 M13 8H6",
+  download: "M8 2.5v8 M4.5 7.5 8 11l3.5-3.5 M2.5 13.5h11",
 };
 
 export function Icon({ name, size = 16, label, style }: { name: keyof typeof PATHS | string; size?: number; label?: string; style?: CSSProperties }) {

@@ -8,6 +8,36 @@ export type Role = "admin" | "editor" | "agent";
 export interface Actor {
   name: string;
   role: Role;
+  /** True for the owner of a local app, signed in by being on this computer. */
+  local?: boolean;
+}
+
+export const LOCAL_OWNER: Actor = { name: "You", role: "admin", local: true };
+
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+function hostnameOf(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value.includes("://") ? value : `http://${value}`).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A request counts as coming from the owner of a local app only when it was
+ * sent to a loopback hostname (which blocks DNS-rebinding tricks) and, if the
+ * browser sent an Origin, that origin is this computer too (which blocks other
+ * websites from using your local Sitecraft).
+ */
+export function isLocalRequest(req: FastifyRequest): boolean {
+  const host = hostnameOf(req.headers.host);
+  if (!host || !LOOPBACK.has(host)) return false;
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  const o = hostnameOf(origin);
+  return !!o && LOOPBACK.has(o);
 }
 
 export function hashToken(token: string): string {
@@ -37,8 +67,12 @@ function extractToken(req: FastifyRequest): string | null {
   return null;
 }
 
-export async function authenticate(db: Db, req: FastifyRequest): Promise<Actor> {
+export async function authenticate(db: Db, req: FastifyRequest, opts: { local?: boolean } = {}): Promise<Actor> {
   const token = extractToken(req);
+  if (!token && opts.local) {
+    if (isLocalRequest(req)) return LOCAL_OWNER;
+    throw new HttpError(403, "This Sitecraft only accepts requests from this computer.");
+  }
   if (!token) throw new HttpError(401, "Missing API token. Send Authorization: Bearer <token>.");
   const key = hashToken(token);
   const hit = cache.get(key);

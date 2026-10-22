@@ -25,19 +25,48 @@ function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
 }
 
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+function loopbackHost(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    return LOOPBACK.has(new URL(`http://${value}`).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Local app: Claude Code on this computer can connect without a token; the
+ * server acts with the local agent token, so edits still show as Claude's and
+ * stay on branches. Only requests addressed to this computer qualify.
+ */
+export interface HttpOptions {
+  localAgentToken?: string;
+}
+
 /**
  * Remote mode: Claude Code connects over Streamable HTTP and passes the
  * person's own Sitecraft token as a Bearer header, so every edit is attributed
  * to them and limited by their role. Stateless: one server per request.
  */
-export function startHttp(port: number, apiUrl = API_URL) {
+export function startHttp(port: number, apiUrl = API_URL, opts: HttpOptions = {}, host?: string) {
   const http = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     if (url.pathname === "/healthz") return send(res, 200, { ok: true });
     if (url.pathname !== "/mcp") return send(res, 404, { error: "Not found" });
     if (req.method !== "POST") return send(res, 405, { jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed" }, id: null });
+    // Browsers label cross-site requests with an Origin; Claude Code sends none.
+    // Refuse web pages from elsewhere so a site you visit can't drive your Sitecraft.
+    const origin = req.headers.origin;
+    if (opts.localAgentToken && origin !== undefined && !loopbackHost(origin.replace(/^[a-z]+:\/\//i, ""))) {
+      return send(res, 403, { jsonrpc: "2.0", error: { code: -32001, message: "Requests from web pages are not accepted." }, id: null });
+    }
+    if (opts.localAgentToken && !loopbackHost(req.headers.host)) {
+      return send(res, 403, { jsonrpc: "2.0", error: { code: -32001, message: "This Sitecraft only accepts requests from this computer." }, id: null });
+    }
     const auth = req.headers.authorization ?? "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    const token = (auth.startsWith("Bearer ") ? auth.slice(7).trim() : "") || opts.localAgentToken || "";
     if (!token) {
       res.setHeader("WWW-Authenticate", 'Bearer realm="sitecraft"');
       return send(res, 401, { jsonrpc: "2.0", error: { code: -32001, message: "Send Authorization: Bearer <your Sitecraft token>" }, id: null });
@@ -56,7 +85,7 @@ export function startHttp(port: number, apiUrl = API_URL) {
       if (!res.headersSent) send(res, 400, { jsonrpc: "2.0", error: { code: -32700, message: (e as Error).message }, id: null });
     }
   });
-  return new Promise<typeof http>((resolve) => http.listen(port, () => resolve(http)));
+  return new Promise<typeof http>((resolve) => (host ? http.listen(port, host, () => resolve(http)) : http.listen(port, () => resolve(http))));
 }
 
 async function startStdio() {
@@ -79,7 +108,9 @@ const isMain = (() => {
 if (isMain) {
   if (process.argv.includes("--http")) {
     const port = Number(process.env.PORT ?? 4100);
-    await startHttp(port);
+    const localAgentToken = process.env.SITECRAFT_LOCAL_AGENT_TOKEN || undefined;
+    // The local app's MCP server listens only on this computer.
+    await startHttp(port, API_URL, { localAgentToken }, process.env.HOST ?? (localAgentToken ? "127.0.0.1" : undefined));
     console.error(`Sitecraft MCP server on http://localhost:${port}/mcp (API ${API_URL})`);
   } else {
     await startStdio();

@@ -22,10 +22,14 @@ function Root() {
   const loc = useLocation();
 
   useEffect(() => {
-    if (!getToken()) return setChecking(false);
+    // The local app answers without a token; otherwise a saved token signs in.
+    const sent = getToken();
     api<Me>("GET", "/me")
       .then(setMe)
-      .catch(() => setToken(null))
+      .catch(() => {
+        // Forget the token only if it's the one that was refused, not one saved meanwhile.
+        if (sent && getToken() === sent) setToken(null);
+      })
       .finally(() => setChecking(false));
   }, []);
 
@@ -111,6 +115,13 @@ function mcpAddress(): string {
   return local ? "http://localhost:4100/mcp" : `${location.origin}/mcp`;
 }
 
+/** What to paste into a terminal to connect Claude Code. */
+function connectCommand(me: Me): string {
+  return me.local
+    ? `claude mcp add --transport http --scope user sitecraft ${mcpAddress()}`
+    : `claude mcp add --transport http --scope user sitecraft ${mcpAddress()} --header "Authorization: Bearer <your agent token>"`;
+}
+
 function Home({ me }: { me: Me }) {
   const [sites, setSites] = useState<SiteSummary[] | null>(null);
   const [reviews, setReviews] = useState<PendingReview[]>([]);
@@ -185,19 +196,19 @@ function Home({ me }: { me: Me }) {
           <strong>
             <Icon name="terminal" size={14} /> Claude Code
           </strong>
-          <p>Claude builds and edits sites here on its own branches. Connect it with an agent token and this address:</p>
-          <code>{mcpAddress()}</code>
+          <p>{me.local ? "Claude builds and edits sites here on its own branches. Run this once in a terminal:" : "Claude builds and edits sites here on its own branches. Connect it with your agent token:"}</p>
+          <code>{connectCommand(me)}</code>
           <button
             className="btn sm agent-outline"
             onClick={() => {
-              void navigator.clipboard?.writeText(mcpAddress()).then(() => {
+              void navigator.clipboard?.writeText(connectCommand(me)).then(() => {
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1500);
               });
             }}
           >
             <Icon name="copy" size={13} />
-            {copied ? "Copied" : "Copy address"}
+            {copied ? "Copied" : "Copy command"}
           </button>
         </div>
         <div className="me-row">
@@ -207,8 +218,9 @@ function Home({ me }: { me: Me }) {
           <span className="grow" title={me.name}>
             {me.name}
             <br />
-            <span className="muted">{me.role}</span>
+            <span className="muted">{me.local ? "Local app on this computer" : me.role}</span>
           </span>
+          {!me.local && (
           <button
             className="btn ghost icon sm"
             aria-label="Sign out"
@@ -220,6 +232,7 @@ function Home({ me }: { me: Me }) {
           >
             <Icon name="logout" size={14} />
           </button>
+          )}
         </div>
       </nav>
 

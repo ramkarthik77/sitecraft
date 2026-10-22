@@ -1,15 +1,67 @@
 # Running Sitecraft on your computer
 
-Two ways to run it:
+Pick the way that fits:
 
-| | Option A: Docker | Option B: without Docker |
-|---|---|---|
-| Best for | Trying it out, testing end to end | Changing the code (hot reload) |
-| You install | Docker Desktop | Node 22, pnpm 10, Postgres 16 |
-| Editor at | <http://localhost:4000> | <http://localhost:5173> |
-| Time | About 5 minutes | About 10 minutes |
+| | The local app | Team server, Docker (A) | Team server, no Docker (B) |
+|---|---|---|---|
+| Best for | One person on their own computer | Testing the shared setup end to end | Changing the code (hot reload) |
+| You install | Node 20+, pnpm | Docker Desktop | Node 22, pnpm 10, Postgres 16 |
+| Database | Built in (a folder) | Postgres in Docker | Your Postgres |
+| Sign-in | None; only this computer can connect | Tokens | Tokens |
+| Start | `pnpm start` | `docker compose up` | `pnpm dev` |
+| Editor at | <http://localhost:4000> | <http://localhost:4000> | <http://localhost:5173> |
 
-Either way you get the same four pieces:
+## The local app
+
+```bash
+git clone https://github.com/ramkarthik77/sitecraft
+cd sitecraft
+pnpm install
+pnpm start
+```
+
+The first `pnpm start` builds everything (about a minute) and opens the editor at <http://localhost:4000>. After that it starts in a few seconds, and rebuilds by itself when you pull new code.
+
+It prints:
+
+```
+  Sitecraft is running
+
+  Editor        http://localhost:4000
+  Your data     /Users/you/.sitecraft
+
+  Connect Claude Code (once):
+    claude mcp add --transport http --scope user sitecraft http://localhost:4100/mcp
+```
+
+Run that `claude mcp add` command once; from then on every Claude Code session can use Sitecraft while the app is running. Press Ctrl+C to stop.
+
+**No sign-in, and why that's safe.** The app listens only on `127.0.0.1`, so other computers can't reach it. It also refuses requests whose `Host` or `Origin` isn't `localhost`, so a website open in your browser can't talk to it either. Claude Code still connects as an agent: it works on branches and can't change `main`, merge or publish. You do those in the editor.
+
+**Your data.** Everything is in one folder, `~/.sitecraft` by default:
+
+| Path | What |
+|---|---|
+| `db/` | The database (sites, versions, branches, form submissions) |
+| `storage/` | Uploaded images and published files |
+| `config.json` | This computer's secret and Claude's token. Keep it private |
+
+Back up by copying the folder while Sitecraft is stopped. To start over, stop Sitecraft and delete the folder.
+
+**Publishing.** Published sites are served at `http://localhost:4000/s/<slug>`, which only you can see. To put a site online, open **Settings → Export**, optionally enter the address it will live at (this adds a sitemap and search-engine links), and download the .zip. It's plain HTML, CSS and images; upload it to Cloudflare Pages, Netlify or any web server.
+
+**Options**
+
+| | |
+|---|---|
+| `pnpm start --no-open` | Don't open the browser |
+| `pnpm start --rebuild` | Build again, for example after changing the code yourself |
+| `SITECRAFT_DATA=/path pnpm start` | Keep data somewhere else |
+| `SITECRAFT_PORT=4010 SITECRAFT_MCP_PORT=4110 pnpm start` | Use other ports. Change the port in the `claude mcp add` command to match |
+
+## Run it as a team server
+
+Options A and B run the full server with sign-in, for a team or to work on Sitecraft itself. Either way you get the same four pieces:
 
 | Piece | Address | What it is |
 |---|---|---|
@@ -148,7 +200,9 @@ It prints the token once. Only a hash of it is stored.
 
 ## Connect Claude Code
 
-With Sitecraft running, from the repo folder:
+With the local app, run the `claude mcp add` command that `pnpm start` prints; no token is needed.
+
+With a team server running, from the repo folder:
 
 ```bash
 export SITECRAFT_TOKEN=dev-agent-token
@@ -182,6 +236,8 @@ DATABASE_URL=postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e pnpm te
 ```
 
 ## Start over with empty data
+
+Local app: stop it, then delete `~/.sitecraft` (or your `SITECRAFT_DATA` folder).
 
 Docker: `docker compose down -v`, then `docker compose up`.
 

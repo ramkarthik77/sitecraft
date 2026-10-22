@@ -209,6 +209,8 @@ export function HistoryDrawer(props: { siteId: string; branch: string; onClose: 
 export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; onSaved: (s: SiteSummary) => void; toast: (m: string, tone?: "error") => void }) {
   const [name, setName] = useState(props.site.name);
   const [domain, setDomain] = useState(props.site.domain ?? "");
+  const [exportUrl, setExportUrl] = useState(props.site.domain ? `https://${props.site.domain}` : "");
+  const [exporting, setExporting] = useState(false);
   const [subs, setSubs] = useState<{ id: number; form: string; data: Record<string, string>; created_at: string }[] | null>(null);
   useEffect(() => {
     Sites.forms(props.site.id).then(setSubs).catch(() => setSubs([]));
@@ -239,6 +241,34 @@ export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; 
         </span>
         <button className="btn primary" style={{ alignSelf: "flex-start" }} onClick={save}>
           Save settings
+        </button>
+      </section>
+      <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <h3 style={{ margin: 0, fontSize: 13 }}>Export</h3>
+        <span className="muted small">Download the site as plain HTML to host anywhere, such as Cloudflare Pages or Netlify. Exports the main version.</span>
+        <div className="row">
+          <label htmlFor="s-export-url">Will live at</label>
+          <input id="s-export-url" className="input" value={exportUrl} placeholder="https://www.example.com (optional)" onChange={(e) => setExportUrl(e.target.value)} />
+        </div>
+        <span className="muted small">Add the address to include a sitemap and search-engine links.</span>
+        <button
+          className="btn"
+          style={{ alignSelf: "flex-start" }}
+          disabled={exporting}
+          onClick={async () => {
+            setExporting(true);
+            try {
+              await Sites.exportZip(props.site.id, props.site.slug, exportUrl.trim() || undefined);
+              props.toast("Downloaded the site");
+            } catch (e) {
+              props.toast((e as Error).message, "error");
+            } finally {
+              setExporting(false);
+            }
+          }}
+        >
+          <Icon name="download" size={14} />
+          {exporting ? "Preparing…" : "Download .zip"}
         </button>
       </section>
       <section>

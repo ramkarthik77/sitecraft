@@ -18,6 +18,16 @@
 | `apps/mcp` | MCP server for Claude Code. Each tool calls the API with the caller's own token |
 | `apps/editor` | React editor and sites dashboard (Vite) |
 | `claude-plugin` | Claude Code plugin: MCP config, `build-site` skill, confirm-before-shipping hook |
+| `scripts/local.mjs` | `pnpm start`: builds if needed and runs the API and MCP server as the local app |
+
+### The local app
+
+`pnpm start` runs the same API and MCP server with `SITECRAFT_LOCAL=1` and `DATABASE_URL=pglite:<folder>`:
+
+- **Database.** [PGlite](https://pglite.dev) is Postgres compiled to WebAssembly, running inside the API process and saving to a folder. The same SQL and migrations run on it. `apps/api/src/db.ts` puts it behind the same interface as the `pg` pool and serializes queries, since PGlite has one connection. Live updates use PGlite's own `listen` in place of a second Postgres connection.
+- **Sign-in.** Requests with no token count as the owner (an admin) only when the `Host` is a loopback name and the `Origin` is absent or loopback (`apps/api/src/auth.ts`). That blocks other computers (the server binds `127.0.0.1`), DNS rebinding and other websites. Requests with a token are checked as usual.
+- **Claude Code.** The MCP server holds a per-computer agent token from `~/.sitecraft/config.json` and uses it for loopback requests that send no token, applying the same Host and Origin checks. Claude is still an agent, so `assertCanWrite` and `assertCanShip` apply unchanged.
+- **Export.** `GET /api/sites/:id/export` renders the main branch with links from the site root (`/about`, `/media/...`), so the zip is meant for the root of a domain; copies the images it uses into `media/`, and returns a zip.
 | `deploy/cloudflare` | Worker that fronts the app and MCP containers on Cloudflare |
 | `e2e` | Browser tests (Playwright) |
 
@@ -41,7 +51,7 @@ Validation (`packages/schema/src/validate.ts`) rejects unknown style properties,
 
 ## Live updates
 
-Every save, branch and publish sends a Postgres `NOTIFY`. Each API instance listens and streams the event to open editors over server-sent events (`/api/sites/<id>/events`). The editor reloads the branch when it has no unsaved edits, or offers to load the new version when it does. This works across any number of API instances.
+Every save, branch and publish sends a Postgres `NOTIFY` (on PGlite, the in-process equivalent). Each API instance listens and streams the event to open editors over server-sent events (`/api/sites/<id>/events`). The editor reloads the branch when it has no unsaved edits, or offers to load the new version when it does. This works across any number of API instances.
 
 ## Publishing and hosting
 

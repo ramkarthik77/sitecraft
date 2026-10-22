@@ -29,7 +29,9 @@ export class ApiError extends Error {
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown, raw?: { contentType: string; data: Blob }): Promise<T> {
-  const headers: Record<string, string> = { authorization: `Bearer ${getToken() ?? ""}` };
+  const token = getToken();
+  // The local app needs no token; a signed-in person sends theirs.
+  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
   if (raw) headers["content-type"] = raw.contentType;
   else if (body !== undefined) headers["content-type"] = "application/json";
   const res = await fetch(`/api${path}`, { method, headers, body: raw ? raw.data : body !== undefined ? JSON.stringify(body) : undefined });
@@ -53,6 +55,32 @@ export const enc = encodeURIComponent;
 export interface Me {
   name: string;
   role: "admin" | "editor" | "agent";
+  /** Running as the local app: no sign-in, single owner. */
+  local?: boolean;
+}
+
+/** Download a file from the API (sends the token when there is one). */
+export async function download(path: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`/api${path}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    let msg = `Download failed (${res.status})`;
+    try {
+      msg = (await res.json()).error ?? msg;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  const blob = await res.blob();
+  const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 export interface SiteSummary {
   id: string;
@@ -117,6 +145,7 @@ export const Sites = {
   deployments: (id: string) => api<Deployment[]>("GET", `/sites/${id}/deployments`),
   rollback: (id: string, dep: string) => api("POST", `/sites/${id}/deployments/${dep}/rollback`, {}),
   forms: (id: string) => api<{ id: number; form: string; data: Record<string, string>; created_at: string }[]>("GET", `/sites/${id}/forms`),
+  exportZip: (id: string, slug: string, url?: string) => download(`/sites/${id}/export${url ? `?url=${enc(url)}` : ""}`, `${slug}.zip`),
   upload: (id: string, file: File) =>
     api<{ url: string }>("POST", `/sites/${id}/assets?filename=${enc(file.name)}`, undefined, { contentType: file.type, data: file }),
 };

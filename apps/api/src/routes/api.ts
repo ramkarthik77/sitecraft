@@ -12,7 +12,7 @@ import {
 } from "@sitecraft/schema";
 import { authenticate, createToken, requireRole, signPreview, type Actor, type Role } from "../auth.js";
 import { HttpError } from "../errors.js";
-import { publishVersion, siteLocation } from "../publish.js";
+import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -34,7 +34,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.decorateRequest("actor", null as unknown as Actor);
   app.addHook("preHandler", async (req) => {
-    req.actor = await authenticate(ctx.db, req);
+    req.actor = await authenticate(ctx.db, req, { local: cfg.local });
   });
 
   const reviewUrl = (siteId: string, branch: string) => `${cfg.editorUrl}/sites/${siteId}?branch=${encodeURIComponent(branch)}&review=1`;
@@ -62,7 +62,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     publishUrl: siteLocation(cfg, s).url,
   });
 
-  app.get("/me", async (req) => ({ name: req.actor.name, role: req.actor.role, agentCanPublish: cfg.agentCanPublish }));
+  app.get("/me", async (req) => ({ name: req.actor.name, role: req.actor.role, agentCanPublish: cfg.agentCanPublish, local: !!req.actor.local }));
 
   app.get("/blocks", async () => BLOCK_NAMES.map((name) => ({ name, description: BLOCK_DESCRIPTIONS[name] ?? "" })));
   app.get("/templates", async () => TEMPLATES);
@@ -239,6 +239,19 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     if (branch !== "main") throw new HttpError(400, "Only main is published. Merge the branch first.");
     assertCanShip(req.actor, site.id, branch, "publish the live site");
     return publishVersion(cfg, repo, ctx.storage, req.actor, site, branch);
+  });
+
+  // Download a site as a zip of static files, to host anywhere.
+  app.get<{ Params: Params; Querystring: { branch?: string; url?: string } }>("/sites/:siteId/export", async (req, reply) => {
+    const site = await repo.getSite(req.params.siteId);
+    const url = (req.query.url ?? "").trim();
+    if (url && !/^https?:\/\/[^\s/]+(\/.*)?$/i.test(url)) throw new HttpError(400, "The site address should look like https://www.example.com");
+    const zip = await exportSite(cfg, repo, ctx.storage, site, req.query.branch ?? "main", url || undefined);
+    return reply
+      .header("Content-Type", "application/zip")
+      .header("Content-Disposition", `attachment; filename="${site.slug}.zip"`)
+      .header("Cache-Control", "no-store")
+      .send(Buffer.from(zip));
   });
 
   app.get<{ Params: Params }>("/sites/:siteId/deployments", async (req) => {

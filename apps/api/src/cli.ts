@@ -1,12 +1,12 @@
 import { createStarterDocument } from "@sitecraft/schema";
 import { createToken, type Role } from "./auth.js";
 import { loadConfig } from "./config.js";
-import { createPool, migrate } from "./db.js";
+import { createDb, migrate } from "./db.js";
 import { Repo } from "./repo.js";
 
 const [cmd, ...args] = process.argv.slice(2);
 const cfg = loadConfig();
-const db = createPool(cfg.databaseUrl);
+const db = await createDb(cfg.databaseUrl);
 
 try {
   if (cmd === "migrate") {

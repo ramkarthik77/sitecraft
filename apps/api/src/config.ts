@@ -18,6 +18,11 @@ export interface Config {
   agentCanEditMain: boolean;
   editorDist?: string;
   corsOrigins: string[];
+  /**
+   * Local app mode: single user on this computer. Requests from this machine
+   * need no token and act as the owner; tokens still work (Claude Code uses one).
+   */
+  local: boolean;
 }
 
 function bool(v: string | undefined, d: boolean) {
@@ -27,18 +32,20 @@ function bool(v: string | undefined, d: boolean) {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number(env.PORT ?? 4000);
+  const local = bool(env.SITECRAFT_LOCAL, false);
   const publicUrl = (env.PUBLIC_URL ?? `http://localhost:${port}`).replace(/\/$/, "");
   const seedTokens: Config["seedTokens"] = [];
   if (env.ADMIN_TOKEN) seedTokens.push({ token: env.ADMIN_TOKEN, name: "admin (seed)", role: "admin" });
   if (env.EDITOR_TOKEN) seedTokens.push({ token: env.EDITOR_TOKEN, name: "editor (seed)", role: "editor" });
-  if (env.AGENT_TOKEN) seedTokens.push({ token: env.AGENT_TOKEN, name: "claude-code (seed)", role: "agent" });
+  if (env.AGENT_TOKEN) seedTokens.push({ token: env.AGENT_TOKEN, name: local ? "Claude Code" : "claude-code (seed)", role: "agent" });
   const secret = env.SECRET ?? "";
   if (env.NODE_ENV === "production" && secret.length < 32) {
     throw new Error("SECRET must be at least 32 characters in production");
   }
   return {
     port,
-    host: env.HOST ?? "0.0.0.0",
+    // The local app only listens on this computer.
+    host: env.HOST ?? (local ? "127.0.0.1" : "0.0.0.0"),
     databaseUrl: env.DATABASE_URL ?? "postgres://sitecraft:sitecraft@localhost:5432/sitecraft",
     publicUrl,
     editorUrl: (env.EDITOR_URL ?? "http://localhost:5173").replace(/\/$/, ""),
@@ -61,5 +68,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     agentCanEditMain: bool(env.AGENT_CAN_EDIT_MAIN, false),
     editorDist: env.EDITOR_DIST || undefined,
     corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(",").map((s) => s.trim()).filter(Boolean),
+    local,
   };
 }

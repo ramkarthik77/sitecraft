@@ -27,28 +27,29 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | [How it works](docs/ARCHITECTURE.md) | The document model, branches, live updates, publishing, roles, extending it |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems and fixes |
 
-## Quick start
+## Quick start: the local app
 
-With Docker installed:
+Needs Node 20+ and pnpm. No Docker, no database to install, no sign-in.
 
 ```bash
 git clone https://github.com/ramkarthik77/sitecraft && cd sitecraft
-cp .env.example .env
-docker compose up --build
+pnpm install
+pnpm start
 ```
 
-Open <http://localhost:4000> and sign in with `dev-editor-token`. Published sites appear at `http://localhost:4000/s/<slug>`.
+The first run builds Sitecraft (about a minute), then opens <http://localhost:4000>. Later starts take a few seconds. Your sites, images and published files live in `~/.sitecraft`; copy that folder to back up.
 
-To let Claude Code build sites, from the same folder:
+Connect Claude Code once, with the command `pnpm start` prints:
 
 ```bash
-export SITECRAFT_TOKEN=dev-agent-token
-claude
+claude mcp add --transport http --scope user sitecraft http://localhost:4100/mcp
 ```
 
-Then ask: *"Create a Sitecraft site for Northstar Coffee with a menu section and a contact form, then send me the review link."* Open the editor while it works to watch the changes arrive.
+Then ask Claude: *"Create a Sitecraft site for Northstar Coffee with a menu section and a contact form, then send me the review link."* Keep the editor open to watch its changes arrive. Claude works on a branch; you merge and publish.
 
-No Docker, or want hot reload while changing the code? See [Local setup](docs/LOCAL_SETUP.md#option-b-without-docker).
+To put a site online, open **Settings → Export** and download a .zip of plain HTML you can host anywhere (Cloudflare Pages, Netlify, any web server).
+
+For a shared server with sign-in for a team, see [Local setup](docs/LOCAL_SETUP.md#run-it-as-a-team-server) (Docker or Postgres) and [Deploy on Cloudflare](docs/CLOUDFLARE.md).
 
 ## Deploy
 

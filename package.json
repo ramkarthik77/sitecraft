@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "start": "node scripts/local.mjs",
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel --filter \"./apps/*\" run dev",
     "typecheck": "pnpm -r run typecheck",

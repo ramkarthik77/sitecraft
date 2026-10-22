@@ -1,7 +1,6 @@
-import type pg from "pg";
 import { applyOperations, OperationError, validateDocument, type Operation, type SiteDocument } from "@sitecraft/schema";
 import type { Actor } from "./auth.js";
-import { tx, type Db } from "./db.js";
+import { tx, type Db, type Queryable } from "./db.js";
 import { HttpError } from "./errors.js";
 import { EventBus } from "./events.js";
 
@@ -43,7 +42,7 @@ export function slugify(name: string): string {
   return s || "site";
 }
 
-async function audit(q: pg.PoolClient | Db, siteId: string | null, actor: Actor, action: string, detail: Record<string, unknown> = {}) {
+async function audit(q: Queryable, siteId: string | null, actor: Actor, action: string, detail: Record<string, unknown> = {}) {
   await q.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, $4, $5)", [siteId, actor.name, actor.role, action, detail]);
 }
 
@@ -136,7 +135,7 @@ export class Repo {
     return rows;
   }
 
-  async getBranch(siteId: string, name: string, c: pg.PoolClient | Db = this.db, lock = false): Promise<BranchRow> {
+  async getBranch(siteId: string, name: string, c: Queryable = this.db, lock = false): Promise<BranchRow> {
     const { rows } = await c.query<BranchRow>(`SELECT * FROM branches WHERE site_id = $1 AND name = $2${lock ? " FOR UPDATE" : ""}`, [siteId, name]);
     if (!rows[0]) throw new HttpError(404, `Branch "${name}" not found.`);
     return rows[0];

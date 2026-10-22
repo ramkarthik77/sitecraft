@@ -2,6 +2,21 @@
 
 ## Starting up
 
+**`pnpm start`: "Port 4000 is already in use"** (or 4100)
+Sitecraft is probably already running in another terminal; use that one, or stop it with Ctrl+C. If something else has the port, pick others: `SITECRAFT_PORT=4010 SITECRAFT_MCP_PORT=4110 pnpm start`, and use port 4110 in the `claude mcp add` command.
+
+**`pnpm start`: "Sitecraft didn't start" with a database message**
+The database folder may be damaged, for example after the computer lost power mid-write. Stop Sitecraft, move `~/.sitecraft/db` somewhere else, and start again (you get an empty database). If you have a backup of the folder, copy it back instead.
+
+**`pnpm start`: "config.json isn't valid JSON"**
+The file was edited by hand. Fix it, or delete it and a new one is made. Then run the `claude mcp add` command again; Claude's old access stops working.
+
+**The editor shows a sign-in screen with the local app**
+You opened it by an address other than `localhost` or `127.0.0.1` (for example your computer's network name). Use <http://localhost:4000>.
+
+**Changed the code but `pnpm start` runs the old version**
+It rebuilds when the git commit changes. For uncommitted changes run `pnpm start --rebuild`.
+
 **`docker compose up` fails with "port is already allocated" (5432, 4000, 4100 or 9000)**
 Something else is using that port, often a local Postgres. Stop it (`brew services stop postgresql@16`, or `sudo systemctl stop postgresql`), or change the left-hand number of that port in `docker-compose.yml`, for example `"5433:5432"`.
 

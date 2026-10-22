@@ -11,6 +11,8 @@ export const EDITOR = "test-editor-token";
 export const AGENT = "test-agent-token";
 
 export async function resetDb() {
+  // An in-memory embedded database starts empty with every server.
+  if (TEST_DB.startsWith("pglite:")) return;
   const c = new pg.Client({ connectionString: TEST_DB });
   await c.connect();
   await c.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
