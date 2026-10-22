@@ -64,7 +64,8 @@ export function fileForPath(path: string): string | null {
 export async function exportSite(cfg: Config, repo: Repo, storage: Storage, site: SiteRow, branch: string, siteUrl?: string): Promise<Uint8Array> {
   const head = await repo.getHead(site.id, branch);
   const mediaPrefix = `${cfg.publicUrl}/media/${site.id}/`;
-  const json = JSON.stringify(head.document).split(mediaPrefix).join("/media/");
+  const libraryPrefix = `${cfg.publicUrl}/media/library/`;
+  const json = JSON.stringify(head.document).split(libraryPrefix).join("/media/library/").split(mediaPrefix).join("/media/");
   const doc = JSON.parse(json) as SiteDocument;
   const files = renderSite(doc, { siteUrl, basePath: "", formAction: formActionFor(cfg, site.id), ...renderSecurity(cfg) });
 
@@ -75,6 +76,11 @@ export async function exportSite(cfg: Config, repo: Repo, storage: Storage, site
     const file = ref.slice("/media/".length);
     const body = await storage.get(`assets/${site.id}/${file}`);
     if (body) zip[`media/${file}`] = new Uint8Array(body);
+  }
+  for (const ref of new Set(json.match(/\/media\/library\/[0-9a-f-]{36}\.(?:png|jpg|gif|webp)/gi) ?? [])) {
+    const file = ref.slice("/media/library/".length);
+    const body = await storage.get(`library/${file}`);
+    if (body) zip[`media/library/${file}`] = new Uint8Array(body);
   }
   zip["README.txt"] = strToU8(
     `${site.name}, exported from Sitecraft.\n\n` +

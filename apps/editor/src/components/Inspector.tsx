@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef, useState } from "react";
 import { findCollection, type Breakpoint, type Collection, type Operation, type Page, type SiteDocument, type SiteNode, type Style, type StyleProperty } from "@sitecraft/schema";
 import { Sites } from "../api";
+import { AssetPicker } from "./Assets";
 import { BindingFields, ListFields } from "./Cms";
 import { nodeLabel } from "./Layers";
 
@@ -106,6 +107,7 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
   const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
   const file = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [picking, setPicking] = useState(false);
   const pages = doc.pages.map((x) => x.path);
   const linkList = (
     <datalist id="page-links">
@@ -200,9 +202,27 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
             <TextInput label="Image URL" value={str("src")} onChange={(v) => set("src", v)} />
           </Field>
           <Field label="">
-            <button className="btn sm" disabled={uploading} onClick={() => file.current?.click()}>
-              {uploading ? "Uploading…" : "Upload image"}
-            </button>
+            <span style={{ display: "flex", gap: 6 }}>
+              <button className="btn sm" onClick={() => setPicking(true)}>
+                Choose from library
+              </button>
+              <button className="btn sm ghost" disabled={uploading} onClick={() => file.current?.click()}>
+                {uploading ? "Uploading…" : "Upload"}
+              </button>
+            </span>
+            {picking && (
+              <AssetPicker
+                onClose={() => setPicking(false)}
+                onPick={(a) => {
+                  setPicking(false);
+                  // The library's alt text and focal point come along; the crop keeps the focal point in view.
+                  apply([
+                    { op: "update_node", nodeId: node.id, props: { src: a.url, ...(a.alt && !str("alt") ? { alt: a.alt } : {}) } },
+                    { op: "update_node", nodeId: node.id, breakpoint: "base", style: { objectPosition: `${Math.round(a.focalX * 100)}% ${Math.round(a.focalY * 100)}%` } },
+                  ]);
+                }}
+              />
+            )}
             <input
               ref={file}
               type="file"

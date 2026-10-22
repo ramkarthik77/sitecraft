@@ -105,6 +105,24 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     reply.header("Access-Control-Allow-Origin", "*").header("Access-Control-Allow-Methods", "POST").header("Access-Control-Allow-Headers", "Content-Type").status(204).send(),
   );
 
+  // The shared image library. Expired images stop being served.
+  app.get<{ Params: { file: string } }>("/media/library/:file", async (req, reply) => {
+    const m = /^([0-9a-f-]{36})\.(png|jpg|gif|webp)$/i.exec(req.params.file);
+    if (!m) return reply.status(404).send("Not found");
+    const { rows } = await ctx.db.query<{ expires_at: string | null; ext: string }>("SELECT expires_at, ext FROM library_assets WHERE id = $1", [m[1]]);
+    const row = rows[0];
+    if (!row || row.ext !== m[2]!.toLowerCase()) return reply.status(404).send("Not found");
+    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return reply.status(410).send("This image's license has expired.");
+    const body = await ctx.storage.get(`library/${m[1]}.${row.ext}`);
+    if (!body) return reply.status(404).send("Not found");
+    return reply
+      .headers({ "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Cross-Origin-Resource-Policy": "cross-origin" })
+      // Short cache: replacing a library image keeps its address.
+      .header("Cache-Control", "public, max-age=300")
+      .type(contentTypeFor(req.params.file))
+      .send(body);
+  });
+
   app.get<{ Params: { siteId: string; file: string } }>("/media/:siteId/:file", async (req, reply) => {
     const { siteId, file } = req.params;
     if (!/^[0-9a-f-]{36}$/i.test(siteId) || !/^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/i.test(file)) return reply.status(404).send("Not found");

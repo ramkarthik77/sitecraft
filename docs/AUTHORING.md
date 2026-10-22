@@ -1,4 +1,4 @@
-# Templates, brands and releases
+# Templates, brands, assets and releases
 
 How teams keep many sites consistent and launch on time: **templates** decide how a new site starts, **brands** keep the look and voice the same across sites afterwards.
 
@@ -71,3 +71,16 @@ Logo: never stretch, recolor or put on busy photos.
 - On Cloudflare, schedules are checked every minute.
 
 **Hide a page:** a page's **Hide from the published site** box keeps it out of the published site and the sitemap while you work on it. It still shows in the editor and in previews. The home page can't be hidden.
+
+## Assets: the shared image library
+
+**Assets** in the dashboard is one image library for every site, like AEM Assets.
+
+- **Upload** with the button or by dropping files anywhere on the page. PNG, JPEG, GIF and WebP, up to 10 MB. Files are checked to really be the image type they claim.
+- **Describe** each image: title, **alt text**, tags, credit. Tiles show **No alt text** until it's written.
+- **Focal point:** click the most important part of the image. When an image is placed from the library, its crop keeps that point in view (`objectPosition`).
+- **Usage rights end:** after that date the image stops being served on every site (it returns *410 Gone*), so licensed photos come down on time.
+- **Used on** lists every site, page and CMS collection whose `main` uses the image. Deleting a used image asks first.
+- **Replace file…** swaps the picture but keeps its address, so every page using it updates at once.
+
+In the editor, image elements and CMS image fields have **Choose from library**; the library's alt text comes along. Claude Code searches the same library with `search_assets` and uses those images instead of ones from elsewhere.

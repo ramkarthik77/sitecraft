@@ -21,6 +21,7 @@ import {
 } from "@sitecraft/schema";
 import { renderMarkdown } from "@sitecraft/renderer";
 import { Sites } from "../api";
+import { AssetPicker } from "./Assets";
 import { Icon } from "./Icon";
 
 type Apply = (ops: Operation[], coalesceKey?: string) => (string | null)[] | null;
@@ -311,13 +312,18 @@ function RichText(props: { field: CollectionField; value: string; onChange: (v: 
 function ImageField(props: { field: CollectionField; value: string; siteId: string; onSave: (v: string) => void }) {
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
   return (
     <div className="image-field">
+      {picking && <AssetPicker onClose={() => setPicking(false)} onPick={(a) => (setPicking(false), props.onSave(a.url))} />}
       {props.value ? <img src={props.value} alt="" /> : <span className="thumb-empty large" aria-hidden="true" />}
       <CheckedInput field={props.field} value={props.value} placeholder="https://… or upload" onSave={props.onSave} />
       <div style={{ display: "flex", gap: 6 }}>
-        <button type="button" className="btn sm" disabled={busy} onClick={() => file.current?.click()}>
-          {busy ? "Uploading…" : "Upload image"}
+        <button type="button" className="btn sm" onClick={() => setPicking(true)}>
+          Choose from library
+        </button>
+        <button type="button" className="btn sm ghost" disabled={busy} onClick={() => file.current?.click()}>
+          {busy ? "Uploading…" : "Upload"}
         </button>
         {props.value && (
           <button type="button" className="btn sm ghost" onClick={() => props.onSave("")}>

@@ -236,3 +236,36 @@ export const Schedules = {
   create: (siteId: string, s: { branch: string; runAt: string; note?: string }) => api<Schedule>("POST", `/sites/${siteId}/schedules`, s),
   cancel: (siteId: string, id: string) => api("DELETE", `/sites/${siteId}/schedules/${id}`),
 };
+
+export interface LibraryAsset {
+  id: string;
+  url: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+  width: number | null;
+  height: number | null;
+  title: string;
+  alt: string;
+  credit: string;
+  tags: string[];
+  focalX: number;
+  focalY: number;
+  expiresAt: string | null;
+  expired: boolean;
+  version: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const Library = {
+  list: (q: { q?: string; tag?: string } = {}) =>
+    api<LibraryAsset[]>("GET", `/assets?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString()}`),
+  tags: () => api<{ tag: string; count: number }[]>("GET", "/assets/tags"),
+  upload: (file: File) => api<LibraryAsset>("POST", `/assets?filename=${enc(file.name)}`, undefined, { contentType: file.type, data: file }),
+  update: (id: string, patch: Partial<Pick<LibraryAsset, "title" | "alt" | "credit" | "tags" | "focalX" | "focalY">> & { expiresAt?: string | null }) => api<LibraryAsset>("PATCH", `/assets/${id}`, patch),
+  replace: (id: string, file: File) => api<LibraryAsset>("PUT", `/assets/${id}/file`, undefined, { contentType: file.type, data: file }),
+  usage: (id: string) => api<{ siteId: string; siteName: string; slug: string; where: string[] }[]>("GET", `/assets/${id}/usage`),
+  remove: (id: string, force = false) => api("DELETE", `/assets/${id}${force ? "?force=1" : ""}`),
+};

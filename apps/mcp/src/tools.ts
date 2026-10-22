@@ -310,6 +310,33 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
   );
 
 
+  server.registerTool(
+    "search_assets",
+    {
+      title: "Search the image library",
+      description:
+        "Find approved images in the company library by words (title, alt text, credit, tags) or a tag. Use these URLs for image src and CMS image fields, with their alt text, instead of images from elsewhere. Set objectPosition from focalX/focalY (e.g. \"30% 60%\") when cropping.",
+      inputSchema: { query: z.string().optional(), tag: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ query, tag, limit }) =>
+      run(async () => {
+        const q = new URLSearchParams();
+        if (query) q.set("q", query);
+        if (tag) q.set("tag", tag);
+        q.set("limit", String(limit ?? 20));
+        const list = await client.get<{ url: string; title: string; alt: string; tags: string[]; width: number | null; height: number | null; focalX: number; focalY: number; expired: boolean; credit: string }[]>(`/assets?${q}`);
+        const usable = list.filter((a) => !a.expired);
+        if (!usable.length) return "No matching images in the library. Ask the person to add one in Assets, or leave the image for them to choose.";
+        return (
+          UNTRUSTED +
+          usable
+            .map((a) => `- ${a.title || "(untitled)"} — ${a.url}\n  alt: ${a.alt || "(none: write one)"} · ${a.width ?? "?"}×${a.height ?? "?"} · focal ${Math.round(a.focalX * 100)}% ${Math.round(a.focalY * 100)}%${a.tags.length ? ` · tags: ${a.tags.join(", ")}` : ""}${a.credit ? ` · ${a.credit}` : ""}`)
+            .join("\n")
+        );
+      }),
+  );
+
   // --- CMS -----------------------------------------------------------------
 
   const collectionArg = z.string().describe("Collection id, slug or name, e.g. blog");

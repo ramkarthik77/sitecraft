@@ -5,6 +5,7 @@ import { api, getToken, setToken, Sites, Templates, type Branch, type Me, type S
 import { Editor } from "./Editor";
 import { AccessPage } from "./components/Access";
 import { BrandsPage, TemplatesPage } from "./components/Library";
+import { AssetsPage } from "./components/Assets";
 import { Icon, Logo } from "./components/Icon";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
@@ -54,6 +55,13 @@ function Root() {
     return (
       <DashShell me={me} active="brands">
         <BrandsPage me={me} />
+      </DashShell>
+    );
+  }
+  if (loc.path === "/assets") {
+    return (
+      <DashShell me={me} active="assets">
+        <AssetsPage me={me} />
       </DashShell>
     );
   }
@@ -156,6 +164,7 @@ const NAV: { key: NavKey; label: string; href: string; icon: string; admin?: boo
   { key: "sites", label: "Sites", href: "/", icon: "grid" },
   { key: "templates", label: "Templates", href: "/templates", icon: "pages" },
   { key: "brands", label: "Brands", href: "/brands", icon: "spark" },
+  { key: "assets", label: "Assets", href: "/assets", icon: "image" },
   { key: "access", label: "Access", href: "/access", icon: "lock", admin: true },
 ];
 

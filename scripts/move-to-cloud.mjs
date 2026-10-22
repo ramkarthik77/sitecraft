@@ -90,6 +90,9 @@ if (only.size && sites.length < only.size) {
 if (sites.length === 0) fail("There are no sites in the local app to copy.");
 
 const MEDIA = /https?:\/\/[^"'\s)]+\/media\/([0-9a-f-]{36})\/([0-9a-f-]{36}\.(?:png|jpg|gif|webp))/gi;
+const LIBRARY = /https?:\/\/[^"'\s)]+\/media\/library\/([0-9a-f-]{36}\.(?:png|jpg|gif|webp))/gi;
+// Library images used by several sites are copied once.
+const copiedLibrary = new Map();
 const TYPES = { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 const results = [];
 
@@ -100,8 +103,10 @@ for (const site of sites) {
     let json = JSON.stringify(head.document);
     const images = new Map();
     for (const m of json.matchAll(MEDIA)) if (m[1] === site.id) images.set(m[0], m[2]);
+    const libraryImages = new Map();
+    for (const m of json.matchAll(LIBRARY)) if (m[0].startsWith(from)) libraryImages.set(m[0], m[1]);
     const items = (head.document.collections ?? []).reduce((n, c) => n + c.items.length, 0);
-    const what = `${head.document.pages.length} pages, ${(head.document.collections ?? []).length} collections, ${items} items, ${images.size} images`;
+    const what = `${head.document.pages.length} pages, ${(head.document.collections ?? []).length} collections, ${items} items, ${images.size + libraryImages.size} images`;
     if (dryRun) {
       say(`  would copy ${label}: ${what}`);
       results.push({ label, ok: true });
@@ -133,9 +138,24 @@ for (const site of sites) {
       const up = await cloud("POST", `/api/sites/${created.id}/assets?filename=${encodeURIComponent(file)}`, { raw: { type: TYPES[ext], data: Buffer.from(await res.arrayBuffer()) } });
       json = json.split(oldUrl).join(up.url);
     }
-    if (images.size) {
+    for (const [oldUrl, file] of libraryImages) {
+      if (!copiedLibrary.has(file)) {
+        const res = await fetch(`${from}/media/library/${file}`);
+        if (!res.ok) {
+          say(`    warning: library image ${file} is missing locally; left as is`);
+          continue;
+        }
+        const meta = (await local("GET", "/api/assets?limit=500")).find((a) => a.url.endsWith(file)) ?? {};
+        const ext = file.split(".").pop().toLowerCase();
+        const q = new URLSearchParams({ filename: meta.fileName ?? file, title: meta.title ?? "", alt: meta.alt ?? "", tags: (meta.tags ?? []).join(",") });
+        const up = await cloud("POST", `/api/assets?${q}`, { raw: { type: TYPES[ext], data: Buffer.from(await res.arrayBuffer()) } });
+        copiedLibrary.set(file, up.url);
+      }
+      json = json.split(oldUrl).join(copiedLibrary.get(file));
+    }
+    if (images.size || libraryImages.size) {
       const now = await cloud("GET", `/api/sites/${created.id}/branches/main`);
-      await cloud("PUT", `/api/sites/${created.id}/branches/main/document`, { body: { document: JSON.parse(json), baseVersion: now.versionId, message: `Copy ${images.size} images from the local app` } });
+      await cloud("PUT", `/api/sites/${created.id}/branches/main/document`, { body: { document: JSON.parse(json), baseVersion: now.versionId, message: `Copy ${images.size + libraryImages.size} images from the local app` } });
     }
 
     // 3. Publish if asked and it was live here.

@@ -1,12 +1,13 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import { GetObjectCommand, PutObjectCommand, S3Client, CreateBucketCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client, CreateBucketCommand, HeadBucketCommand } from "@aws-sdk/client-s3";
 import type { Config } from "./config.js";
 
 /** Blob storage for published files and uploaded assets. */
 export interface Storage {
   put(key: string, body: Buffer | string, contentType: string): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  delete(key: string): Promise<void>;
   init(): Promise<void>;
 }
 
@@ -40,6 +41,9 @@ class FsStorage implements Storage {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw e;
     }
+  }
+  async delete(key: string) {
+    await rm(this.path(key), { force: true });
   }
 }
 
@@ -80,6 +84,9 @@ class S3Storage implements Storage {
       if (name === "NoSuchKey" || name === "NotFound") return null;
       throw e;
     }
+  }
+  async delete(key: string) {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.cfg.bucket, Key: safeKey(key) }));
   }
 }
 

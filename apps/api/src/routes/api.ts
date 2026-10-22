@@ -19,6 +19,7 @@ import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import { toCsv } from "../security.js";
 import { scheduleRoutes } from "../schedules.js";
+import { assetRoutes, checkImage } from "./assets.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import type { AppContext } from "../server.js";
 
@@ -433,11 +434,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   // Image uploads
   app.post<{ Params: Params; Querystring: { filename?: string } }>("/sites/:siteId/assets", async (req, reply) => {
     const site = await repo.getSite(req.params.siteId);
-    const buf = req.body;
-    if (!Buffer.isBuffer(buf) || buf.length === 0) throw new HttpError(415, "Upload a PNG, JPEG, GIF or WebP image as the request body.");
-    const type = String(req.headers["content-type"]).split(";")[0]!;
-    const ext = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" }[type];
-    if (!ext) throw new HttpError(415, "Unsupported image type.");
+    const { buf, type, ext } = checkImage(req);
     const name = (req.query.filename ?? `upload.${ext}`).replace(/[^\w.-]/g, "_").slice(0, 100);
     const asset = await repo.addAsset(req.actor, site.id, name, type, buf.length);
     await ctx.storage.put(`assets/${site.id}/${asset.id}.${ext}`, buf, type);
@@ -453,5 +450,6 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   await libraryRoutes(app, ctx);
+  await assetRoutes(app, ctx);
   await scheduleRoutes(app, ctx, assertCanShip);
 }

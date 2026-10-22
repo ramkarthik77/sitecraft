@@ -133,6 +133,7 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `update_style` | Set styles on an element for desktop, tablet or phone |
 | `set_theme` | Change brand colors, fonts or corner radius across the site |
 | `add_page` | Add a page with starting sections |
+| `search_assets` | Approved images in the company library, with alt text and focal point |
 | `get_collection` | A collection's fields and items |
 | `create_collection` | New CMS collection from a preset (`blog`, `team`, `products`, `jobs`) or your own fields, with a list page and an item page template |
 | `add_items` | Add up to 100 items in one save |
