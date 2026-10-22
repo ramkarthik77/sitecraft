@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
-import { Schedules, Sites, type Branch, type Me, type Schedule, type SiteSummary, type Version } from "./api";
+import { Comments, Schedules, Sites, type Branch, type Comment, type Me, type Schedule, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
@@ -12,11 +12,14 @@ import { navigate, setQuery } from "./router";
 import { useToast } from "./Toasts";
 import { useEditor } from "./useEditor";
 import { ScheduleForm, when } from "./components/Schedule";
+import { CommentsPanel, type CommentTarget } from "./components/Comments";
+import { Drawer } from "./components/Drawers";
+import { nodeLabel } from "./components/Layers";
 import { ago, initials } from "./format";
 
 type Tab = "layers" | "insert" | "pages" | "cms";
 const TAB_LABEL: Record<Tab, string> = { layers: "Layers", insert: "Insert", pages: "Pages", cms: "CMS" };
-type DrawerKind = null | "review" | "history" | "settings";
+type DrawerKind = null | "review" | "history" | "settings" | "comments";
 
 const SAVE_LABEL = { loading: "Loading…", saved: "Saved", unsaved: "Unsaved", saving: "Saving…", error: "Not saved", conflict: "Out of date" } as const;
 const BREAKPOINTS: { bp: Breakpoint; label: string; icon: string; px: number }[] = [
@@ -55,6 +58,10 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [publishing, setPublishing] = useState(false);
   const [work, setWork] = useState<BranchWork>(NO_WORK);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentTarget, setCommentTarget] = useState<CommentTarget>({ kind: "site", label: "the whole site" });
+  const [reviewTick, setReviewTick] = useState(0);
+  const loadComments = useCallback(() => Comments.list(siteId, branch).then(setComments).catch(() => {}), [siteId, branch]);
   const [scheduling, setScheduling] = useState(false);
   const loadSchedules = useCallback(() => Schedules.list(siteId).then(setSchedules).catch(() => {}), [siteId]);
   const [cmsId, setCmsId] = useState<string | null>(null);
@@ -96,6 +103,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     loadBranches();
     void loadSchedules();
   }, [siteId, loadBranches, loadSchedules]);
+  useEffect(() => void loadComments(), [loadComments]);
 
   // Relative times ("2 min ago") stay current.
   useEffect(() => {
@@ -142,6 +150,11 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     const onChange = (msg: Event) => {
       const e = JSON.parse((msg as MessageEvent).data) as { type: string; branch?: string; versionId?: number; actor: string; actorRole: string; message?: string };
       if (e.type === "branch" || e.type === "version") loadBranches();
+      if (e.type === "comment" && e.branch === branch) {
+        void loadComments();
+        if (e.actor !== me.name) pushToast({ text: `${e.actor}: ${e.message ?? "commented"}`, tone: e.actorRole === "agent" ? "agent" : undefined });
+      }
+      if (e.type === "approval" && e.branch === branch) setReviewTick((t) => t + 1);
       if (e.type === "deploy") {
         Sites.get(siteId).then(setSite).catch(() => {});
         void loadSchedules();
@@ -333,6 +346,13 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   };
 
   const currentBranch = branches.find((b) => b.name === branch);
+  const openThreads = comments.filter((c) => !c.parentId && !c.resolvedAt);
+  const commentCounts: Record<string, number> = {};
+  for (const t of openThreads) if (t.targetKind === "node" && t.targetId) commentCounts[t.targetId] = (commentCounts[t.targetId] ?? 0) + 1;
+  const commentOn = (n: SiteNode) => {
+    setCommentTarget({ kind: "node", id: n.id, label: nodeLabel(n) });
+    setDrawer("comments");
+  };
   const nextMain = schedules.filter((s) => s.branch === "main" && s.status === "pending").sort((a, b) => a.runAt.localeCompare(b.runAt))[0];
   const agentActive = work.agentVersions.length > 0;
   const lastAgent = work.agentVersions[0];
@@ -463,6 +483,10 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         </button>
         <button className="btn ghost icon hide-narrow" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!ed.canRedo} onClick={ed.redo}>
           <Icon name="redo" />
+        </button>
+        <button className="btn ghost icon hide-narrow comment-btn" aria-label="Comments" title="Comments" onClick={() => setDrawer(drawer === "comments" ? null : "comments")}>
+          <Icon name="comment" />
+          {openThreads.length > 0 && <span className="dot-count">{openThreads.length}</span>}
         </button>
         <button className="btn ghost icon hide-narrow" aria-label="History" title="History" onClick={() => setDrawer("history")}>
           <Icon name="history" />
@@ -645,6 +669,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             doc={doc}
             page={page}
             itemId={shownItem?.id}
+            commentCounts={commentCounts}
             breakpoint={bp}
             selectedId={selectedId}
             zoom={1}
@@ -696,7 +721,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
               <CollectionInspector doc={doc} collection={cmsCollection} apply={apply} onDeleted={() => setCmsId(null)} onOpenPage={(id) => openPage(id)} />
             )
           ) : selected ? (
-            <NodeInspector node={selected} bp={bp} apply={apply} siteId={siteId} doc={doc} isRoot={selected.id === page.root.id} bindCollection={bindingCollection(doc, page, selected.id)} />
+            <NodeInspector
+              node={selected}
+              bp={bp}
+              apply={apply}
+              siteId={siteId}
+              doc={doc}
+              isRoot={selected.id === page.root.id}
+              bindCollection={bindingCollection(doc, page, selected.id)}
+              onComment={() => commentOn(selected)}
+              commentCount={commentCounts[selected.id] ?? 0}
+            />
           ) : (
             <PageInspector doc={doc} page={page} apply={apply} onDeletePage={() => (apply([{ op: "remove_page", pageId: page.id }]), setPageId(null))} />
           )}
@@ -709,12 +744,36 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           branch={branch}
           toast={toast}
           canShip={me.role !== "agent"}
+          isAdmin={me.role === "admin"}
+          refreshKey={reviewTick}
           onClose={() => (setDrawer(null), setQuery({ review: null }))}
           onMerged={() => {
             setDrawer(null);
             void switchBranch("main");
           }}
         />
+      )}
+      {drawer === "comments" && (
+        <Drawer title={`Comments on ${branch}`} onClose={() => setDrawer(null)}>
+          <CommentsPanel
+            siteId={siteId}
+            branch={branch}
+            me={me}
+            comments={comments}
+            target={commentTarget}
+            toast={toast}
+            onClearTarget={() => setCommentTarget({ kind: "site", label: "the whole site" })}
+            onChanged={() => void loadComments()}
+            onFocus={(c) => {
+              if (!c.targetId || !doc) return;
+              const hit = findNodeInDocument(doc, c.targetId);
+              if (!hit) return toast("That element isn't on this branch any more.");
+              if (hit.pageId) setPageId(hit.pageId);
+              setSelectedId(c.targetId);
+              setScrollTick((t) => t + 1);
+            }}
+          />
+        </Drawer>
       )}
       {drawer === "history" && (
         <HistoryDrawer siteId={siteId} branch={branch} toast={toast} canShip={me.role !== "agent"} onClose={() => (setDrawer(null), void loadSchedules())} onRestored={() => void ed.reload()} />

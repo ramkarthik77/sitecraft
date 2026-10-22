@@ -1,4 +1,4 @@
-# Templates, brands, assets and releases
+# Templates, brands, assets, reviews and releases
 
 How teams keep many sites consistent and launch on time: **templates** decide how a new site starts, **brands** keep the look and voice the same across sites afterwards.
 
@@ -84,3 +84,16 @@ Logo: never stretch, recolor or put on busy photos.
 - **Replace file…** swaps the picture but keeps its address, so every page using it updates at once.
 
 In the editor, image elements and CMS image fields have **Choose from library**; the library's alt text comes along. Claude Code searches the same library with `search_assets` and uses those images instead of ones from elsewhere.
+
+## Comments and approvals
+
+**Comments** (the speech bubble in the top bar) belong to the branch you're on. Comment on the whole site, or select an element and click **Comment** in the right panel; elements with open comments get a yellow marker on the canvas. Reply, **@mention** people (or **@Claude**), and **Resolve** threads when they're handled. New comments show up live for everyone on the branch.
+
+Claude Code reads them too: ask it to *"work through the comments on agent/hero-copy"*. It uses `list_comments`, makes the changes, replies with `add_comment` and resolves what it handled.
+
+**Approvals** (Site settings → Reviews, admins) require 1–3 people to approve a branch before it's merged, like an AEM approval workflow:
+
+- Approvals count for the branch's latest version. Any new change needs them again.
+- People who changed the branch can't approve it, and Claude can never approve.
+- Scheduled releases need their approvals too, or they don't run.
+- Admins can **Merge without approval**; it's recorded in the audit log.

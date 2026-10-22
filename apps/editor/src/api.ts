@@ -110,6 +110,7 @@ export interface SiteSummary {
   publishUrl: string;
   updatedAt?: string;
   brandId?: string | null;
+  requiredApprovals?: number;
 }
 export interface Branch {
   name: string;
@@ -148,6 +149,7 @@ export interface Deployment {
 export const Sites = {
   list: () => api<SiteSummary[]>("GET", "/sites"),
   create: (name: string, template: string, templateId?: string) => api<SiteSummary>("POST", "/sites", templateId ? { name, templateId } : { name, template }),
+  setRequiredApprovals: (id: string, required: number) => api<{ required: number }>("PUT", `/sites/${id}/approvals-required`, { required }),
   setBrand: (id: string, brandId: string | null) => api<{ brandId: string | null; changed: boolean }>("PUT", `/sites/${id}/brand`, { brandId }),
   get: (id: string) => api<SiteSummary>("GET", `/sites/${id}`),
   update: (id: string, patch: { name?: string; domain?: string | null }) => api<SiteSummary>("PATCH", `/sites/${id}`, patch),
@@ -161,7 +163,7 @@ export const Sites = {
   versions: (id: string, b: string) => api<Version[]>("GET", `/sites/${id}/branches/${enc(b)}/versions`),
   restore: (id: string, b: string, versionId: number) => api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/restore`, { versionId }),
   diff: (id: string, b: string) => api<Diff>("GET", `/sites/${id}/branches/${enc(b)}/diff`),
-  merge: (id: string, b: string, force = false) => api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/merge`, { force }),
+  merge: (id: string, b: string, force = false, override = false) => api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/merge`, { force, override }),
   previewUrl: (id: string, b: string) => api<{ url: string }>("GET", `/sites/${id}/branches/${enc(b)}/preview-url`),
   publish: (id: string) => api<{ url: string; versionId: number }>("POST", `/sites/${id}/publish`, {}),
   deployments: (id: string) => api<Deployment[]>("GET", `/sites/${id}/deployments`),
@@ -268,4 +270,44 @@ export const Library = {
   replace: (id: string, file: File) => api<LibraryAsset>("PUT", `/assets/${id}/file`, undefined, { contentType: file.type, data: file }),
   usage: (id: string) => api<{ siteId: string; siteName: string; slug: string; where: string[] }[]>("GET", `/assets/${id}/usage`),
   remove: (id: string, force = false) => api("DELETE", `/assets/${id}${force ? "?force=1" : ""}`),
+};
+
+export interface Comment {
+  id: string;
+  branch: string;
+  targetKind: "site" | "node" | "item";
+  targetId: string | null;
+  targetLabel: string;
+  parentId: string | null;
+  body: string;
+  author: string;
+  authorRole: string;
+  mentions: string[];
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdAt: string;
+}
+
+export const Comments = {
+  list: (siteId: string, branch: string) => api<Comment[]>("GET", `/sites/${siteId}/comments?branch=${enc(branch)}`),
+  add: (siteId: string, c: { branch: string; body: string; targetKind?: string; targetId?: string; targetLabel?: string; parentId?: string }) => api<Comment>("POST", `/sites/${siteId}/comments`, c),
+  resolve: (siteId: string, id: string, resolved: boolean) => api<Comment>("PATCH", `/sites/${siteId}/comments/${id}`, { resolved }),
+  remove: (siteId: string, id: string) => api("DELETE", `/sites/${siteId}/comments/${id}`),
+};
+
+export interface ApprovalInfo {
+  required: number;
+  versionId: number;
+  approvals: { approver: string; role: string; note: string; at: string }[];
+  authors: string[];
+  met: boolean;
+  approvedByMe: boolean;
+  canApprove: boolean;
+  reason: string;
+}
+
+export const Approvals = {
+  get: (siteId: string, branch: string) => api<ApprovalInfo>("GET", `/sites/${siteId}/branches/${enc(branch)}/approvals`),
+  approve: (siteId: string, branch: string, note?: string) => api("POST", `/sites/${siteId}/branches/${enc(branch)}/approvals`, { note }),
+  withdraw: (siteId: string, branch: string) => api("DELETE", `/sites/${siteId}/branches/${enc(branch)}/approvals`),
 };

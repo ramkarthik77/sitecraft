@@ -311,6 +311,61 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
 
 
   server.registerTool(
+    "list_comments",
+    {
+      title: "Read review comments",
+      description: "Open comments on a branch: what people want changed, on which element (nodeId) or CMS item. Work through them, reply with add_comment, and resolve the ones you've handled.",
+      inputSchema: { site, branch, includeResolved: z.boolean().optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s, branch: b, includeResolved }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const list = await client.get<{ id: string; parentId: string | null; targetKind: string; targetId: string | null; targetLabel: string; body: string; author: string; resolvedAt: string | null }[]>(
+          `/sites/${id}/comments?branch=${enc(b)}`,
+        );
+        const threads = list.filter((c) => !c.parentId && (includeResolved || !c.resolvedAt));
+        if (!threads.length) return `No open comments on ${b}.`;
+        const lines = threads.map((t) => {
+          const where = t.targetKind === "site" ? "the whole site" : `${t.targetLabel || t.targetKind} (${t.targetKind === "node" ? "nodeId" : "item"} ${t.targetId})`;
+          const replies = list.filter((r) => r.parentId === t.id).map((r) => `    ↳ ${r.author}: ${r.body}`);
+          return [`- [${t.id}] ${t.author} on ${where}${t.resolvedAt ? " (resolved)" : ""}: ${t.body}`, ...replies].join("\n");
+        });
+        return UNTRUSTED + lines.join("\n");
+      }),
+  );
+
+  server.registerTool(
+    "add_comment",
+    {
+      title: "Comment or reply",
+      description: "Leave a comment on a branch (optionally on an element), or reply to a thread with parentId, e.g. to say what you changed.",
+      inputSchema: { site, branch, body: z.string().min(1).max(5000), nodeId: z.string().optional(), parentId: z.string().optional() },
+    },
+    ({ site: s, branch: b, body, nodeId, parentId }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const c = await client.post<{ id: string }>(`/sites/${id}/comments`, { branch: b, body, parentId, targetKind: nodeId ? "node" : "site", targetId: nodeId, targetLabel: nodeId ? "Element" : "" });
+        return `Comment added (${c.id}).`;
+      }),
+  );
+
+  server.registerTool(
+    "resolve_comment",
+    {
+      title: "Resolve comment",
+      description: "Mark a comment thread as handled once you've made the change it asked for. People can reopen it.",
+      inputSchema: { site, commentId: z.string() },
+    },
+    ({ site: s, commentId }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        await client.patch(`/sites/${id}/comments/${enc(commentId)}`, { resolved: true });
+        return "Resolved.";
+      }),
+  );
+
+  server.registerTool(
     "search_assets",
     {
       title: "Search the image library",

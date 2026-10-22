@@ -5,7 +5,7 @@
   var root=document.getElementById('sc-root'), css=document.getElementById('sc-css');
   function post(m){parent.postMessage(Object.assign({source:'sc-canvas'},m),'*')}
   function nodeOf(t){return t&&t.closest?t.closest('[data-node-id]'):null}
-  var agent=[], agentLabel='Claude', zoom=1, overlay=document.getElementById('sc-overlay');
+  var agent=[], comments=[], agentLabel='Claude', zoom=1, overlay=document.getElementById('sc-overlay');
   var TYPE={heading:'H',text:'Text',image:'Image',button:'Button',link:'Link',section:'Section',stack:'Stack',grid:'Grid',form:'Form',input:'Field',embed:'Embed',divider:'Divider',spacer:'Spacer',richtext:'Rich text','collection-list':'List'};
   function tag(cls,txt,x,y){var d=document.createElement('span');d.className=cls;d.textContent=txt;d.style.left=x+'px';d.style.top=y+'px';if(zoom<1){d.style.transform='scale('+(1/zoom)+')'}overlay.appendChild(d)}
   function mark(){
@@ -14,6 +14,8 @@
     overlay.textContent='';
     agent.forEach(function(id){var a=document.querySelector('[data-node-id="'+CSS.escape(id)+'"]'); if(!a)return; a.classList.add('sc-agent');
       var r=a.getBoundingClientRect(); tag('sc-tag sc-tag-agent',agentLabel,r.left+scrollX+6,Math.max(0,r.top+scrollY+6))});
+    comments.forEach(function(c){var a=document.querySelector('[data-node-id="'+CSS.escape(c.id)+'"]'); if(!a)return;
+      var r=a.getBoundingClientRect(); tag('sc-tag sc-tag-comment',String(c.n),Math.max(0,r.right+scrollX-22),Math.max(0,r.top+scrollY+4))});
     if(sel){var el=document.querySelector('[data-node-id="'+CSS.escape(sel)+'"]'); if(el){el.classList.add('sc-sel');
       var r=el.getBoundingClientRect(), t=el.getAttribute('data-node-type'), name=TYPE[t]||t;
       if(t==='heading'){name='H'+(el.tagName.slice(1)||'')}
@@ -25,6 +27,7 @@
     var d=e.data||{}; if(d.source!=='sc-editor')return;
     if(d.type==='render'){ if(editing)return; css.textContent=d.css; root.innerHTML=d.body; sel=d.selected; agent=d.agent||[]; agentLabel=d.agentLabel||'Claude'; mark(); setTimeout(function(){height();mark()},0); [].slice.call(document.images).forEach(function(i){if(!i.complete)i.addEventListener('load',function(){mark()},{once:true})}); }
     if(d.type==='agent'){ agent=d.agent||[]; agentLabel=d.agentLabel||'Claude'; mark(); }
+    if(d.type==='comments'){ comments=d.items||[]; mark(); }
     if(d.type==='zoom'){ zoom=d.zoom||1; mark(); }
     if(d.type==='select'){ sel=d.id; mark(); if(d.scroll){var el=document.querySelector('[data-node-id="'+CSS.escape(sel)+'"]'); if(el){var r=el.getBoundingClientRect(); post({type:'scrollTo', y:r.top+scrollY})}} }
   });

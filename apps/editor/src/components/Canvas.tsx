@@ -26,6 +26,7 @@ const UI_CSS = `
 .sc-tag{position:absolute;transform-origin:0 0;white-space:nowrap;font:500 10px/1 "Geist Mono",ui-monospace,Menlo,monospace;padding:4px 6px;border-radius:4px;pointer-events:none}
 .sc-tag-sel{background:#5b8cff;color:#fff}
 .sc-tag-agent{background:#2a1f3d;color:#e9dcff;font-family:"Geist",system-ui,sans-serif;font-size:11px;padding:4px 8px;border-radius:999px}
+.sc-tag-comment{background:#f5b94a;color:#2b1d00;font-family:"Geist",system-ui,sans-serif;font-size:11px;min-width:18px;height:18px;padding:0 5px;border-radius:9px 9px 9px 2px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 [data-bound="1"].sc-sel{outline-color:#2bb5a3!important}
 [data-node-type="richtext"]:empty{min-height:40px;background:repeating-linear-gradient(45deg,#f3f4f1,#f3f4f1 6px,#fff 6px,#fff 12px)}
 [data-node-type="stack"]:empty,[data-node-type="grid"]:empty,[data-node-type="section"]:empty,[data-node-type="form"]:empty{min-height:56px;background:repeating-linear-gradient(45deg,#f3f4f1,#f3f4f1 6px,#fff 6px,#fff 12px)}
@@ -45,6 +46,8 @@ export function Canvas(props: {
   pageLabel?: string;
   /** On a template page: the collection item to show. */
   itemId?: string;
+  /** Open comment threads per element id, shown as markers. */
+  commentCounts?: Record<string, number>;
   onEvent: (e: CanvasEvent) => void;
 }) {
   const { doc, page, breakpoint, selectedId, onEvent } = props;
@@ -95,6 +98,12 @@ export function Canvas(props: {
     if (ready) post({ type: "agent", agent: agentRef.current, agentLabel: props.agentLabel });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, agentKey]);
+
+  const commentKey = JSON.stringify(props.commentCounts ?? {});
+  useEffect(() => {
+    if (ready) post({ type: "comments", items: Object.entries(props.commentCounts ?? {}).map(([id, n]) => ({ id, n })) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, commentKey, parts]);
 
   useEffect(() => {
     if (ready) post({ type: "select", id: selectedId, scroll: false });

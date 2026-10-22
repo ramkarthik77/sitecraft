@@ -26,6 +26,7 @@ export class SitecraftClient {
 
   get = <T>(p: string) => this.request<T>("GET", p);
   post = <T>(p: string, b: unknown = {}) => this.request<T>("POST", p, b);
+  patch = <T>(p: string, b: unknown = {}) => this.request<T>("PATCH", p, b);
 }
 
 export class ApiError extends Error {

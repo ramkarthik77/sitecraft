@@ -3,7 +3,7 @@ import { pgConnectionString } from "./db.js";
 import type { Db, Queryable } from "./db.js";
 
 export interface SiteEvent {
-  type: "version" | "branch" | "deploy";
+  type: "version" | "branch" | "deploy" | "comment" | "approval";
   siteId: string;
   branch?: string;
   versionId?: number;

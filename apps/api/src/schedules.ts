@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Actor, Role } from "./auth.js";
 import { HttpError } from "./errors.js";
 import { publishVersion } from "./publish.js";
+import { assertApproved } from "./reviews.js";
 import { libraryHelpers } from "./routes/library.js";
 import type { AppContext } from "./server.js";
 
@@ -103,7 +104,8 @@ export async function runDueSchedules(ctx: AppContext): Promise<number> {
     try {
       const site = await repo.getSite(s.site_id);
       if (s.branch !== "main") {
-        // A release: refuse to overwrite main if it changed since the branch started.
+        // A release: it needs its approvals, and won't overwrite main if main changed since the branch started.
+        await assertApproved(ctx, actor, site.id, s.branch);
         await repo.merge(actor, site.id, s.branch, false);
         await syncBrand(actor, site.id, "Keep the current brand after the release").catch(() => false);
       }

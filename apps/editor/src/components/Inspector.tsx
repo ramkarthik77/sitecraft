@@ -2,6 +2,7 @@ import { createContext, useContext, useRef, useState } from "react";
 import { findCollection, type Breakpoint, type Collection, type Operation, type Page, type SiteDocument, type SiteNode, type Style, type StyleProperty } from "@sitecraft/schema";
 import { Sites } from "../api";
 import { AssetPicker } from "./Assets";
+import { Icon } from "./Icon";
 import { BindingFields, ListFields } from "./Cms";
 import { nodeLabel } from "./Layers";
 
@@ -312,7 +313,17 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
 const TEXTY = new Set(["heading", "text", "button", "link", "input", "richtext"]);
 const BOXY = new Set(["section", "stack", "grid", "form", "link", "instance", "collection-list"]);
 
-export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Apply; siteId: string; doc: SiteDocument; isRoot: boolean; bindCollection?: Collection }) {
+export function NodeInspector(props: {
+  node: SiteNode;
+  bp: Breakpoint;
+  apply: Apply;
+  siteId: string;
+  doc: SiteDocument;
+  isRoot: boolean;
+  bindCollection?: Collection;
+  onComment?: () => void;
+  commentCount?: number;
+}) {
   const { node, bp, apply } = props;
   const S = (prop: StyleProperty, label: string, kind?: "color" | "select", options?: string[]) => (
     <StyleRow key={prop} node={node} bp={bp} prop={prop} label={label} apply={apply} kind={kind} options={options} />
@@ -325,7 +336,15 @@ export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Ap
       <div className="group">
         <h3>
           <span>{nodeLabel(node)}</span>
-          <span className="type-chip">{node.type === "heading" ? `H${Number(node.props.level) || 2}` : node.type}</span>
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            {props.onComment && (
+              <button className="btn ghost sm comment-on" onClick={props.onComment} title="Comment on this element">
+                <Icon name="comment" size={13} />
+                {props.commentCount ? props.commentCount : "Comment"}
+              </button>
+            )}
+            <span className="type-chip">{node.type === "heading" ? `H${Number(node.props.level) || 2}` : node.type}</span>
+          </span>
         </h3>
         <Field label="Layer name">
           <TextInput label="Layer name" value={node.name ?? ""} placeholder={node.type} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, name: v }], `${node.id}:name`)} />

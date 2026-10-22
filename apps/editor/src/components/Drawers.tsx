@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, Brands, Schedules, Sites, Templates, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
+import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
 import { Icon } from "./Icon";
 import { ScheduleForm, ScheduleList } from "./Schedule";
 
-function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const on = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", on);
@@ -35,8 +35,12 @@ export function Who({ name, role }: { name: string; role?: string }) {
 
 const when = (s: string) => new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean }) {
+export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean; isAdmin?: boolean; refreshKey?: number }) {
   const [diff, setDiff] = useState<Diff | null>(null);
+  const [appr, setAppr] = useState<ApprovalInfo | null>(null);
+  const loadApprovals = () => Approvals.get(props.siteId, props.branch).then(setAppr).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => void loadApprovals(), [props.siteId, props.branch, props.refreshKey]);
   const [scheduling, setScheduling] = useState(false);
   const [pending, setPending] = useState<Schedule | null>(null);
   const loadSchedule = () =>
@@ -54,10 +58,10 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.siteId, props.branch]);
 
-  const merge = async (force: boolean) => {
+  const merge = async (force: boolean, override = false) => {
     setBusy(true);
     try {
-      await Sites.merge(props.siteId, props.branch, force);
+      await Sites.merge(props.siteId, props.branch, force, override);
       props.toast(`Merged ${props.branch} into main`);
       props.onMerged();
     } catch (e) {
@@ -88,6 +92,36 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
           ))}
         </div>
       </section>
+      {appr && appr.required > 0 && (
+        <section className={`approvals ${appr.met ? "met" : ""}`} aria-label="Approvals">
+          <h3 style={{ margin: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+            Approvals
+            <span className="badge">
+              {appr.approvals.length} of {appr.required}
+            </span>
+          </h3>
+          {appr.approvals.map((a) => (
+            <div key={a.approver} className="small">
+              <Icon name="check" size={12} style={{ color: "var(--ok)" }} /> {a.approver} approved {when(a.at)}
+              {a.note ? `: ${a.note}` : ""}
+            </div>
+          ))}
+          {!appr.met && <span className="muted small">Approvals count for this version of the branch; a new change needs them again.</span>}
+          <div style={{ display: "flex", gap: 6 }}>
+            {appr.canApprove && (
+              <button className="btn sm primary" onClick={async () => (await Approvals.approve(props.siteId, props.branch).catch((e) => props.toast(e.message, "error")), void loadApprovals())}>
+                <Icon name="check" size={13} /> Approve
+              </button>
+            )}
+            {appr.approvedByMe && (
+              <button className="btn sm ghost" onClick={async () => (await Approvals.withdraw(props.siteId, props.branch).catch(() => {}), void loadApprovals())}>
+                Withdraw my approval
+              </button>
+            )}
+            {!appr.canApprove && !appr.approvedByMe && appr.reason && <span className="muted small">{appr.reason}</span>}
+          </div>
+        </section>
+      )}
       {!!diff?.brandIssues?.length && (
         <section className="brand-check" aria-label="Brand check">
           <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
@@ -115,9 +149,14 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
         </div>
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn primary" disabled={busy || !diff || diff.summary.length === 0} onClick={() => merge(false)}>
+          <button className="btn primary" disabled={busy || !diff || diff.summary.length === 0 || (!!appr && !appr.met)} onClick={() => merge(false)}>
             Merge into main
           </button>
+          {appr && !appr.met && props.isAdmin && (
+            <button className="btn ghost" disabled={busy || !diff || diff.summary.length === 0} onClick={() => merge(false, true)} title="Recorded in the audit log">
+              Merge without approval
+            </button>
+          )}
           {props.canShip && !pending && (
             <button className="btn" disabled={!diff || diff.summary.length === 0} onClick={() => setScheduling((x) => !x)} aria-expanded={scheduling}>
               <Icon name="clock" size={14} /> Schedule release…
@@ -294,6 +333,7 @@ export function SettingsDrawer(props: {
           Save settings
         </button>
       </section>
+      {props.isAdmin && <ApprovalsSetting site={props.site} toast={props.toast} onSaved={(n) => props.onSaved({ ...props.site, requiredApprovals: n })} />}
       <BrandSection site={props.site} isAdmin={!!props.isAdmin} toast={props.toast} onChanged={(brandId) => (props.onSaved({ ...props.site, brandId }), props.onBrandChanged?.())} />
       {props.canEdit && <SaveAsTemplate site={props.site} toast={props.toast} />}
       <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -490,6 +530,39 @@ function SaveAsTemplate(props: { site: SiteSummary; toast: (m: string, tone?: "e
       <label className="check">
         <input type="checkbox" checked={items} onChange={(e) => setItems(e.target.checked)} /> Include CMS items
       </label>
+    </section>
+  );
+}
+
+function ApprovalsSetting(props: { site: SiteSummary; toast: (m: string, tone?: "error") => void; onSaved: (n: number) => void }) {
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Reviews</h3>
+      <div className="row">
+        <label htmlFor="s-approvals">Approvals</label>
+        <select
+          id="s-approvals"
+          className="select"
+          value={String(props.site.requiredApprovals ?? 0)}
+          onChange={async (e) => {
+            try {
+              const r = await Sites.setRequiredApprovals(props.site.id, Number(e.target.value));
+              props.onSaved(r.required);
+              props.toast(r.required ? `Branches now need ${r.required} ${r.required === 1 ? "approval" : "approvals"} before merging` : "Branches can be merged without approval");
+            } catch (err) {
+              props.toast((err as Error).message, "error");
+            }
+          }}
+        >
+          <option value="0">Not needed to merge</option>
+          {[1, 2, 3].map((n) => (
+            <option key={n} value={n}>
+              {n} {n === 1 ? "person approves" : "people approve"} before merging
+            </option>
+          ))}
+        </select>
+      </div>
+      <span className="muted small">People who changed a branch can't approve it, and neither can Claude. Admins can merge without approval; it's recorded in the audit log.</span>
     </section>
   );
 }

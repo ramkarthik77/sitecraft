@@ -19,6 +19,7 @@ import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import { toCsv } from "../security.js";
 import { scheduleRoutes } from "../schedules.js";
+import { assertApproved, reviewRoutes } from "../reviews.js";
 import { assetRoutes, checkImage } from "./assets.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import type { AppContext } from "../server.js";
@@ -84,6 +85,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     liveUrl: s.current_deployment_id ? siteLocation(cfg, s).url : null,
     publishUrl: siteLocation(cfg, s).url,
     brandId: s.brand_id ?? null,
+    requiredApprovals: Number((s as { required_approvals?: number }).required_approvals ?? 0),
   });
   const { getBrand, syncBrand } = libraryHelpers(ctx);
 
@@ -295,7 +297,8 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post<{ Params: Params }>("/sites/:siteId/branches/:branch/merge", async (req) => {
     const site = await repo.getSite(req.params.siteId);
     assertCanShip(req.actor, site.id, req.params.branch, "merge into main");
-    const { force } = body<{ force?: boolean }>(req);
+    const { force, override } = body<{ force?: boolean; override?: boolean }>(req);
+    await assertApproved(ctx, req.actor, site.id, req.params.branch, !!override);
     const r = await repo.merge(req.actor, site.id, req.params.branch, !!force);
     // A branch started before the brand changed would bring back the old brand; keep main on the current one.
     const synced = await syncBrand(req.actor, site.id, "Keep the current brand after merging").catch(() => false);
@@ -451,5 +454,6 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
 
   await libraryRoutes(app, ctx);
   await assetRoutes(app, ctx);
+  await reviewRoutes(app, ctx);
   await scheduleRoutes(app, ctx, assertCanShip);
 }
