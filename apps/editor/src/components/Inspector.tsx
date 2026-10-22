@@ -159,6 +159,42 @@ function ContentFields({ node, apply, siteId, doc, locale }: { node: SiteNode; a
           <textarea className="textarea rich" aria-label="Rich text" value={str("markdown")} placeholder={ph("markdown", "## Heading, **bold**, - list, [link](https://…)")} onChange={(e) => set("markdown", e.target.value)} />
         </Field>
       ) : null;
+    case "story": {
+      const [visuals, ...steps] = node.children ?? [];
+      const frames = visuals?.children?.length ?? 0;
+      const lastStep = steps[steps.length - 1];
+      const lastFrame = visuals?.children?.[frames - 1];
+      return (
+        <>
+          <Field label="Visual">
+            <div className="seg" role="group" aria-label="Visual side">
+              {(["left", "right"] as const).map((side) => (
+                <button key={side} aria-pressed={(p.side === "left" ? "left" : "right") === side} onClick={() => set("side", side)}>
+                  {side === "left" ? "On the left" : "On the right"}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <p className="muted small" style={{ margin: 0 }}>
+            {steps.length} {steps.length === 1 ? "step" : "steps"} and {frames} {frames === 1 ? "visual" : "visuals"}. The visual stays pinned while each step scrolls past and changes to the one in the same position. On the canvas they're all shown so you can edit them; Preview shows the scrolling.
+          </p>
+          {lastStep && (
+            <button
+              className="btn sm"
+              onClick={() => apply([{ op: "duplicate_node", nodeId: lastStep.id }, ...(lastFrame ? [{ op: "duplicate_node", nodeId: lastFrame.id } as Operation] : [])])}
+            >
+              <Icon name="plus" size={12} /> Add a step
+            </button>
+          )}
+        </>
+      );
+    }
+    case "progress":
+      return (
+        <p className="muted small" style={{ margin: 0 }}>
+          A thin bar along the top of the window that fills as people read down the page. Set its color and height in Style.
+        </p>
+      );
     case "language-switch":
       return (
         <p className="muted small" style={{ margin: 0 }}>
@@ -602,6 +638,16 @@ const ENTRANCES: [string, string][] = [
   ["flip-up", "Flip up (3D)"],
   ["rise", "Rise"],
 ];
+const SCROLLS: [string, string][] = [
+  ["fade", "Fade"],
+  ["rise", "Rise"],
+  ["scale", "Scale up"],
+  ["reveal", "Reveal from the top"],
+  ["slide-left", "Slide in from right"],
+  ["slide-right", "Slide in from left"],
+  ["blur", "Unblur"],
+  ["zoom", "Zoom out (images)"],
+];
 const HOVERS: [string, string][] = [
   ["lift", "Lift"],
   ["grow", "Grow"],
@@ -687,6 +733,39 @@ function MotionGroup({ node, apply }: { node: SiteNode; apply: (ops: Operation[]
             </label>
           )}
         </>
+      )}
+      <Field label="While scrolling">
+        <select
+          className="select"
+          aria-label="Scroll effect"
+          value={node.scroll?.effect ?? "none"}
+          onChange={(e) => apply([{ op: "update_node", nodeId: node.id, scroll: e.target.value === "none" ? null : { effect: e.target.value, range: node.scroll?.range ?? "in" } } as Operation])}
+        >
+          <option value="none">None</option>
+          {SCROLLS.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {node.scroll && (
+        <div className="field-stack">
+          <div className="seg" role="group" aria-label="Scroll range">
+            {(
+              [
+                ["in", "Coming in"],
+                ["out", "Leaving"],
+                ["both", "In and out"],
+              ] as const
+            ).map(([v, l]) => (
+              <button key={v} aria-pressed={node.scroll!.range === v} onClick={() => apply([{ op: "update_node", nodeId: node.id, scroll: { ...node.scroll!, range: v } } as Operation])}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <span className="muted small">Moves with the scrollbar, so scrolling back plays it in reverse. It replaces the entrance.</span>
+        </div>
       )}
       <Field label="Hover">
         <select

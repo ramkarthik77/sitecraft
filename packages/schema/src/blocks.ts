@@ -219,6 +219,111 @@ const BUILDERS: Record<string, (c: Content) => SiteNode> = {
       n("image", { src: str(c, "src", "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=1600&q=80"), alt: str(c, "alt", "Product screenshot") }, { base: { width: "100%", borderRadius: "var(--radius)", objectFit: "cover", aspectRatio: "16 / 9" } }),
     ]);
   },
+  story(c) {
+    const steps = items(c, "items", [
+      { title: "Design it", body: "Lay out pages visually with your brand's colors, type and components." },
+      { title: "Let Claude build it", body: "Claude works on its own branch: new sections, copy, translations. Nothing goes live on its own." },
+      { title: "Ship it together", body: "Review the changes side by side, approve, and publish in one click." },
+    ]);
+    const palette = ["var(--color-primary)", "var(--color-text)", "var(--color-muted)"];
+    const visual = (s: Record<string, string>, i: number) =>
+      s.src
+        ? n("image", { src: s.src, alt: s.alt ?? s.title ?? "" }, { base: { width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: "var(--radius)" } }, undefined, `Visual ${i + 1}`)
+        : n(
+            "stack",
+            {},
+            {
+              base: { width: "100%", aspectRatio: "4 / 3", borderRadius: "var(--radius)", backgroundColor: "var(--color-surface)", border: "1px solid var(--color-border)", display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "40px" },
+              mobile: { padding: "24px" },
+            },
+            [
+              n("text", { text: String(i + 1).padStart(2, "0") }, { base: { margin: "0", fontFamily: "var(--font-heading)", fontSize: "120px", lineHeight: "1", fontWeight: 600, letterSpacing: "-0.04em", color: palette[i % palette.length] }, mobile: { fontSize: "72px" } }),
+              n("text", { text: s.title ?? `Step ${i + 1}` }, { base: { margin: "0", fontSize: "22px", fontWeight: 600, color: "var(--color-text)" } }),
+            ],
+            `Visual ${i + 1}`,
+          );
+    const step = (s: Record<string, string>, i: number) =>
+      n("stack", {}, { base: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "460px" } }, [
+        n("text", { text: `Step ${i + 1}` }, { base: { margin: "0", fontSize: "14px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-primary)" } }),
+        heading(s.title ?? `Step ${i + 1}`, 3, { fontSize: "44px", lineHeight: "1.1", letterSpacing: "-0.02em" }, { fontSize: "30px" }),
+        text(s.body ?? ""),
+      ], `Step ${i + 1}`);
+    const intro = n("stack", {}, { base: { width: "100%", maxWidth: "1120px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "16px", paddingBottom: "32px" } }, [
+      heading(str(c, "headline", "How it works"), 2, { fontSize: "56px", letterSpacing: "-0.03em", lineHeight: "1.05" }, { fontSize: "36px" }),
+      text(str(c, "subheadline", "Three steps from idea to a live site."), { maxWidth: "560px" }),
+    ]);
+    intro.children![0]!.scroll = { effect: "reveal", range: "in" };
+    const story = n(
+      "story",
+      { side: c.side === "left" ? "left" : "right" },
+      { base: { width: "100%", maxWidth: "1120px", margin: "0 auto" } },
+      [n("stack", {}, { base: { width: "100%" } }, steps.map(visual), "Visuals"), ...steps.map(step)],
+      "Story",
+    );
+    return n("section", {}, { base: { padding: "120px 24px", display: "flex", flexDirection: "column" }, mobile: { padding: "72px 20px" } }, [intro, story], "Story");
+  },
+  statement(c) {
+    const node = section(
+      "Statement",
+      [
+        n("text", { text: str(c, "eyebrow", "Why it matters") }, { base: { margin: "0", fontSize: "14px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--color-primary)" } }),
+        heading(str(c, "headline", "Every team ships its own pages, and every page still looks like you."), 2, { fontSize: "clamp(40px, 6vw, 84px)", lineHeight: "1.04", letterSpacing: "-0.035em", fontWeight: 600, maxWidth: "1000px" }),
+        text(str(c, "body", "Brands, templates and review keep a hundred sites consistent without slowing anyone down."), { fontSize: "20px", maxWidth: "620px" }),
+      ],
+      { padding: "160px 24px" },
+      { padding: "96px 20px" },
+    );
+    const [eyebrow, h, body] = node.children![0]!.children!;
+    eyebrow!.scroll = { effect: "fade", range: "in" };
+    h!.scroll = { effect: "reveal", range: "in" };
+    body!.scroll = { effect: "rise", range: "in" };
+    return node;
+  },
+  "stacked-cards"(c) {
+    const cards = items(c, "items", [
+      { title: "Brand kits", body: "Colors, type and shared components every site follows, updated everywhere at once." },
+      { title: "Branches and review", body: "People and Claude work side by side; a person approves what goes live." },
+      { title: "One CMS, every language", body: "Collections, translations and scheduled releases from the same place." },
+    ]);
+    return section("Stacked cards", [
+      heading(str(c, "headline", "Built for teams"), 2, { fontSize: "48px", letterSpacing: "-0.03em" }, { fontSize: "34px" }),
+      n(
+        "stack",
+        {},
+        { base: { display: "flex", flexDirection: "column", gap: "24px", paddingBottom: "80px" } },
+        cards.map((card, i) =>
+          n(
+            "stack",
+            {},
+            {
+              base: {
+                position: "sticky",
+                top: `${96 + i * 24}px`,
+                minHeight: "360px",
+                padding: "48px",
+                borderRadius: "calc(var(--radius) * 2)",
+                backgroundColor: i % 2 ? "var(--color-text)" : "var(--color-surface)",
+                color: i % 2 ? "var(--color-background)" : "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                boxShadow: "0 -12px 40px rgba(0, 0, 0, 0.08)",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+                gap: "12px",
+              },
+              mobile: { padding: "28px", minHeight: "280px", top: `${72 + i * 16}px` },
+            },
+            [
+              heading(card.title ?? `Card ${i + 1}`, 3, { fontSize: "40px", letterSpacing: "-0.02em", color: "inherit" }, { fontSize: "28px" }),
+              text(card.body ?? "", { color: "inherit", opacity: 0.75, maxWidth: "560px" }),
+            ],
+            `Card ${i + 1}`,
+          ),
+        ),
+        "Cards",
+      ),
+    ]);
+  },
   footer(c) {
     return n("section", {}, { base: { padding: "48px 24px", borderTop: "1px solid var(--color-border)" } }, [
       n("stack", {}, { base: { width: "100%", maxWidth: "1120px", margin: "0 auto", display: "flex", flexDirection: "row", justifyContent: "space-between", gap: "16px", flexWrap: "wrap" } }, [
@@ -243,6 +348,9 @@ export const BLOCK_DESCRIPTIONS: Record<string, string> = {
   "contact-form": "Contact form that stores submissions. content: headline, subheadline, formName, ctaLabel",
   "text-section": "Heading and paragraph. content: headline, body",
   "image-section": "Full-width image. content: src, alt",
+  story: "Scroll story: a pinned visual changes as each step scrolls past (left or right of the text). content: headline, subheadline, side (left|right), items[{title,body,src?,alt?}]",
+  statement: "One large statement that reveals as you scroll. content: eyebrow, headline, body",
+  "stacked-cards": "Cards that pin and stack on top of each other while scrolling. content: headline, items[{title,body}]",
   footer: "Footer with brand and note. content: brand, note",
 };
 

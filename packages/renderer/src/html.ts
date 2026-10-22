@@ -159,6 +159,16 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
       const anchor = typeof p.anchor === "string" && /^[a-z0-9-]+$/i.test(p.anchor) ? ` id="${p.anchor}"` : "";
       return `<section${anchor}${a()}>${children(n, ctx)}</section>`;
     }
+    case "story": {
+      // First child holds the visuals (one per step); the rest are the steps.
+      const [visuals, ...steps] = n.children ?? [];
+      const edit = ctx.opts.mode === "editor";
+      const side = p.side === "left" ? "left" : "right";
+      const stage = visuals ? renderNode(visuals, ctx) : "";
+      return `<div${a(edit ? ["sc-story", "sc-story-edit"] : ["sc-story"])} data-side="${side}"${edit ? "" : " data-sc-story"}><div class="sc-story-steps">${steps.map((c) => renderNode(c, ctx)).join("")}</div><div class="sc-story-stage"><div class="sc-story-sticky">${stage}</div></div></div>`;
+    }
+    case "progress":
+      return `<div${a(ctx.opts.mode === "editor" ? ["sc-progress", "sc-progress-edit"] : ["sc-progress"])} data-sc-progress aria-hidden="true"></div>`;
     case "stack":
     case "grid":
     case "spacer":
@@ -291,6 +301,15 @@ e.addEventListener('pointermove',function(v){var r=e.getBoundingClientRect();var
 e.addEventListener('pointerleave',function(){e.style.setProperty('--sc-rx','0deg');e.style.setProperty('--sc-ry','0deg')})})}
 var px=calm?[]:Q('[data-sc-parallax]');if(px.length){var busy=0;function move(){busy=0;var h=innerHeight;px.forEach(function(e){var s=parseFloat(e.getAttribute('data-sc-parallax'))||0;var r=e.getBoundingClientRect();var top=r.top-(e._sc||0);if(top+r.height<-h||top>2*h)return;e._sc=(top+r.height/2-h/2)*s;e.style.translate='0 '+e._sc.toFixed(1)+'px'})}
 addEventListener('scroll',function(){if(!busy){busy=1;requestAnimationFrame(move)}},{passive:true});addEventListener('resize',move);move()}
+var native=window.CSS&&CSS.supports&&CSS.supports('animation-timeline:view()');
+var scrub=calm||native?[]:Q('[data-sc-scrub]'),bars=Q('[data-sc-progress]');
+if(scrub.length||bars.length){var due=0;function tick(){due=0;var h=innerHeight;scrub.forEach(function(e){var r=e.getBoundingClientRect();var c=(h-r.top)/(h+r.height),m=e.getAttribute('data-sc-scrub'),p=m==='both'?c:m==='out'?(c-.55)/.45:c/.45;e.style.setProperty('--sc-p',Math.min(.999,Math.max(0,p)).toFixed(4))});
+if(!(window.CSS&&CSS.supports&&CSS.supports('animation-timeline:scroll()'))){var d=document.documentElement,t=d.scrollHeight-h;bars.forEach(function(b){b.style.setProperty('--sc-p',t>0?(scrollY/t).toFixed(4):'0')})}}
+addEventListener('scroll',function(){if(!due){due=1;requestAnimationFrame(tick)}},{passive:true});addEventListener('resize',tick);tick()}
+Q('[data-sc-story]').forEach(function(s){var st=s.querySelector('.sc-story-steps'),vs=s.querySelector('.sc-story-sticky');if(!st||!vs||!vs.firstElementChild||!('IntersectionObserver' in window))return;
+var steps=[].slice.call(st.children),frames=[].slice.call(vs.firstElementChild.children);if(!frames.length)return;s.classList.add('sc-live');
+function on(i){steps.forEach(function(x,j){x.classList.toggle('sc-on',j===i)});frames.forEach(function(x,j){x.classList.toggle('sc-on',j===Math.min(i,frames.length-1))})}on(0);
+var so=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting)on(steps.indexOf(x.target))})},{rootMargin:'-45% 0px -45% 0px'});steps.forEach(function(x){so.observe(x)})});
 [].slice.call(document.querySelectorAll('form[data-sc-form]')).forEach(function(f){f.addEventListener('submit',function(ev){
 if(!window.fetch)return;ev.preventDefault();var s=f.querySelector('.sc-form-status');var d={};new FormData(f).forEach(function(v,k){d[k]=v});
 fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(function(r){

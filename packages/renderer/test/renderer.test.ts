@@ -102,3 +102,62 @@ describe("motion", () => {
     expect(cleared.pages[0]!.root.parallax).toBeUndefined();
   });
 });
+
+describe("scroll stories", () => {
+  const withBlocks = () => {
+    const doc = createStarterDocument({ template: "blank" });
+    const root = doc.pages[0]!.root.id;
+    return applyOperations(doc, [
+      { op: "add_block", parentId: root, block: "story" },
+      { op: "add_block", parentId: root, block: "statement" },
+      { op: "add_block", parentId: root, block: "stacked-cards" },
+      { op: "add_node", parentId: root, index: 0, node: { type: "progress", props: {}, style: {} } },
+    ]).document;
+  };
+
+  it("renders a pinned story, scroll-linked effects and a progress bar on the published page", () => {
+    const doc = withBlocks();
+    const html = renderPage(doc, doc.pages[0]!, { mode: "publish" });
+    expect(html).toMatch(/class="[^"]*sc-story"[^>]*data-side="right" data-sc-story><div class="sc-story-steps">/);
+    expect(html).toContain('<div class="sc-story-stage"><div class="sc-story-sticky">');
+    expect(html).toMatch(/sc-scrub sc-s-reveal" data-sc-scrub="in"/);
+    expect(html).toContain("data-sc-progress");
+    // Native scroll timelines where supported, a scrubbed paused animation elsewhere, nothing for reduced motion.
+    expect(html).toContain("@supports (animation-timeline:view()){.sc-scrub{animation-timeline:view()");
+    expect(html).toContain("animation-delay:calc(var(--sc-p,0) * -1s)");
+    expect(html).toMatch(/@media \(prefers-reduced-motion:no-preference\)\{@keyframes sc-s-fade/);
+    // Stacked cards are plain sticky positioning.
+    expect(html).toContain("position:sticky;top:120px");
+  });
+
+  it("lays everything out in normal flow on the canvas so nothing depends on the window height", () => {
+    const doc = withBlocks();
+    const html = renderPage(doc, doc.pages[0]!, { mode: "editor" });
+    expect(html).toContain("sc-story sc-story-edit");
+    expect(html).not.toContain("data-sc-story");
+    expect(html).not.toContain("sc-scrub");
+    expect(html).toContain("sc-progress sc-progress-edit");
+  });
+
+  it("validates story structure and keeps scroll and entrance exclusive", () => {
+    const doc = withBlocks();
+    const story = JSON.stringify(doc).match(/"id":"([^"]+)","type":"story"/)![1]!;
+    let visuals = "";
+    for (const p of doc.pages) {
+      const find = (n: any): void => {
+        if (n.id === story) visuals = n.children[0].id;
+        n.children?.forEach(find);
+      };
+      find(p.root);
+    }
+    expect(() => applyOperations(doc, [{ op: "remove_node", nodeId: visuals }, { op: "remove_node", nodeId: visuals }])).toThrow();
+    const root = doc.pages[0]!.root.id;
+    const a = applyOperations(doc, [{ op: "update_node", nodeId: root, animation: { preset: "rise", trigger: "scroll" } }]).document;
+    const b = applyOperations(a, [{ op: "update_node", nodeId: root, scroll: { effect: "zoom", range: "both" } }]).document;
+    expect(b.pages[0]!.root.animation).toBeUndefined();
+    expect(b.pages[0]!.root.scroll).toEqual({ effect: "zoom", range: "both" });
+    const c = applyOperations(b, [{ op: "update_node", nodeId: root, animation: { preset: "fade-in", trigger: "load" } }]).document;
+    expect(c.pages[0]!.root.scroll).toBeUndefined();
+    expect(() => applyOperations(doc, [{ op: "update_node", nodeId: root, scroll: { effect: "spin", range: "in" } }])).toThrow();
+  });
+});

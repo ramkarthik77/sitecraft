@@ -12,11 +12,13 @@ export function describeNode(n: SiteNode): string {
   else if (typeof p.src === "string") detail = ` — ${truncate(String(p.alt ?? p.src), 40)}`;
   else if (n.type === "instance") detail = ` — component ${p.componentId}`;
   else if (n.type === "collection-list") detail = ` — items of ${p.collectionId}${p.limit ? `, up to ${p.limit}` : ""}`;
+  else if (n.type === "story") detail = ` — ${Math.max(0, (n.children?.length ?? 1) - 1)} steps, visual on the ${p.side === "left" ? "left" : "right"}; first child holds one visual per step`;
   else if (typeof p.markdown === "string" && p.markdown) detail = ` — ${truncate(p.markdown, 60)}`;
   const bind = p.bind && typeof p.bind === "object" ? Object.entries(p.bind as Record<string, string>) : [];
   const bound = bind.length ? ` ← ${bind.map(([k, v]) => `${k}:${v}`).join(", ")}` : "";
   const motion = [
     n.animation ? `${n.animation.preset}${n.animation.staggerMs ? " staggered" : ""}` : "",
+    n.scroll ? `scroll ${n.scroll.effect} ${n.scroll.range}` : "",
     n.hover?.preset ? `hover ${n.hover.preset}` : "",
     n.parallax ? `parallax ${n.parallax}` : "",
   ].filter(Boolean);

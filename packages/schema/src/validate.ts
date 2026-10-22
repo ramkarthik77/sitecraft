@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   ANIMATION_PRESETS,
+  SCROLL_EFFECTS,
+  SCROLL_RANGES,
   EASINGS,
   HOVER_PRESETS,
   CONTAINER_TYPES,
@@ -87,6 +89,7 @@ export const nodeSchema: z.ZodType<SiteNode> = z.lazy(() =>
       animation: animationSchema.optional(),
       hover: z.object({ preset: z.enum(HOVER_PRESETS).optional(), style: styleSchema.optional() }).strict().optional(),
       parallax: z.number().min(-0.5).max(0.5).optional(),
+      scroll: z.object({ effect: z.enum(SCROLL_EFFECTS), range: z.enum(SCROLL_RANGES) }).strict().optional(),
       hidden: z.object({ base: z.boolean().optional(), tablet: z.boolean().optional(), mobile: z.boolean().optional() }).strict().optional(),
       children: z.array(nodeSchema).optional(),
     })
@@ -105,6 +108,15 @@ export const nodeSchema: z.ZodType<SiteNode> = z.lazy(() =>
       }
       if (node.type === "embed" && str("url") !== undefined && !/^https:\/\//i.test(str("url")!)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Embed url must use https on node ${node.id}` });
+      }
+      if (node.type === "story" && (node.children?.length ?? 0) < 2) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Story ${node.id} needs its visuals and at least one step` });
+      }
+      if (node.type === "story" && node.children?.[0] && !["stack", "grid", "section"].includes(node.children[0].type)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `A story's first child holds its visuals and must be a stack` });
+      }
+      if (node.animation && node.scroll) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Node ${node.id} can follow the scroll or play an entrance, not both` });
       }
       if (node.type === "instance" && typeof p.componentId !== "string") {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Instance node ${node.id} needs props.componentId` });

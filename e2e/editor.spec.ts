@@ -228,3 +228,42 @@ test("motion: set an entrance and hover in the inspector, then watch it play", a
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.locator("h1")).toHaveCSS("opacity", "1");
 });
+
+test("scroll story: insert a story, set a scroll effect, and the pinned visual follows the steps", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await page.locator(".block-card .name", { hasText: /^story$/ }).click();
+  await saved(page);
+  // On the canvas every visual is shown so each can be edited.
+  await expect(canvas(page).locator(".sc-story-edit")).toBeVisible();
+  await expect(canvas(page).getByText("Let Claude build it").first()).toBeVisible();
+
+  await canvas(page).locator("h2", { hasText: "How it works" }).click();
+  await page.getByLabel("Scroll effect").selectOption("reveal");
+  await page.getByRole("group", { name: "Scroll range" }).getByRole("button", { name: "In and out" }).click();
+  await saved(page);
+
+  await page.locator(".sc-story-edit").first().waitFor({ state: "detached" }).catch(() => {});
+  const { url } = await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main/preview-url`);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await expect(page.locator("h2", { hasText: "How it works" })).toHaveAttribute("data-sc-scrub", "both");
+  const story = page.locator("[data-sc-story]");
+  await expect(story).toHaveClass(/sc-live/);
+  const steps = story.locator(".sc-story-steps > *");
+  const frames = story.locator(".sc-story-sticky > * > *");
+  for (const i of [0, 1, 2]) {
+    await steps.nth(i).evaluate((e) => e.scrollIntoView({ block: "center" }));
+    await expect(steps.nth(i)).toHaveClass(/sc-on/);
+    await expect(frames.nth(i)).toHaveClass(/sc-on/);
+    await expect(frames.nth(i)).toBeInViewport();
+    // Once the cross-fade settles only this step's visual shows, and its words are at full strength.
+    await expect(frames.nth(i)).toHaveCSS("opacity", "1");
+    await expect(steps.nth(i)).toHaveCSS("opacity", "1");
+    for (const j of [0, 1, 2].filter((j) => j !== i)) await expect(frames.nth(j)).toHaveCSS("opacity", "0");
+  }
+  await page.screenshot({ path: "test-results/story-preview.png" });
+});

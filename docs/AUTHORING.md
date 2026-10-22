@@ -126,6 +126,7 @@ Select any element and open **Motion** in the inspector.
 | Timing | Duration, delay, and a feel: smooth, spring (a little overshoot), ease out or linear |
 | One child at a time | On a stack, grid or CMS list, the children come in one after another, a set number of milliseconds apart |
 | Hover | Lift, grow, glow, dim, or tilt, which follows the pointer in 3D |
+| While scrolling | The effect follows the scrollbar instead of playing once: fade, rise, scale up, reveal from the top, slide, unblur, or zoom out for images. Choose when: coming in, leaving, or in and out. Scrolling back plays it in reverse. It replaces the entrance |
 | Parallax | The element drifts slower or faster than the page as people scroll |
 
 **Play** replays the entrance on the canvas. The canvas otherwise stays still while you edit; hover effects work there. Previews and the published site play everything.
@@ -133,3 +134,21 @@ Select any element and open **Motion** in the inspector.
 Visitors whose device asks for reduced motion see the finished page with no movement. Motion runs from the site's own script under its security policy; nothing is loaded from elsewhere.
 
 With Claude Code: "Animate the home page: hero comes in on load, feature cards one at a time, and the pricing cards tilt on hover" uses `set_motion`.
+
+## Scroll stories
+
+Product pages that explain something step by step, like the ones agencies hand-build, from three sections in Insert:
+
+| Section | What it does |
+|---|---|
+| **Story** | A visual stays pinned beside the text while each step scrolls past, changing to that step's visual. On phones the visual pins to the top half and the words scroll underneath |
+| **Statement** | One large sentence that reveals as it comes into view |
+| **Stacked cards** | Cards that pin and stack on top of each other as you scroll |
+
+And one element: **Progress bar**, a thin bar along the top of the window that fills as people read.
+
+**Editing a story.** The first layer inside a story, *Visuals*, holds one visual per step, in order; the other layers are the steps. Put anything in a visual: an image, a diagram made of stacks and text, a video. **Add a step** in the inspector adds a step and a visual together. The canvas shows every visual so you can edit them; **Preview** shows the scrolling.
+
+**How it runs.** Chrome, Edge and Safari drive scroll effects natively, smoothly and off the main thread. Other browsers get the same result from a small part of the site's own script. Nothing is loaded from elsewhere, so the site's security policy is unchanged, and visitors who ask for reduced motion see the finished page.
+
+With Claude Code: "Add a story explaining our three-step onboarding, with the screenshot for each step, and reveal the big headings as they scroll in" uses `add_block` (story, statement) and `set_motion`.

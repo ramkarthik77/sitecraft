@@ -21,6 +21,8 @@ export const NODE_TYPES = [
   "richtext",
   "collection-list",
   "language-switch",
+  "story",
+  "progress",
 ] as const;
 
 export type NodeType = (typeof NODE_TYPES)[number];
@@ -33,6 +35,7 @@ export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>([
   "form",
   "link",
   "collection-list",
+  "story",
 ]);
 
 export const BREAKPOINTS = ["base", "tablet", "mobile"] as const;
@@ -129,6 +132,19 @@ export const ANIMATION_PRESETS = [
 ] as const;
 export const EASINGS = ["smooth", "spring", "ease-out", "linear"] as const;
 export type Easing = (typeof EASINGS)[number];
+/**
+ * Scroll-linked effects: progress follows the scrollbar instead of playing
+ * once. "in" plays as the element comes into view, "out" as it leaves,
+ * "both" in then out again.
+ */
+export const SCROLL_EFFECTS = ["fade", "rise", "scale", "reveal", "slide-left", "slide-right", "blur", "zoom"] as const;
+export type ScrollEffectName = (typeof SCROLL_EFFECTS)[number];
+export const SCROLL_RANGES = ["in", "out", "both"] as const;
+export interface ScrollEffect {
+  effect: ScrollEffectName;
+  range: (typeof SCROLL_RANGES)[number];
+}
+
 export const HOVER_PRESETS = ["lift", "grow", "glow", "tilt", "dim"] as const;
 export type HoverPreset = (typeof HOVER_PRESETS)[number];
 export type AnimationPreset = (typeof ANIMATION_PRESETS)[number];
@@ -169,6 +185,8 @@ export interface SiteNode {
    * the page this element moves, from -0.5 to 0.5.
    */
   parallax?: number;
+  /** Scroll-linked effect; replaces an entrance animation. */
+  scroll?: ScrollEffect;
   /** Hide this node at specific breakpoints. */
   hidden?: Partial<Record<Breakpoint, boolean>>;
   children?: SiteNode[];

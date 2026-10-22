@@ -4,6 +4,7 @@ import {
   STYLE_PROPERTIES,
   type Animation,
   type HoverEffect,
+  type ScrollEffect,
   type SiteDocument,
   type SiteNode,
   type Style,
@@ -138,6 +139,85 @@ export const ANIMATION_CSS = [
   "}",
 ].join("");
 
+/** Where each scroll-linked effect starts; the element ends in its natural place. */
+const SCROLL_FROM: Record<string, string> = {
+  fade: "opacity:0",
+  rise: "opacity:0;transform:translateY(80px)",
+  scale: "opacity:0;transform:scale(.86)",
+  reveal: "clip-path:inset(0 0 100% 0);transform:translateY(24px)",
+  "slide-left": "opacity:0;transform:translateX(120px)",
+  "slide-right": "opacity:0;transform:translateX(-120px)",
+  blur: "opacity:0;filter:blur(16px)",
+  zoom: "transform:scale(1.18)",
+};
+const SCROLL_TO: Record<string, string> = {
+  fade: "opacity:1",
+  rise: "opacity:1;transform:none",
+  scale: "opacity:1;transform:none",
+  reveal: "clip-path:inset(0 0 0 0);transform:none",
+  "slide-left": "opacity:1;transform:none",
+  "slide-right": "opacity:1;transform:none",
+  blur: "opacity:1;filter:blur(0)",
+  zoom: "transform:none",
+};
+
+/**
+ * Scroll-linked effects. Browsers with scroll timelines (Chrome, Edge,
+ * Safari 26+) drive them natively; elsewhere the site script sets --sc-p
+ * (0 to 1) and a paused animation is scrubbed with a negative delay.
+ */
+export const SCROLL_CSS = [
+  "@media (prefers-reduced-motion:no-preference){",
+  ...Object.keys(SCROLL_FROM).flatMap((k) => [
+    `@keyframes sc-s-${k}{from{${SCROLL_FROM[k]}}to{${SCROLL_TO[k]}}}`,
+    `@keyframes sc-s-${k}-b{0%{${SCROLL_FROM[k]}}35%,65%{${SCROLL_TO[k]}}100%{${SCROLL_FROM[k]}}}`,
+    `.sc-scrub.sc-s-${k}{animation-name:sc-s-${k}}.sc-scrub.sc-s-${k}[data-sc-scrub=both]{animation-name:sc-s-${k}-b}`,
+  ]),
+  ".sc-scrub{animation-duration:1s;animation-timing-function:linear;animation-fill-mode:both;animation-play-state:paused;animation-delay:calc(var(--sc-p,0) * -1s);will-change:transform,opacity}",
+  ".sc-scrub[data-sc-scrub=out]{animation-direction:reverse}",
+  "@supports (animation-timeline:view()){",
+  ".sc-scrub{animation-timeline:view();animation-duration:auto;animation-delay:0s;animation-play-state:running;animation-range:entry 0% cover 45%}",
+  ".sc-scrub[data-sc-scrub=out]{animation-range:cover 55% cover 100%}",
+  ".sc-scrub[data-sc-scrub=both]{animation-range:cover 0% cover 100%}",
+  "}",
+  "}",
+  // Reading progress: native scroll timeline where available, else --sc-p from the script.
+  "@keyframes sc-progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}",
+  "@supports (animation-timeline:scroll()){.sc-progress{animation:sc-progress linear both;animation-timeline:scroll(root)}}",
+].join("");
+
+/** Layout of scroll stories and the progress bar; used on the canvas too. */
+export const STORY_CSS = [
+  ".sc-story{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:clamp(32px,6vw,96px)}",
+  // Room below the last step keeps its visual pinned while it's read.
+  ".sc-story-steps{display:flex;flex-direction:column;padding-bottom:20vh}",
+  ".sc-story-steps>*{min-height:85vh;justify-content:center}",
+  ".sc-story-stage{position:relative}",
+  ".sc-story-sticky{position:sticky;top:0;height:100vh;display:flex;align-items:center}",
+  ".sc-story-sticky>*{width:100%}",
+  ".sc-story[data-side=left] .sc-story-stage{order:-1}",
+  // With the script running, visuals stack in one place and swap as steps change.
+  ".sc-live .sc-story-sticky>*{display:grid}",
+  ".sc-live .sc-story-sticky>*>*{grid-area:1/1;opacity:0;transform:translateY(24px) scale(.98)}",
+  ".sc-live .sc-story-sticky>*>.sc-on{opacity:1;transform:none}",
+  ".sc-live .sc-story-steps>*{opacity:.28}",
+  ".sc-live .sc-story-steps>.sc-on{opacity:1}",
+  "@media (prefers-reduced-motion:no-preference){.sc-live .sc-story-sticky>*>*{transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}.sc-live .sc-story-steps>*{transition:opacity .5s}}",
+  `@media (max-width:${767}px){`,
+  ".sc-story{grid-template-columns:minmax(0,1fr)}",
+  ".sc-story-stage{order:-1;position:sticky;top:0;z-index:1;height:50vh;padding:12px 0;background:var(--color-background)}",
+  ".sc-story-sticky{position:static;height:100%}",
+  // The visual pins to the top half; each step's words sit in the bottom half.
+  ".sc-story-steps>*{min-height:78vh;justify-content:flex-end;padding-bottom:6vh}",
+  "}",
+  // On the canvas: everything in normal flow, so nothing depends on the viewport height.
+  ".sc-story-edit .sc-story-sticky,.sc-story-edit .sc-story-stage{position:static;height:auto}",
+  ".sc-story-edit .sc-story-sticky>*{display:flex;flex-direction:column;gap:24px}",
+  ".sc-story-edit .sc-story-steps{padding-bottom:0}.sc-story-edit .sc-story-steps>*{min-height:0;padding:64px 0}",
+  ".sc-progress{position:fixed;top:0;left:0;right:0;height:3px;background:var(--color-primary);transform-origin:0 50%;transform:scaleX(var(--sc-p,0));z-index:100;pointer-events:none}",
+  ".sc-progress-edit{position:static;transform:scaleX(.35)}",
+].join("");
+
 /** Ready-made hover effects. Movement only for people who haven't asked for less motion. */
 export const HOVER_CSS = [
   ".sc-h{transition:transform .28s cubic-bezier(.2,.7,.2,1),box-shadow .28s,opacity .2s,filter .28s}",
@@ -160,7 +240,7 @@ export interface MotionAttrs {
 }
 
 /** Classes, CSS variables and runtime hooks for an element's motion. */
-export function motionAttrs(n: { animation?: Animation; hover?: HoverEffect; parallax?: number }, withEntrance: boolean): MotionAttrs {
+export function motionAttrs(n: { animation?: Animation; hover?: HoverEffect; parallax?: number; scroll?: ScrollEffect }, withEntrance: boolean): MotionAttrs {
   const classes: string[] = [];
   const vars: string[] = [];
   let attrs = "";
@@ -172,6 +252,10 @@ export function motionAttrs(n: { animation?: Animation; hover?: HoverEffect; par
     if (a.staggerMs) vars.push(`--sc-step:${a.staggerMs}ms`);
     if (a.easing && a.easing !== "smooth") vars.push(`--sc-ease:${EASING_CSS[a.easing]}`);
     attrs += ` data-sc-trigger="${a.trigger === "load" ? "load" : "scroll"}"`;
+  }
+  if (withEntrance && n.scroll) {
+    classes.push("sc-scrub", `sc-s-${n.scroll.effect}`);
+    attrs += ` data-sc-scrub="${n.scroll.range === "out" ? "out" : n.scroll.range === "both" ? "both" : "in"}"`;
   }
   const h = n.hover?.preset;
   if (h) {
@@ -189,7 +273,8 @@ export function animationAttrs(a: Animation | undefined): MotionAttrs {
 
 export function assembleCss(doc: SiteDocument, c: CssCollector, withAnimations: boolean): string {
   const parts = [themeCss(doc), RESET_CSS];
-  if (withAnimations) parts.push(ANIMATION_CSS);
+  if (withAnimations) parts.push(ANIMATION_CSS, SCROLL_CSS);
+  parts.push(STORY_CSS);
   parts.push(HOVER_CSS);
   parts.push(c.base.join(""));
   if (c.hover.length) parts.push(`@media (hover:hover){${c.hover.join("")}}`);

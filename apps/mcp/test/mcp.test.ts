@@ -219,6 +219,14 @@ describe("motion tool", () => {
     // Changing only the timing keeps the effect.
     await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: [grid], durationMs: 900 } });
     expect(text(await client.callTool({ name: "get_site", arguments: { site: "kinetic", branch: "agent/motion" } }))).toMatch(/rise staggered/);
+    // A scroll-linked effect replaces the entrance; a story block lands with its steps.
+    await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: [heading], scroll: "reveal", scrollRange: "both" } });
+    const root = /Page \/ "[^"]*" \(\w+\)\n\s+stack "Page" \((\w+)\)/.exec(after)![1]!;
+    const added = await client.callTool({ name: "edit_site", arguments: { site: "kinetic", branch: "agent/motion", operations: [{ op: "add_block", parentId: root, block: "story", content: { items: [{ title: "Plan" }, { title: "Build" }] } }] } });
+    expect(text(added)).toContain("Saved version");
+    const scrolled = text(await client.callTool({ name: "get_site", arguments: { site: "kinetic", branch: "agent/motion" } }));
+    expect(scrolled).toMatch(new RegExp(`\\(${heading}\\).*\\{scroll reveal both, hover tilt\\}`));
+    expect(scrolled).toContain("2 steps, visual on the right");
     const gone = await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: ["nope"], entrance: "fade-in" } });
     expect(gone.isError).toBe(true);
   });

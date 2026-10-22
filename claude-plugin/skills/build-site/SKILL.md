@@ -16,6 +16,7 @@ Sitecraft is the team's visual website builder. People edit in the browser; you 
    - New sections: `add_section` with a block from `list_blocks` and real `content` (headline, items, CTA labels). Blocks are responsive and on-brand already; prefer them over building sections node by node.
    - Copy: `update_text`.
    - Look and feel: `set_theme` for brand colors, fonts and radius across the site; `update_style` for one element.
+   - Scroll storytelling: the `story` block (pinned visual, one per step), `statement` and `stacked-cards`, plus `scroll` effects in `set_motion` (reveal for big headings, zoom for images). Calm and clean, never flashy.
    - Motion: `set_motion` for entrances, hover effects and parallax. Keep it calm: one entrance style per page, 400-900 ms, stagger cards and list items, tilt only on cards.
    - Anything else, or several changes at once: `edit_site` with a list of operations (they apply atomically).
    - New pages: `add_page` with starting blocks, then fill them in.

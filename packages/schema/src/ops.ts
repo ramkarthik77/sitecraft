@@ -36,6 +36,7 @@ const looseNode: z.ZodType<Partial<SiteNode> & { type: SiteNode["type"] }> = z.l
       animation: z.any().optional(),
       hover: z.any().optional(),
       parallax: z.number().optional(),
+      scroll: z.any().optional(),
       hidden: z.any().optional(),
       children: z.array(looseNode).optional(),
     })
@@ -71,6 +72,7 @@ export const operationSchema = z.discriminatedUnion("op", [
     animation: z.any().optional(),
     hover: z.any().optional(),
     parallax: z.number().nullable().optional(),
+    scroll: z.any().optional(),
     hidden: z.any().optional(),
   }),
   z.object({ op: z.literal("remove_node"), nodeId: z.string() }),
@@ -327,6 +329,15 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
         if (op.hover === null || (!op.hover?.preset && !Object.keys(op.hover?.style ?? {}).length)) delete n.hover;
         else n.hover = op.hover;
       }
+      // An element either follows the scroll or plays an entrance; setting one clears the other.
+      if (op.scroll !== undefined) {
+        if (op.scroll === null || op.scroll?.effect === "none") delete n.scroll;
+        else {
+          n.scroll = { effect: op.scroll.effect, range: op.scroll.range ?? "in" };
+          if (!op.animation) delete n.animation;
+        }
+      }
+      if (op.animation && op.animation.preset !== "none" && op.scroll === undefined) delete n.scroll;
       if (op.parallax !== undefined) {
         if (op.parallax === null || op.parallax === 0) delete n.parallax;
         else n.parallax = Math.round(op.parallax * 100) / 100;

@@ -55,6 +55,11 @@ export const ELEMENTS: Record<string, { label: string; glyph: string; make: () =
     glyph: "文",
     make: () => ({ type: "language-switch", props: {}, style: { base: { display: "flex", gap: "12px" } } }),
   },
+  progress: {
+    label: "Progress bar",
+    glyph: "━",
+    make: () => ({ type: "progress", props: {}, style: {} }),
+  },
   divider: { label: "Divider", glyph: "—", make: () => ({ type: "divider", props: {}, style: { base: { border: "0", borderTop: "1px solid var(--color-border)", margin: "0", width: "100%" } } }) },
   spacer: { label: "Spacer", glyph: "↕", make: () => ({ type: "spacer", props: {}, style: { base: { height: "48px" } } }) },
   embed: { label: "Video", glyph: "▶", make: () => ({ type: "embed", props: { url: "https://www.youtube.com/embed/aqz-KE-bpKQ", title: "Video" }, style: { base: { borderRadius: "var(--radius)" } } }) },
@@ -97,6 +102,29 @@ function BlockThumb({ name }: { name: string }) {
       return <div style={box}>{bar("60%", 6, { background: "#fff", border: "1px solid #c9cdc6" })}{bar("60%", 6, { background: "#fff", border: "1px solid #c9cdc6" })}{bar("20%", 6, { background: "#2f5bea" })}</div>;
     case "image-section":
       return <div style={{ ...box, background: "#d9dcd5", inset: 6, borderRadius: 3 }} />;
+    case "story":
+      return (
+        <div style={{ ...box, flexDirection: "row", alignItems: "stretch", gap: 6 }}>
+          <span style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, justifyContent: "center" }}>
+            {bar("40%", 3, { background: "#2f5bea" })}
+            {bar("90%", 5, { background: "#1c2024" })}
+            {bar("70%")}
+          </span>
+          <span style={{ flex: 1, border: "1px solid #c9cdc6", borderRadius: 3, background: "#eef0ea", position: "relative" }}>
+            <span style={{ position: "absolute", left: 5, top: 4, font: "600 11px/1 system-ui", color: "#2f5bea" }}>01</span>
+          </span>
+        </div>
+      );
+    case "statement":
+      return <div style={box}>{bar("90%", 7, { background: "#1c2024" })}{bar("75%", 7, { background: "#1c2024" })}{bar("40%", 3)}</div>;
+    case "stacked-cards":
+      return (
+        <div style={{ ...box, justifyContent: "flex-end" }}>
+          {[0, 1, 2].map((i) => (
+            <span key={i} style={{ display: "block", height: 12, margin: `0 ${8 - i * 4}px`, marginTop: i ? -6 : 0, borderRadius: 3, border: "1px solid #c9cdc6", background: i === 1 ? "#1c2024" : "#eef0ea" }} />
+          ))}
+        </div>
+      );
     case "footer":
       return <div style={{ ...box, justifyContent: "flex-end" }}><span style={{ display: "flex", justifyContent: "space-between" }}>{bar("20%")}{bar("35%")}</span></div>;
     default:

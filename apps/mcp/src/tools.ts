@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ANIMATION_PRESETS, BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, EASINGS, FIELD_TYPES, HOVER_PRESETS, STYLE_PROPERTIES, translationStatus, walk, type Animation, type SiteDocument, type SiteNode } from "@sitecraft/schema";
+import { ANIMATION_PRESETS, BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, EASINGS, FIELD_TYPES, HOVER_PRESETS, SCROLL_EFFECTS, SCROLL_RANGES, STYLE_PROPERTIES, translationStatus, walk, type Animation, type SiteDocument, type SiteNode } from "@sitecraft/schema";
 import { z } from "zod";
 import { ApiError, enc, SitecraftClient } from "./client.js";
 
@@ -257,6 +257,7 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
       title: "Set motion",
       description: `Animate elements: an entrance when they scroll into view or the page loads, a hover effect, and scroll parallax. Apply to several elements at once (for example every section on a page).
 Entrances: ${ANIMATION_PRESETS.filter((p) => p !== "none").join(", ")}; "none" removes it. Easing: ${EASINGS.join(", ")}. staggerMs plays the entrance on each child in turn (cards, list items, a CMS list) instead of the element itself.
+Scroll-linked (follows the scrollbar, plays backwards when scrolling up; replaces the entrance): scroll = ${SCROLL_EFFECTS.join(", ")} or "none", scrollRange = in (as it comes into view, default), out (as it leaves), both. Good for big headings (reveal), images (zoom) and story visuals.
 Hover: ${HOVER_PRESETS.join(", ")} ("tilt" follows the pointer in 3D); "none" removes it. Parallax: -0.5 to 0.5 (positive moves slower than the page; 0.1-0.2 is subtle).
 Keep it tasteful: one entrance style per page, durations 400-900 ms, small delays (0-300 ms) to sequence a hero's heading, text and buttons. Visitors who ask for reduced motion see no movement.`,
       inputSchema: {
@@ -269,11 +270,13 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
         delayMs: z.number().int().min(0).max(10000).optional(),
         easing: z.enum(EASINGS).optional(),
         staggerMs: z.number().int().min(0).max(2000).optional(),
+        scroll: z.enum([...SCROLL_EFFECTS, "none"]).optional(),
+        scrollRange: z.enum(SCROLL_RANGES).optional(),
         hover: z.enum([...HOVER_PRESETS, "none"]).optional(),
         parallax: z.number().min(-0.5).max(0.5).optional(),
       },
     },
-    ({ site: s, branch: b, nodeIds, entrance, trigger, durationMs, delayMs, easing, staggerMs, hover, parallax }) =>
+    ({ site: s, branch: b, nodeIds, entrance, trigger, durationMs, delayMs, easing, staggerMs, scroll, scrollRange, hover, parallax }) =>
       run(async () => {
         const head = await client.get<{ document: SiteDocument }>(`/sites/${await resolveId(s)}/branches/${enc(b)}`);
         const byId = new Map<string, SiteNode>();
@@ -299,6 +302,8 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
             // Leave out unset and zero options so the document stays tidy.
             op.animation = Object.fromEntries(Object.entries(next).filter(([k, v]) => v !== undefined && !(v === 0 && (k === "delayMs" || k === "staggerMs"))));
           }
+          if (scroll === "none") op.scroll = null;
+          else if (scroll || (scrollRange && n.scroll)) op.scroll = { effect: scroll ?? n.scroll!.effect, range: scrollRange ?? n.scroll?.range ?? "in" };
           if (hover === "none") op.hover = n.hover?.style ? { style: n.hover.style } : null;
           else if (hover) op.hover = { ...n.hover, preset: hover };
           if (parallax !== undefined) op.parallax = parallax;
