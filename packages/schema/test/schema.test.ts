@@ -56,6 +56,7 @@ describe("operations", () => {
     const { document: d2, created } = applyOperations(d, [{ op: "add_block", parentId: rootId, block: "cta", content: { headline: "Join us" } }]);
     const cta = findNodeInDocument(d2, created[0]!)!.node;
     expect(JSON.stringify(cta)).toContain("Join us");
+    expect(cta.name).toBe("Join us");
     const headingId = cta.children![0]!.children![0]!.id;
     const { document: d3 } = applyOperations(d2, [
       { op: "update_node", nodeId: headingId, props: { text: "Join the beta" } },

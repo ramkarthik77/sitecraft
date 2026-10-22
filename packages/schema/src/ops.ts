@@ -143,6 +143,9 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
     case "add_block": {
       const parent = locateParent(doc, op.parentId, i);
       const node = ensureUniqueIds(buildBlock(op.block, op.content ?? {}), collectIds(doc));
+      // Name the layer after its headline so layers and reviews read "Today's menu", not "Features".
+      const headline = op.content?.headline;
+      if (typeof headline === "string" && headline.trim()) node.name = headline.trim().slice(0, 60);
       insertAt(parent, node, op.index);
       return node.id;
     }
