@@ -1,30 +1,23 @@
 {
   // Sitecraft on Cloudflare: one Worker in front of two Containers.
-  // Replace every example.com value with your domains (see docs/CLOUDFLARE.md).
+  //   https://sitecraft.guduriphaniram1988.workers.dev       editor, API, /s/<slug> sites
+  //   https://sitecraft.guduriphaniram1988.workers.dev/mcp   Claude Code
+  // To use your own domain later, see "Use your own domain" in docs/CLOUDFLARE.md.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sitecraft",
   "main": "src/worker.ts",
-  "compatibility_date": "2026-10-01",
+  "compatibility_date": "2026-10-15",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
   "observability": { "enabled": true },
 
   "vars": {
-    "APP_HOST": "sitecraft.example.com",
-    "MCP_HOST": "sitecraft-mcp.example.com",
-    // Published sites at https://<slug>.sites.example.com. Remove to serve them at APP_HOST/s/<slug>.
-    "SITES_DOMAIN": "sites.example.com",
+    "APP_HOST": "sitecraft.guduriphaniram1988.workers.dev",
     "APP_INSTANCES": "2",
-    "CLOUDFLARE_ACCOUNT_ID": "your-account-id",
     "R2_BUCKET": "sitecraft",
     "AGENT_CAN_PUBLISH": "false",
     "AGENT_CAN_EDIT_MAIN": "false"
   },
-
-  "routes": [
-    { "pattern": "sitecraft.example.com", "custom_domain": true },
-    { "pattern": "sitecraft-mcp.example.com", "custom_domain": true },
-    { "pattern": "*.sites.example.com/*", "zone_name": "example.com" }
-  ],
 
   "containers": [
     {

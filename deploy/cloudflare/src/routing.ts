@@ -1,21 +1,30 @@
 /**
  * Pure routing decisions for the Cloudflare Worker, kept separate so they can
  * be unit tested without the Workers runtime.
+ *
+ * Everything is served from one hostname (the workers.dev URL by default):
+ *   /mcp        → MCP container (Claude Code)
+ *   everything  → app container (editor, API, previews, /s/<slug> sites)
+ * Optional extras: a separate MCP_HOST, and SITES_DOMAIN / custom domains for
+ * published sites once a domain is on Cloudflare.
  */
 
 export interface RoutingEnv {
-  /** Editor, API and previews, e.g. sitecraft.example.com */
+  /** Editor, API and previews, e.g. sitecraft.<account>.workers.dev */
   APP_HOST: string;
-  /** MCP server for Claude Code, e.g. sitecraft-mcp.example.com */
-  MCP_HOST: string;
-  /** Wildcard parent for published sites, e.g. sites.example.com (optional). */
+  /** Optional dedicated MCP hostname. Without it, MCP lives at APP_HOST/mcp. */
+  MCP_HOST?: string;
+  /** Optional wildcard parent for published sites, e.g. sites.example.com. */
   SITES_DOMAIN?: string;
 }
 
 export type Target = "app" | "mcp";
 
+const isMcpPath = (path: string) => path === "/mcp" || path.startsWith("/mcp/");
+
 export function targetFor(url: URL, env: RoutingEnv): Target {
-  return url.hostname.toLowerCase() === env.MCP_HOST.toLowerCase() ? "mcp" : "app";
+  if (env.MCP_HOST && url.hostname.toLowerCase() === env.MCP_HOST.toLowerCase()) return "mcp";
+  return isMcpPath(url.pathname) ? "mcp" : "app";
 }
 
 /**
@@ -26,9 +35,10 @@ export function isCacheableRequest(req: Request, env: RoutingEnv): boolean {
   if (req.method !== "GET") return false;
   if (req.headers.has("authorization") || req.headers.has("cookie")) return false;
   const url = new URL(req.url);
-  const host = url.hostname.toLowerCase();
-  if (host === env.MCP_HOST.toLowerCase()) return false;
-  if (host === env.APP_HOST.toLowerCase()) return url.pathname.startsWith("/s/") || url.pathname.startsWith("/media/");
+  if (targetFor(url, env) === "mcp") return false;
+  if (url.hostname.toLowerCase() === env.APP_HOST.toLowerCase()) {
+    return url.pathname.startsWith("/s/") || url.pathname.startsWith("/media/");
+  }
   // Any other host is a published site (subdomain or custom domain).
   return !url.pathname.startsWith("/forms/");
 }
@@ -53,4 +63,9 @@ export function forwardHeaders(req: Request): Headers {
   h.set("x-forwarded-proto", new URL(req.url).protocol.replace(":", ""));
   h.set("x-forwarded-host", new URL(req.url).host);
   return h;
+}
+
+/** Public URL Claude Code should use for MCP. */
+export function mcpUrl(env: RoutingEnv): string {
+  return env.MCP_HOST ? `https://${env.MCP_HOST}/mcp` : `https://${env.APP_HOST}/mcp`;
 }

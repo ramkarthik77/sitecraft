@@ -79,7 +79,7 @@ By default an agent token can do everything except edit `main`, merge or publish
 
 ## Deploy
 
-- **Cloudflare** (Containers, R2, DNS, edge cache) with Neon Postgres: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md). After a one-time setup, every push to `main` that passes CI deploys automatically.
+- **Cloudflare** (Containers, R2, edge cache) with Neon Postgres, at `https://sitecraft.guduriphaniram1988.workers.dev`: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md). Same GitHub Actions setup as pagefold; after adding the secrets, every push to `main` that passes CI deploys automatically.
 - **Anywhere else** that runs containers: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Tests

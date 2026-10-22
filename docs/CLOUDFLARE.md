@@ -1,128 +1,130 @@
 # Deploying Sitecraft on Cloudflare
 
-Everything runs on Cloudflare except the database.
+Same setup as pagefold: one Worker on your `guduriphaniram1988.workers.dev` subdomain, deployed from GitHub Actions with `cloudflare/wrangler-action`, secrets kept in GitHub. No DNS changes needed.
+
+| | URL |
+|---|---|
+| Editor and API | https://sitecraft.guduriphaniram1988.workers.dev |
+| Claude Code (MCP) | https://sitecraft.guduriphaniram1988.workers.dev/mcp |
+| Published sites | https://sitecraft.guduriphaniram1988.workers.dev/s/&lt;slug&gt; |
 
 ```
                        Cloudflare
- ┌──────────────────────────────────────────────────────────────┐
- │  sitecraft.<domain>      ─┐                                   │
- │  sitecraft-mcp.<domain>  ─┼─> Worker ──> Container: app (×2) ─┼──> Neon Postgres
- │  *.sites.<domain>        ─┘   (edge cache)  Container: mcp    │
- │  customer domains (Cloudflare for SaaS)          │            │
- │                                                  └──> R2      │
- └──────────────────────────────────────────────────────────────┘
+ ┌─────────────────────────────────────────────────────────┐
+ │  sitecraft.<you>.workers.dev                            │
+ │    /mcp ─────────> Worker ──> Container: mcp            │
+ │    everything else   │  └───> Container: app (×2) ──────┼──> Neon Postgres
+ │                      │             │                    │
+ │               edge cache           └──> R2 (sites, images)
+ └─────────────────────────────────────────────────────────┘
 ```
 
-| Piece | Cloudflare product | Cost to start |
+| Piece | Product | Cost to start |
 |---|---|---|
-| App and MCP servers | Containers (behind one Worker) | Workers Paid plan, $5/month, then usage |
-| Published sites and images | R2 | Free tier covers 10 GB |
-| Domains, TLS, CDN | DNS, Universal SSL, cache | Included |
-| Customer custom domains | Cloudflare for SaaS (optional) | Free allowance, then per hostname |
-| Database | Neon (not Cloudflare) | Free tier to start |
+| App and MCP servers | Cloudflare Containers behind one Worker | Workers Paid plan, $5/month, then usage |
+| Published sites and images | R2 (bucket `sitecraft`) | Free tier covers 10 GB |
+| Edge cache | Workers Cache API | Included |
+| Database | Neon Postgres (Cloudflare doesn't host Postgres) | Free tier |
 
-## One-time setup (about 20 minutes)
+## One-time setup (about 15 minutes)
 
-You'll end up with:
+### 1. Workers Paid
 
-- the editor at `https://sitecraft.<domain>`
-- the MCP server at `https://sitecraft-mcp.<domain>/mcp`
-- published sites at `https://<slug>.sites.<domain>`
+Containers need the Workers Paid plan: dashboard → Workers & Pages → Plans. If pagefold already runs Browser Rendering or AI on this account, you may already have it.
 
-### 1. Cloudflare account
+### 2. API token
 
-1. Your domain must be on Cloudflare DNS (it is, if Cloudflare already serves it).
-2. Turn on **Workers Paid** under Workers & Pages → Plans. Containers need it.
-3. Copy your **Account ID** from the dashboard sidebar.
+The `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets from pagefold can be reused if that token has these permissions; otherwise create a new token (My Profile → API Tokens → Create token → Custom token):
 
-### 2. DNS for published sites
+- Account → Workers Scripts: **Edit**
+- Account → Containers: **Edit**
+- Account → Workers R2 Storage: **Edit**
+- Account → Account Settings: **Read**
 
-Add one DNS record so `*.sites.<domain>` reaches the Worker:
+### 3. R2 access keys
 
-| Type | Name | Content | Proxy |
-|---|---|---|---|
-| AAAA | `*.sites` | `100::` | Proxied (orange cloud) |
+The app container reaches R2 through its S3-compatible API, which uses its own keys:
 
-`sitecraft.<domain>` and `sitecraft-mcp.<domain>` are created for you by the deploy.
-
-If your plan doesn't cover a certificate for `*.sites.<domain>` (Universal SSL covers one level of subdomain only), either buy Advanced Certificate Manager, or delete the `SITES_DOMAIN` line and the `*.sites` route in `deploy/cloudflare/wrangler.jsonc` so sites are served at `https://sitecraft.<domain>/s/<slug>`.
-
-### 3. R2 credentials
-
-1. R2 → Overview → **Manage R2 API tokens** → Create API token.
-2. Permission: **Object Read & Write**, applied to the bucket `sitecraft` (the deploy creates it if it doesn't exist; you can create it first in R2 → Create bucket).
-3. Copy the **Access Key ID** and **Secret Access Key**.
+1. R2 → Overview → **Manage R2 API tokens** → Create API token
+2. Permission **Object Read & Write**, bucket `sitecraft` (create the bucket first under R2 → Create bucket, or let the workflow create it)
+3. Copy the **Access Key ID** and **Secret Access Key**
 
 ### 4. Database
 
-1. Create a project at [neon.tech](https://neon.tech) in the region nearest your users.
-2. Copy the **direct** connection string (not the pooled one; Sitecraft uses `LISTEN/NOTIFY` for live editor updates, which poolers break). It looks like `postgres://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require`.
+1. Create a project at [neon.tech](https://neon.tech), region close to your users (for example AWS us-east-1).
+2. Copy the **direct** connection string, not the pooled one. Sitecraft uses Postgres `LISTEN/NOTIFY` to push Claude's edits into open editors, and connection poolers break that. It looks like `postgres://user:pass@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require`.
 
-Tables are created automatically on first start.
+Tables are created on first start.
 
-### 5. Cloudflare API token for GitHub
+### 5. GitHub secrets
 
-My Profile → API Tokens → Create token → **Custom token** with:
+In github.com/ramkarthik77/sitecraft → Settings → Secrets and variables → Actions → **Repository secrets**:
 
-- Account: Workers Scripts **Edit**, Containers **Edit**, Workers R2 Storage **Edit**, Account Settings **Read**
-- Zone (your domain): Workers Routes **Edit**, DNS **Edit**
-
-### 6. GitHub settings
-
-In github.com/ramkarthik77/sitecraft → Settings → Secrets and variables → Actions:
-
-**Variables**
-
-| Name | Value |
+| Secret | Value |
 |---|---|
-| `CLOUDFLARE_DOMAIN` | your domain, e.g. `acme.com` |
-| `CLOUDFLARE_ACCOUNT_ID` | from step 1 |
-
-**Secrets**
-
-| Name | Value |
-|---|---|
-| `CLOUDFLARE_API_TOKEN` | from step 5 |
+| `CLOUDFLARE_API_TOKEN` | from step 2 (same as pagefold if reused) |
+| `CLOUDFLARE_ACCOUNT_ID` | your account ID (same as pagefold) |
 | `DATABASE_URL` | from step 4 |
 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | from step 3 |
 | `SITECRAFT_SECRET` | output of `openssl rand -hex 32` |
-| `SITECRAFT_ADMIN_TOKEN` | output of `openssl rand -hex 24` (keep it; it mints everyone else's tokens) |
+| `SITECRAFT_ADMIN_TOKEN` | output of `openssl rand -hex 24`. Keep it: it mints everyone else's tokens |
 
-Also create an **Environment** named `production` (Settings → Environments). Add required reviewers there if you want a person to approve each deploy.
+The workflow stops with a clear error naming any secret that's missing.
 
-### 7. Deploy
+### 6. Deploy
 
-Actions → **Deploy to Cloudflare** → Run workflow. From then on, every push to `main` that passes CI deploys automatically.
+Actions → **Deploy Sitecraft to Cloudflare** → Run workflow. After that, every push to `main` that passes CI deploys on its own.
 
-The first rollout takes a few minutes while Cloudflare pulls the image. The workflow waits and checks `https://sitecraft.<domain>/healthz`.
+The workflow checks the bucket, deploys the Worker, both Containers and the secrets, then waits for the app (the first rollout takes a few minutes while Cloudflare pulls the image) and checks that the editor loads, the API accepts the admin token, and the MCP server lists its tools. The run summary shows the URLs.
 
-### 8. Create people's tokens
+### 7. Give people access
 
 ```bash
+URL=https://sitecraft.guduriphaniram1988.workers.dev
 ADMIN=<your SITECRAFT_ADMIN_TOKEN>
-# A person who uses the editor
-curl -X POST https://sitecraft.<domain>/api/tokens -H "Authorization: Bearer $ADMIN" \
-  -H "Content-Type: application/json" -d '{"name":"Jane Doe","role":"editor"}'
+
+# Editor sign-in for a person
+curl -X POST $URL/api/tokens -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
+  -d '{"name":"Jane Doe","role":"editor"}'
+
 # The same person's Claude Code
-curl -X POST https://sitecraft.<domain>/api/tokens -H "Authorization: Bearer $ADMIN" \
-  -H "Content-Type: application/json" -d '{"name":"Jane Doe (Claude Code)","role":"agent"}'
+curl -X POST $URL/api/tokens -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" \
+  -d '{"name":"Jane Doe (Claude Code)","role":"agent"}'
 ```
 
-Each person signs in to the editor with their editor token, and sets `SITECRAFT_TOKEN` to their agent token and `SITECRAFT_MCP_URL=https://sitecraft-mcp.<domain>/mcp` for Claude Code.
+For Claude Code, each person sets:
 
-## Customer custom domains (optional)
+```bash
+export SITECRAFT_MCP_URL=https://sitecraft.guduriphaniram1988.workers.dev/mcp
+export SITECRAFT_TOKEN=<their agent token>
+```
 
-To let a site live at `www.customer.com`:
+## Use your own domain (optional, later)
 
-1. Turn on **SSL/TLS → Custom Hostnames** (Cloudflare for SaaS) for your zone and set the fallback origin to `sitecraft.<domain>`.
-2. Add a Worker route `*/*` on your zone pointing at the `sitecraft` Worker, so custom hostnames reach it.
-3. For each customer: add their hostname under Custom Hostnames, have them CNAME `www.customer.com` to `sitecraft.<domain>`, set the domain in the site's settings in the editor, and publish.
+Once a domain is on Cloudflare DNS, add to `deploy/cloudflare/wrangler.jsonc`:
+
+```jsonc
+"vars": {
+  "APP_HOST": "sitecraft.example.com",
+  // optional: published sites at https://<slug>.sites.example.com
+  "SITES_DOMAIN": "sites.example.com"
+},
+"routes": [
+  { "pattern": "sitecraft.example.com", "custom_domain": true },
+  // only with SITES_DOMAIN; also add a proxied AAAA record *.sites → 100::
+  { "pattern": "*.sites.example.com/*", "zone_name": "example.com" }
+]
+```
+
+Then update `SITECRAFT_URL` in the workflow. Universal SSL covers one level of subdomain, so `*.sites.example.com` needs Advanced Certificate Manager; `sitecraft.example.com` does not. Give the token Zone → Workers Routes: Edit and DNS: Edit for that zone.
+
+**Customer domains** (a site at `www.customer.com`): turn on SSL/TLS → Custom Hostnames (Cloudflare for SaaS) with `sitecraft.example.com` as the fallback origin, add a Worker route `*/*` for the zone, add each customer's hostname, have them CNAME it to `sitecraft.example.com`, then set the domain in the site's settings and publish.
 
 ## Running it
 
-- **Logs:** Workers & Pages → sitecraft → Logs, or `npx wrangler tail` in `deploy/cloudflare`.
-- **Containers:** `npx wrangler containers list`.
-- **Scale:** raise `APP_INSTANCES` and `max_instances` in `wrangler.jsonc`. Instances are stateless, so any number works.
-- **Cold starts:** a cron trigger pings every instance every five minutes, and instances sleep only after 30 minutes idle.
-- **Caching:** published pages are cached at the edge for 60 seconds, so a publish can take up to a minute to show everywhere. Uploaded images are cached for a year (their URLs never change).
-- **Rollback:** in the editor (History → Published versions → Make live) for site content; Workers & Pages → Deployments for the platform itself.
+- **Logs:** Workers & Pages → sitecraft → Logs, or `npx wrangler tail` in `deploy/cloudflare`
+- **Containers:** `npx wrangler containers list`
+- **Scale:** raise `APP_INSTANCES` and `max_instances` in `wrangler.jsonc`; app instances are stateless
+- **Cold starts:** a cron trigger pings every instance every five minutes; instances sleep only after 30 idle minutes
+- **Caching:** published pages are cached at the edge for 60 seconds, so a publish can take up to a minute to show everywhere; uploaded images are cached for a year (their URLs never change)
+- **Rollback:** site content from the editor (History → Published versions → Make live); the platform from Workers & Pages → sitecraft → Deployments

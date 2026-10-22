@@ -8,15 +8,15 @@ export interface Env {
 
   // Plain vars (wrangler.jsonc "vars")
   APP_HOST: string;
-  MCP_HOST: string;
+  MCP_HOST?: string;
   SITES_DOMAIN?: string;
   APP_INSTANCES?: string;
-  CLOUDFLARE_ACCOUNT_ID: string;
   R2_BUCKET: string;
   AGENT_CAN_PUBLISH?: string;
   AGENT_CAN_EDIT_MAIN?: string;
 
-  // Secrets (wrangler secret put …)
+  // Secrets (set by the deploy workflow from GitHub secrets)
+  CLOUDFLARE_ACCOUNT_ID: string;
   DATABASE_URL: string;
   SECRET: string;
   ADMIN_TOKEN: string;
@@ -103,7 +103,7 @@ export default {
     for (let i = 0; i < appCount(env); i++) {
       pings.push(getContainer(env.APP, `app-${i}`).fetch(new Request(`https://${env.APP_HOST}/healthz`)).catch(() => null));
     }
-    pings.push(getContainer(env.MCP, "mcp-0").fetch(new Request(`https://${env.MCP_HOST}/healthz`)).catch(() => null));
+    pings.push(getContainer(env.MCP, "mcp-0").fetch(new Request(`https://${env.MCP_HOST ?? env.APP_HOST}/healthz`)).catch(() => null));
     ctx.waitUntil(Promise.all(pings));
   },
 };
