@@ -52,7 +52,13 @@ function ColorInput(props: { value: string; placeholder?: string; onChange: (v: 
   const shown = useResolvedColor(props.value || props.placeholder || "");
   return (
     <div className="color-field">
-      <input type="color" aria-label={`${props.label} picker`} value={HEX.test(shown) ? (shown.length === 4 ? "#" + [...shown.slice(1)].map((c) => c + c).join("") : shown) : "#000000"} onChange={(e) => props.onChange(e.target.value)} />
+      <input
+        type="color"
+        aria-label={`${props.label} picker`}
+        className={HEX.test(shown) ? "" : "unset"}
+        value={HEX.test(shown) ? (shown.length === 4 ? "#" + [...shown.slice(1)].map((c) => c + c).join("") : shown) : "#000000"}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
       <TextInput label={props.label} value={props.value} placeholder={props.placeholder} onChange={props.onChange} override={props.override} list="theme-colors" />
     </div>
   );
@@ -261,9 +267,7 @@ export function NodeInspector(props: { node: SiteNode; bp: Breakpoint; apply: Ap
       <div className="group">
         <h3>
           <span>{nodeLabel(node)}</span>
-          <span className="muted small" style={{ fontWeight: 400 }}>
-            {node.type}
-          </span>
+          <span className="type-chip">{node.type === "heading" ? `H${Number(node.props.level) || 2}` : node.type}</span>
         </h3>
         <Field label="Layer name">
           <TextInput label="Layer name" value={node.name ?? ""} placeholder={node.type} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, name: v }], `${node.id}:name`)} />

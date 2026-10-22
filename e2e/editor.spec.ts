@@ -23,7 +23,7 @@ test("sign in and create a site", async ({ page }) => {
   await expect(page.locator(".err")).toContainText("wasn't accepted");
   await page.fill("#token", EDITOR);
   await page.click("form.login button.primary");
-  await expect(page.getByRole("heading", { name: "Your sites" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sites", exact: true })).toBeVisible();
 
   await page.getByLabel("Site name").fill("Northstar Coffee");
   await page.getByLabel("Template").selectOption("saas");
@@ -92,8 +92,14 @@ test("Claude's edits on a branch appear live, then a person merges and publishes
   await expect(page.locator(".toast.agent")).toContainText("Add menu section");
   await expect(canvas(page).getByText("Today's menu")).toBeVisible();
 
+  // Claude's work is marked on the canvas, in the layers and in the activity bar.
+  await expect(canvas(page).locator(".sc-tag-agent")).toHaveText("Claude");
+  await expect(page.locator(".layer.agent").first()).toContainText("Claude");
+  await expect(page.locator(".agent-bar")).toContainText("Add menu section and roast-brown theme");
+  await expect(page.getByRole("button", { name: "Review changes" })).toContainText(/\d/);
+
   // Review and merge.
-  await page.getByRole("button", { name: "Review and merge" }).click();
+  await page.getByRole("button", { name: "Review changes" }).click();
   await expect(page.locator(".diff-line.add").first()).toBeVisible();
   await expect(page.locator(".callout").first()).toContainText("made 1 change");
   await page.getByRole("button", { name: "Merge into main" }).click();

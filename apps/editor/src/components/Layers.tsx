@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { CONTAINER_TYPES, type Operation, type SiteNode } from "@sitecraft/schema";
+import { Icon } from "./Icon";
 
 const GLYPH: Record<string, string> = {
   section: "▭",
   stack: "≡",
   grid: "▦",
   heading: "H",
-  text: "¶",
+  text: "Aa",
   image: "◩",
   button: "◉",
   link: "↗",
@@ -17,6 +18,11 @@ const GLYPH: Record<string, string> = {
   embed: "▶",
   instance: "◆",
 };
+
+function glyphFor(n: SiteNode): string {
+  if (n.type === "heading") return `H${Math.min(6, Math.max(1, Number(n.props.level) || 2))}`;
+  return GLYPH[n.type] ?? "·";
+}
 
 export function nodeLabel(n: SiteNode): string {
   if (n.name) return n.name;
@@ -31,7 +37,26 @@ export function Layers(props: {
   selectedId: string | null;
   onSelect: (id: string) => void;
   apply: (ops: Operation[]) => void;
+  /** Ids Claude added or changed on this branch. */
+  agentIds?: Set<string>;
+  /** Tag shown on changed layers: "Claude" when only Claude edited the branch. */
+  changeLabel?: string;
+  /** Show only layers whose label matches. */
+  filter?: string;
 }) {
+  const agentIds = props.agentIds ?? new Set<string>();
+  const q = (props.filter ?? "").trim().toLowerCase();
+  // With a filter, keep matching layers and the path to them.
+  const keep = new Set<string>();
+  if (q) {
+    const visit = (n: SiteNode): boolean => {
+      const own = nodeLabel(n).toLowerCase().includes(q) || n.type.includes(q);
+      const kids = (n.children ?? []).map(visit).some(Boolean);
+      if (own || kids) keep.add(n.id);
+      return own || kids;
+    };
+    visit(props.root);
+  }
   // Sections start collapsed; the path to the selection always opens.
   const [toggled, setToggled] = useState<Set<string>>(new Set());
   const openPath = new Set<string>();
@@ -45,7 +70,7 @@ export function Layers(props: {
     path(props.root);
   }
   const defaultOpen = (n: SiteNode, depth: number) => depth === 0 || openPath.has(n.id);
-  const isCollapsed = (n: SiteNode, depth: number) => (toggled.has(n.id) ? defaultOpen(n, depth) : !defaultOpen(n, depth));
+  const isCollapsed = (n: SiteNode, depth: number) => (q ? false : toggled.has(n.id) ? defaultOpen(n, depth) : !defaultOpen(n, depth));
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<{ id: string; inside: boolean } | null>(null);
 
@@ -59,6 +84,7 @@ export function Layers(props: {
 
   const rows: { node: SiteNode; depth: number; parent: SiteNode | null; index: number }[] = [];
   const walk = (n: SiteNode, depth: number, parent: SiteNode | null, index: number) => {
+    if (q && !keep.has(n.id)) return;
     rows.push({ node: n, depth, parent, index });
     if (!isCollapsed(n, depth)) n.children?.forEach((c, i) => walk(c, depth + 1, n, i));
   };
@@ -83,12 +109,15 @@ export function Layers(props: {
     }
   };
 
+  if (q && rows.length === 0) return <div className="empty">No layers match “{props.filter}”.</div>;
+
   return (
     <div role="tree" aria-label="Layers">
       {rows.map((r) => {
         const n = r.node;
         const hasKids = !!n.children?.length;
-        const cls = ["layer", props.selectedId === n.id ? "selected" : "", over?.id === n.id ? (over.inside ? "drop-inside" : "drop-before") : ""].join(" ");
+        const byAgent = agentIds.has(n.id);
+        const cls = ["layer", props.selectedId === n.id ? "selected" : "", byAgent ? "agent" : "", over?.id === n.id ? (over.inside ? "drop-inside" : "drop-before") : ""].join(" ");
         return (
           <div
             key={n.id}
@@ -96,7 +125,7 @@ export function Layers(props: {
             aria-selected={props.selectedId === n.id}
             aria-expanded={hasKids ? !isCollapsed(n, r.depth) : undefined}
             className={cls}
-            style={{ paddingLeft: 6 + r.depth * 12 }}
+            style={{ paddingLeft: 4 + r.depth * 14 }}
             draggable={!!r.parent}
             onDragStart={(e) => {
               setDrag(n.id);
@@ -133,9 +162,11 @@ export function Layers(props: {
               {hasKids ? (isCollapsed(n, r.depth) ? "▸" : "▾") : ""}
             </span>
             <span className="kind" aria-hidden="true">
-              {GLYPH[n.type]}
+              {glyphFor(n)}
             </span>
             <span className={`label ${n.hidden?.base ? "dim" : ""}`}>{nodeLabel(n)}</span>
+            {byAgent && r.depth > 0 && <span className="agent-tag">{props.changeLabel ?? "Claude"}</span>}
+            {!byAgent && n.type === "instance" && <span className="tag">Component</span>}
             {r.parent && (
               <span className="actions">
                 <button
@@ -147,7 +178,7 @@ export function Layers(props: {
                     props.apply([{ op: "duplicate_node", nodeId: n.id }]);
                   }}
                 >
-                  ⧉
+                  <Icon name="copy" size={13} />
                 </button>
                 <button
                   className="btn ghost icon sm danger"
@@ -158,7 +189,7 @@ export function Layers(props: {
                     props.apply([{ op: "remove_node", nodeId: n.id }]);
                   }}
                 >
-                  ✕
+                  <Icon name="trash" size={13} />
                 </button>
               </span>
             )}

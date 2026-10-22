@@ -1,19 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CONTAINER_TYPES, findInTree, findNodeInDocument, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
-import { getToken, Sites, type Branch, type Me, type SiteSummary } from "./api";
+import { getToken, Sites, type Branch, type Me, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
+import { Icon, Logo } from "./components/Icon";
 import { ELEMENTS, Insert } from "./components/Insert";
 import { Layers } from "./components/Layers";
 import { NodeInspector, PageInspector } from "./components/Inspector";
 import { navigate, setQuery } from "./router";
 import { useToast } from "./Toasts";
 import { useEditor } from "./useEditor";
+import { ago, initials } from "./format";
 
 type Tab = "layers" | "insert" | "pages";
 type DrawerKind = null | "review" | "history" | "settings";
 
 const SAVE_LABEL = { loading: "Loading…", saved: "Saved", unsaved: "Unsaved", saving: "Saving…", error: "Not saved", conflict: "Out of date" } as const;
+const BREAKPOINTS: { bp: Breakpoint; label: string; icon: string; px: number }[] = [
+  { bp: "base", label: "Desktop", icon: "desktop", px: 1200 },
+  { bp: "tablet", label: "Tablet", icon: "tablet", px: 810 },
+  { bp: "mobile", label: "Phone", icon: "phone", px: 390 },
+];
+
+/** What a branch changed and who changed it, for highlighting and the activity bar. */
+interface BranchWork {
+  changed: Set<string>;
+  top: string[];
+  count: number;
+  agentVersions: Version[];
+  onlyAgent: boolean;
+}
+
+const NO_WORK: BranchWork = { changed: new Set(), top: [], count: 0, agentVersions: [], onlyAgent: false };
 
 export function Editor(props: { siteId: string; me: Me; branch: string; review: boolean }) {
   const { siteId, me, branch } = props;
@@ -26,11 +44,14 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [bp, setBp] = useState<Breakpoint>("base");
   const [tab, setTab] = useState<Tab>("layers");
+  const [filter, setFilter] = useState("");
   const [drawer, setDrawer] = useState<DrawerKind>(props.review && branch !== "main" ? "review" : null);
   const [newBranch, setNewBranch] = useState<string | null>(null);
   const [newPage, setNewPage] = useState<{ path: string; title: string } | null>(null);
   const [scrollTick, setScrollTick] = useState(0);
   const [publishing, setPublishing] = useState(false);
+  const [work, setWork] = useState<BranchWork>(NO_WORK);
+  const [now, setNow] = useState(Date.now());
 
   const doc = ed.doc;
   const page = doc?.pages.find((p) => p.id === pageId) ?? doc?.pages[0] ?? null;
@@ -43,6 +64,40 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       .catch(() => navigate("/"));
     loadBranches();
   }, [siteId, loadBranches]);
+
+  // Relative times ("2 min ago") stay current.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // What this branch changed compared to main, and how much of it was Claude.
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const loadWork = useCallback(async () => {
+    if (branch === "main") return setWork(NO_WORK);
+    try {
+      const [diff, versions] = await Promise.all([Sites.diff(siteId, branch), Sites.versions(siteId, branch)]);
+      const current = branches.find((b) => b.name === branch);
+      const own = versions.filter((v) => !current?.baseVersionId || v.id > current.baseVersionId);
+      const agentVersions = own.filter((v) => v.actorRole === "agent");
+      const changed = new Set([...diff.added, ...diff.changed]);
+      const d = docRef.current;
+      const top = [...changed].filter((id) => {
+        const parent = d ? findNodeInDocument(d, id)?.parent?.id : undefined;
+        return !parent || !changed.has(parent);
+      });
+      setWork({ changed, top, count: diff.summary.length, agentVersions, onlyAgent: own.length > 0 && agentVersions.length === own.length });
+    } catch {
+      setWork(NO_WORK);
+    }
+  }, [siteId, branch, branches]);
+
+  // Refresh after every save, ours or anyone's.
+  useEffect(() => {
+    const t = setTimeout(() => void loadWork(), 300);
+    return () => clearTimeout(t);
+  }, [loadWork, ed.versionId]);
 
   // Live updates when Claude (or a teammate) changes this branch.
   const edRef = useRef(ed);
@@ -193,14 +248,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   };
 
   const currentBranch = branches.find((b) => b.name === branch);
-  const isAgentBranch = branch.startsWith("agent/") || currentBranch?.createdBy.includes("claude") || false;
+  const agentActive = work.agentVersions.length > 0;
+  const lastAgent = work.agentVersions[0];
+  const agentLive = !!lastAgent && now - new Date(lastAgent.createdAt).getTime() < 3 * 60_000;
+  const isAgentBranch = work.onlyAgent || branch.startsWith("agent/") || (currentBranch?.lastChangeBy ?? "").toLowerCase().includes("claude");
 
   if (!doc || !page) {
     return (
       <div className="shell">
         <div className="topbar">
           <button className="btn ghost" onClick={() => navigate("/")}>
-            ← Sites
+            <Icon name="back" /> Sites
           </button>
         </div>
         <div className="empty">Loading the site…</div>
@@ -208,22 +266,28 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     );
   }
 
+  const pageLabel = page.path === "/" ? "Home" : page.path;
+
   return (
     <div className="shell">
       <header className="topbar">
-        <button className="btn ghost icon" aria-label="All sites" title="All sites" onClick={() => navigate("/")}>
-          ←
-        </button>
-        <span className="site-name" title={site?.name}>
-          {site?.name}
-        </span>
-        <span className={`branch-pill ${branch !== "main" ? "is-agent" : ""}`}>
-          {newBranch === null ? (
-            <select
-              aria-label="Branch"
-              value={branch}
-              onChange={(e) => (e.target.value === "__new" ? setNewBranch("") : void switchBranch(e.target.value))}
-            >
+        <a href="/" onClick={(e) => (e.preventDefault(), navigate("/"))} aria-label="All sites" style={{ display: "flex" }}>
+          <Logo size={26} />
+        </a>
+        <nav className="crumbs hide-narrow" aria-label="Breadcrumb">
+          <a href="/" onClick={(e) => (e.preventDefault(), navigate("/"))}>
+            Sites
+          </a>
+          <span aria-hidden="true">/</span>
+          <span className="current" title={site?.name}>
+            {site?.name}
+          </span>
+        </nav>
+
+        {newBranch === null ? (
+          <span className={`picker branch has-dot ${branch !== "main" ? (isAgentBranch ? "is-agent" : "is-human") : ""}`}>
+            {branch !== "main" && <span className="dot" aria-hidden="true" />}
+            <select aria-label="Branch" value={branch} onChange={(e) => (e.target.value === "__new" ? setNewBranch("") : void switchBranch(e.target.value))}>
               {branches.map((b) => (
                 <option key={b.name} value={b.name}>
                   {b.name}
@@ -233,59 +297,86 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
               {!branches.some((b) => b.name === branch) && <option value={branch}>{branch}</option>}
               <option value="__new">New branch…</option>
             </select>
-          ) : (
-            <form
-              style={{ display: "flex", gap: 4 }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (newBranch.trim()) void createBranch(newBranch.trim().toLowerCase().replace(/\s+/g, "-"));
-              }}
-            >
-              <input className="input" autoFocus aria-label="New branch name" placeholder="my-change" value={newBranch} onChange={(e) => setNewBranch(e.target.value)} style={{ width: 140 }} />
-              <button className="btn sm primary">Create</button>
-              <button type="button" className="btn sm ghost" onClick={() => setNewBranch(null)}>
-                Cancel
-              </button>
-            </form>
-          )}
+            <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
+          </span>
+        ) : (
+          <form
+            style={{ display: "flex", gap: 4 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (newBranch.trim()) void createBranch(newBranch.trim().toLowerCase().replace(/\s+/g, "-"));
+            }}
+          >
+            <input className="input mono" autoFocus aria-label="New branch name" placeholder="my-change" value={newBranch} onChange={(e) => setNewBranch(e.target.value)} style={{ width: 150, height: 32 }} />
+            <button className="btn sm primary" style={{ height: 32 }}>
+              Create
+            </button>
+            <button type="button" className="btn sm ghost" style={{ height: 32 }} onClick={() => setNewBranch(null)}>
+              Cancel
+            </button>
+          </form>
+        )}
+
+        <span className="picker hide-narrow">
+          <select aria-label="Page" value={page.id} onChange={(e) => (setPageId(e.target.value), setSelectedId(null))}>
+            {doc.pages.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.path === "/" ? "Home" : p.path}
+              </option>
+            ))}
+          </select>
+          <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
         </span>
-        <select className="select hide-narrow" aria-label="Page" style={{ width: 150 }} value={page.id} onChange={(e) => (setPageId(e.target.value), setSelectedId(null))}>
-          {doc.pages.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.path === "/" ? "Home" : p.path}
-            </option>
-          ))}
-        </select>
+
         <div className="spacer" />
         <div className="seg" role="group" aria-label="Breakpoint">
-          {(["base", "tablet", "mobile"] as Breakpoint[]).map((b) => (
-            <button key={b} aria-pressed={bp === b} onClick={() => setBp(b)} title={b === "base" ? "Desktop" : b === "tablet" ? "Tablet" : "Phone"}>
-              {b === "base" ? "Desktop" : b === "tablet" ? "Tablet" : "Phone"}
+          {BREAKPOINTS.map((b) => (
+            <button key={b.bp} aria-pressed={bp === b.bp} onClick={() => setBp(b.bp)} title={`${b.label}, ${b.px} px`}>
+              <Icon name={b.icon} size={14} />
+              <span>{b.label}</span>
+              {bp === b.bp && <span className="px">{b.px}</span>}
             </button>
           ))}
         </div>
         <div className="spacer" />
-        <span className={`save-state hide-narrow ${ed.saveState === "error" || ed.saveState === "conflict" ? "error" : ""}`} aria-live="polite">
-          {SAVE_LABEL[ed.saveState]}
+
+        <div className="presence hide-narrow" aria-label="People on this branch">
+          <span className="avatar" title={`${me.name} (you)`}>
+            {initials(me.name)}
+          </span>
+          {agentActive && (
+            <span className={`avatar agent ${agentLive ? "live" : ""}`} title={`Claude${lastAgent ? `, last change ${ago(lastAgent.createdAt, now)}` : ""}`}>
+              <Icon name="spark" size={13} />
+            </span>
+          )}
+        </div>
+
+        <span className="save-wrap hide-narrow" aria-live="polite">
+          {ed.saveState === "saved" && <Icon name="check" size={13} style={{ color: "var(--ok)" }} />}
+          <span className={`save-state ${ed.saveState === "error" || ed.saveState === "conflict" ? "error" : ""}`}>{SAVE_LABEL[ed.saveState]}</span>
+          {ed.versionId > 0 && <span className="version">v{ed.versionId}</span>}
         </span>
+
         <button className="btn ghost icon hide-narrow" aria-label="Undo" title="Undo (⌘Z)" disabled={!ed.canUndo} onClick={ed.undo}>
-          ↶
+          <Icon name="undo" />
         </button>
         <button className="btn ghost icon hide-narrow" aria-label="Redo" title="Redo (⇧⌘Z)" disabled={!ed.canRedo} onClick={ed.redo}>
-          ↷
+          <Icon name="redo" />
         </button>
-        <button className="btn ghost hide-narrow" onClick={() => setDrawer("history")}>
-          History
+        <button className="btn ghost icon hide-narrow" aria-label="History" title="History" onClick={() => setDrawer("history")}>
+          <Icon name="history" />
         </button>
-        <button className="btn ghost hide-narrow" onClick={() => setDrawer("settings")}>
-          Settings
+        <button className="btn ghost icon hide-narrow" aria-label="Settings" title="Site settings" onClick={() => setDrawer("settings")}>
+          <Icon name="settings" />
         </button>
         <button className="btn" onClick={() => void openPreview()}>
+          <Icon name="eye" size={15} />
           Preview
         </button>
         {branch !== "main" ? (
           <button className={`btn ${isAgentBranch ? "agent" : "primary"}`} onClick={() => setDrawer("review")}>
-            Review and merge
+            Review changes
+            {work.count > 0 && <span className="badge">{work.count}</span>}
           </button>
         ) : (
           me.role !== "agent" && (
@@ -295,14 +386,14 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           )
         )}
         {site?.liveUrl && branch === "main" && (
-          <a className="btn ghost hide-narrow" href={site.liveUrl} target="_blank" rel="noreferrer">
-            View live
+          <a className="btn ghost icon hide-narrow" href={site.liveUrl} target="_blank" rel="noreferrer" aria-label="View live site" title="View live site">
+            <Icon name="external" />
           </a>
         )}
       </header>
 
       {ed.saveState === "conflict" && (
-        <div className="callout human" style={{ borderRadius: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div className="callout human" style={{ borderRadius: 0, borderWidth: "0 0 1px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <span>Someone else saved this branch after you opened it, so your latest edit wasn't saved.</span>
           <button className="btn sm" onClick={() => void ed.reload()}>
             Load the latest version
@@ -319,15 +410,33 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
               </button>
             ))}
           </div>
+          {tab === "layers" && (
+            <label className="rail-search">
+              <Icon name="search" size={13} />
+              <span className="sr-only">Find a layer</span>
+              <input placeholder="Find a layer" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            </label>
+          )}
           <div className="rail-body">
-            {tab === "layers" && <Layers root={page.root} selectedId={selectedId} onSelect={(id) => (setSelectedId(id), setScrollTick((n) => n + 1))} apply={(ops: Operation[]) => apply(ops)} />}
+            {tab === "layers" && (
+              <Layers
+                root={page.root}
+                selectedId={selectedId}
+                onSelect={(id) => (setSelectedId(id), setScrollTick((n) => n + 1))}
+                apply={(ops: Operation[]) => apply(ops)}
+                agentIds={agentActive ? work.changed : undefined}
+                changeLabel={work.onlyAgent ? "Claude" : "Changed"}
+                filter={filter}
+              />
+            )}
             {tab === "insert" && <Insert onInsertBlock={(n) => insertBlock(n)} onInsertElement={(k) => insertElement(k)} />}
             {tab === "pages" && (
-              <div>
+              <div style={{ paddingTop: 8 }}>
                 {doc.pages.map((p) => (
                   <div key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} onClick={() => (setPageId(p.id), setSelectedId(null))}>
+                    <Icon name="pages" size={14} />
                     <span className="grow">{p.title}</span>
-                    <span className="muted small">{p.path}</span>
+                    <span className="mono muted">{p.path}</span>
                   </div>
                 ))}
                 {newPage ? (
@@ -343,7 +452,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
                     }}
                   >
                     <input className="input" autoFocus aria-label="Page title" placeholder="Title, e.g. About us" value={newPage.title} onChange={(e) => setNewPage({ ...newPage, title: e.target.value })} />
-                    <input className="input" aria-label="Page path" placeholder="/about" value={newPage.path} onChange={(e) => setNewPage({ ...newPage, path: e.target.value })} />
+                    <input className="input mono" aria-label="Page path" placeholder="/about" value={newPage.path} onChange={(e) => setNewPage({ ...newPage, path: e.target.value })} />
                     <div style={{ display: "flex", gap: 6 }}>
                       <button className="btn sm primary" disabled={!newPage.path.trim()}>
                         Add page
@@ -356,6 +465,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
                 ) : (
                   <div style={{ padding: 12 }}>
                     <button className="btn sm" onClick={() => setNewPage({ path: "", title: "" })}>
+                      <Icon name="plus" size={13} />
                       New page
                     </button>
                   </div>
@@ -363,9 +473,54 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
               </div>
             )}
           </div>
+          <button className="rail-foot" style={{ border: 0, borderTop: "1px solid var(--line)", background: "transparent", textAlign: "left", cursor: "pointer" }} onClick={() => setSelectedId(null)} title="Edit the theme">
+            <span className="small muted">Theme</span>
+            <span className="swatches">
+              {Object.entries(doc.theme.colors)
+                .slice(0, 6)
+                .map(([name, v]) => (
+                  <span key={name} className="swatch" style={{ background: String(v) }} title={`${name} ${v}`} />
+                ))}
+              <span className="mono muted" style={{ marginLeft: "auto", fontSize: 11 }}>
+                {fontName(doc.theme.fonts.heading)}
+              </span>
+            </span>
+          </button>
         </aside>
 
-        <Canvas doc={doc} page={page} breakpoint={bp} selectedId={selectedId} zoom={1} scrollToSelected={scrollTick} onEvent={onCanvas} />
+        <div style={{ position: "relative", minWidth: 0, minHeight: 0, display: "grid" }}>
+          <Canvas
+            doc={doc}
+            page={page}
+            breakpoint={bp}
+            selectedId={selectedId}
+            zoom={1}
+            scrollToSelected={scrollTick}
+            onEvent={onCanvas}
+            agentIds={agentActive ? work.top : undefined}
+            agentLabel={work.onlyAgent ? "Claude" : "Changed on this branch"}
+            pageLabel={pageLabel}
+          />
+          {branch !== "main" && agentActive && (
+            <section className="agent-bar" aria-label="Claude's activity on this branch">
+              <span className="who-line">
+                <span className={`pulse ${agentLive ? "live" : ""}`} aria-hidden="true" />
+                Claude on <span className="mono">{branch}</span>
+              </span>
+              <ol>
+                {work.agentVersions.slice(0, 3).map((v) => (
+                  <li key={v.id} title={v.message}>
+                    {v.message}
+                  </li>
+                ))}
+              </ol>
+              <span className="when">{ago(lastAgent!.createdAt, now)}</span>
+              <button className="btn sm agent-outline" onClick={() => setDrawer("review")}>
+                See all changes
+              </button>
+            </section>
+          )}
+        </div>
 
         <aside className="inspector" aria-label="Inspector">
           {selected ? (
@@ -392,4 +547,9 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       {drawer === "settings" && site && <SettingsDrawer site={site} toast={toast} onClose={() => setDrawer(null)} onSaved={setSite} />}
     </div>
   );
+}
+
+function fontName(stack: string): string {
+  const m = /'([^']+)'|"([^"]+)"/.exec(stack);
+  return (m?.[1] ?? m?.[2] ?? stack.split(",")[0] ?? "").trim();
 }

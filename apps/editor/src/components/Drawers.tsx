@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, Sites, type Deployment, type Diff, type SiteSummary, type Version } from "../api";
+import { Icon } from "./Icon";
 
 function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
@@ -13,7 +14,7 @@ function Drawer({ title, onClose, children }: { title: string; onClose: () => vo
         <header>
           <h2>{title}</h2>
           <button className="btn ghost icon" aria-label="Close" onClick={onClose}>
-            ✕
+            <Icon name="close" />
           </button>
         </header>
         <div className="body">{children}</div>
