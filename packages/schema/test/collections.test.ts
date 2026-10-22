@@ -174,3 +174,15 @@ describe("collections", () => {
     expect(outline).toContain("← text:title");
   });
 });
+
+describe("hidden pages", () => {
+  it("are left out of published routes but kept for previews", () => {
+    const d = createStarterDocument({ template: "landing" });
+    const r = apply(d, [{ op: "add_page", path: "/secret", title: "Secret" }]);
+    const hidden = apply(r.document, [{ op: "update_page", pageId: r.created[0], unpublished: true }]).document;
+    expect(siteRoutes(hidden).map((x) => x.path)).toEqual(["/"]);
+    expect(siteRoutes(hidden, { includeDrafts: true }).map((x) => x.path)).toEqual(["/", "/secret"]);
+    expect(() => apply(hidden, [{ op: "update_page", pageId: hidden.pages[0]!.id, unpublished: true }])).toThrow(/home page/);
+    expect(diffDocuments(r.document, hidden).summary).toContain("~ page settings /secret");
+  });
+});

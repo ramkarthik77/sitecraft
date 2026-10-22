@@ -18,6 +18,7 @@ import { authenticate, canAccessSite, clearTokenCache, createToken, requireRole,
 import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import { toCsv } from "../security.js";
+import { scheduleRoutes } from "../schedules.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import type { AppContext } from "../server.js";
 
@@ -452,4 +453,5 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   await libraryRoutes(app, ctx);
+  await scheduleRoutes(app, ctx, assertCanShip);
 }

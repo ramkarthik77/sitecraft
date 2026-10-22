@@ -474,6 +474,12 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
         <Field label="Share image">
           <TextInput label="Social share image" value={page.ogImage ?? ""} placeholder="https://…" onChange={(v) => apply([{ op: "update_page", pageId: page.id, ogImage: v }], `page:${page.id}:og`)} />
         </Field>
+        {page.path !== "/" && (
+          <label className="check">
+            <input type="checkbox" checked={!!page.unpublished} onChange={(e) => apply([{ op: "update_page", pageId: page.id, unpublished: e.target.checked }])} />
+            Hide from the published site
+          </label>
+        )}
         {doc.pages.length > 1 && (
           <button className="btn sm danger" style={{ alignSelf: "flex-start" }} onClick={props.onDeletePage}>
             Delete page

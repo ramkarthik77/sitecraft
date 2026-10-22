@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
-import { Sites, type Branch, type Me, type SiteSummary, type Version } from "./api";
+import { Schedules, Sites, type Branch, type Me, type Schedule, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
@@ -11,6 +11,7 @@ import { NodeInspector, PageInspector } from "./components/Inspector";
 import { navigate, setQuery } from "./router";
 import { useToast } from "./Toasts";
 import { useEditor } from "./useEditor";
+import { ScheduleForm, when } from "./components/Schedule";
 import { ago, initials } from "./format";
 
 type Tab = "layers" | "insert" | "pages" | "cms";
@@ -53,6 +54,9 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [scrollTick, setScrollTick] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [work, setWork] = useState<BranchWork>(NO_WORK);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [scheduling, setScheduling] = useState(false);
+  const loadSchedules = useCallback(() => Schedules.list(siteId).then(setSchedules).catch(() => {}), [siteId]);
   const [cmsId, setCmsId] = useState<string | null>(null);
   const [cmsItemId, setCmsItemId] = useState<string | null>(null);
   /** On a template page, the item the canvas shows. */
@@ -90,7 +94,8 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       .then(setSite)
       .catch(() => navigate("/"));
     loadBranches();
-  }, [siteId, loadBranches]);
+    void loadSchedules();
+  }, [siteId, loadBranches, loadSchedules]);
 
   // Relative times ("2 min ago") stay current.
   useEffect(() => {
@@ -137,7 +142,10 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     const onChange = (msg: Event) => {
       const e = JSON.parse((msg as MessageEvent).data) as { type: string; branch?: string; versionId?: number; actor: string; actorRole: string; message?: string };
       if (e.type === "branch" || e.type === "version") loadBranches();
-      if (e.type === "deploy") Sites.get(siteId).then(setSite).catch(() => {});
+      if (e.type === "deploy") {
+        Sites.get(siteId).then(setSite).catch(() => {});
+        void loadSchedules();
+      }
       if (e.type !== "version" || e.branch !== branch || e.actor === me.name || e.versionId === edRef.current.currentVersion()) return;
       const tone = e.actorRole === "agent" ? "agent" : undefined;
       if (!edRef.current.isDirty()) {
@@ -325,6 +333,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   };
 
   const currentBranch = branches.find((b) => b.name === branch);
+  const nextMain = schedules.filter((s) => s.branch === "main" && s.status === "pending").sort((a, b) => a.runAt.localeCompare(b.runAt))[0];
   const agentActive = work.agentVersions.length > 0;
   const lastAgent = work.agentVersions[0];
   const agentLive = !!lastAgent && now - new Date(lastAgent.createdAt).getTime() < 3 * 60_000;
@@ -472,9 +481,26 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           </button>
         ) : (
           me.role !== "agent" && (
-            <button className="btn primary" disabled={publishing} onClick={() => void publish()}>
-              {publishing ? "Publishing…" : "Publish"}
-            </button>
+            <span className="publish-group">
+              {nextMain && (
+                <button className="btn ghost sched-chip hide-narrow" title={`Scheduled to publish ${when(nextMain.runAt)}. Open History to change it.`} onClick={() => setDrawer("history")}>
+                  <Icon name="clock" size={13} /> {when(nextMain.runAt)}
+                </button>
+              )}
+              <button className="btn primary" disabled={publishing} onClick={() => void publish()}>
+                {publishing ? "Publishing…" : "Publish"}
+              </button>
+              {!nextMain && (
+                <button className="btn icon" aria-label="Schedule" title="Schedule publishing for later" aria-expanded={scheduling} onClick={() => setScheduling((x) => !x)}>
+                  <Icon name="clock" size={15} />
+                </button>
+              )}
+              {scheduling && (
+                <div className="popover" role="dialog" aria-label="Schedule publishing">
+                  <ScheduleForm siteId={siteId} branch="main" toast={toast} onCancel={() => setScheduling(false)} onDone={() => (setScheduling(false), void loadSchedules())} />
+                </div>
+              )}
+            </span>
           )
         )}
         {site?.liveUrl && branch === "main" && (
@@ -558,6 +584,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
                   <div key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} onClick={() => (setPageId(p.id), setSelectedId(null))}>
                     <Icon name={p.collectionId ? "database" : "pages"} size={14} style={p.collectionId ? { color: "var(--cms)" } : undefined} />
                     <span className="grow">{p.title}</span>
+                    {p.unpublished && <span className="type-chip hidden-chip">Hidden</span>}
                     <span className="mono muted">{p.path}</span>
                   </div>
                 ))}
@@ -681,6 +708,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           siteId={siteId}
           branch={branch}
           toast={toast}
+          canShip={me.role !== "agent"}
           onClose={() => (setDrawer(null), setQuery({ review: null }))}
           onMerged={() => {
             setDrawer(null);
@@ -688,7 +716,9 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           }}
         />
       )}
-      {drawer === "history" && <HistoryDrawer siteId={siteId} branch={branch} toast={toast} onClose={() => setDrawer(null)} onRestored={() => void ed.reload()} />}
+      {drawer === "history" && (
+        <HistoryDrawer siteId={siteId} branch={branch} toast={toast} canShip={me.role !== "agent"} onClose={() => (setDrawer(null), void loadSchedules())} onRestored={() => void ed.reload()} />
+      )}
       {drawer === "settings" && site && (
         <SettingsDrawer
           site={site}

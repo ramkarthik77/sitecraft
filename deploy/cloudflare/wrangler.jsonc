@@ -44,6 +44,7 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SitecraftApp", "SitecraftMcp"] }],
 
-  // Ping every instance so nobody waits on a cold start.
-  "triggers": { "crons": ["*/5 * * * *"] }
+  // Ping every instance each minute: nobody waits on a cold start, and
+  // scheduled publishing runs on time.
+  "triggers": { "crons": ["* * * * *"] }
 }

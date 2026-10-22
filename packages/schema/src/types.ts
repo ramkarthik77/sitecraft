@@ -153,6 +153,8 @@ export interface Page {
   path: string;
   /** Set on a template page: the collection whose items it renders. */
   collectionId?: string;
+  /** Left out of the published site and sitemap (still in the editor and previews). */
+  unpublished?: boolean;
   title: string;
   /** SEO meta description. */
   description?: string;

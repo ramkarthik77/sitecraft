@@ -23,7 +23,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 |---|---|
 | [Local setup](docs/LOCAL_SETUP.md) | Running Sitecraft on your computer, with or without Docker; tokens; tests; every setting |
 | [CMS](docs/CMS.md) | Collections, item pages, lists, drafts |
-| [Templates and brands](docs/AUTHORING.md) | Starting sites from templates, shared brand kits, locking, guidelines for Claude |
+| [Templates, brands and releases](docs/AUTHORING.md) | Templates, shared brand kits and locking, guidelines for Claude, scheduled publishing |
 | [Claude Code](docs/CLAUDE_CODE.md) | Connecting Claude Code, the plugin, example requests, every tool, guardrails |
 | [Deploy on Cloudflare](docs/CLOUDFLARE.md) | The live setup at `sitecraft.guduriphaniram1988.workers.dev`, deployed from GitHub Actions |
 | [Deploy elsewhere](docs/DEPLOY.md) | AWS, Google Cloud or any container host |

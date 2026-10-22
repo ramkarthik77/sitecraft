@@ -12,6 +12,7 @@ import { EventBus } from "./events.js";
 import { Repo } from "./repo.js";
 import { apiRoutes } from "./routes/api.js";
 import { publicRoutes, serveHostedSite } from "./routes/public.js";
+import { runDueSchedules } from "./schedules.js";
 import { apiHeaders, editorHeaders, RateLimiter } from "./security.js";
 import { createStorage, type Storage } from "./storage.js";
 
@@ -118,8 +119,25 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
   const purgeTimer = setInterval(() => void purge(), 3_600_000);
   purgeTimer.unref();
 
+  // Scheduled publishing and releases, checked every 20 seconds.
+  let running = false;
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await runDueSchedules(ctx);
+    } catch (e) {
+      app.log.error(e);
+    } finally {
+      running = false;
+    }
+  };
+  const scheduleTimer = setInterval(() => void tick(), 20_000);
+  scheduleTimer.unref();
+
   app.addHook("onClose", async () => {
     clearInterval(purgeTimer);
+    clearInterval(scheduleTimer);
     await events.stop();
     await db.end();
   });

@@ -217,3 +217,22 @@ export const Brands = {
     api<Brand & { updatedSites: number }>("PATCH", `/brands/${id}`, b),
   remove: (id: string) => api("DELETE", `/brands/${id}`),
 };
+
+export interface Schedule {
+  id: string;
+  siteId: string;
+  branch: string;
+  runAt: string;
+  note: string;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  result: string | null;
+  createdBy: string;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+export const Schedules = {
+  list: (siteId: string) => api<Schedule[]>("GET", `/sites/${siteId}/schedules`),
+  create: (siteId: string, s: { branch: string; runAt: string; note?: string }) => api<Schedule>("POST", `/sites/${siteId}/schedules`, s),
+  cancel: (siteId: string, id: string) => api("DELETE", `/sites/${siteId}/schedules/${id}`),
+};

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, Brands, Sites, Templates, type Brand, type Deployment, type Diff, type SiteSummary, type Version } from "../api";
+import { ApiError, Brands, Schedules, Sites, Templates, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
 import { Icon } from "./Icon";
+import { ScheduleForm, ScheduleList } from "./Schedule";
 
 function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
@@ -34,8 +35,14 @@ export function Who({ name, role }: { name: string; role?: string }) {
 
 const when = (s: string) => new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void }) {
+export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean }) {
   const [diff, setDiff] = useState<Diff | null>(null);
+  const [scheduling, setScheduling] = useState(false);
+  const [pending, setPending] = useState<Schedule | null>(null);
+  const loadSchedule = () =>
+    Schedules.list(props.siteId)
+      .then((l) => setPending(l.find((x) => x.branch === props.branch && x.status === "pending") ?? null))
+      .catch(() => {});
   const [versions, setVersions] = useState<Version[]>([]);
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -43,6 +50,7 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
   useEffect(() => {
     Sites.diff(props.siteId, props.branch).then(setDiff).catch((e) => props.toast(e.message, "error"));
     Sites.versions(props.siteId, props.branch).then(setVersions).catch(() => {});
+    void loadSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.siteId, props.branch]);
 
@@ -106,12 +114,27 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn primary" disabled={busy || !diff || diff.summary.length === 0} onClick={() => merge(false)}>
             Merge into main
           </button>
+          {props.canShip && !pending && (
+            <button className="btn" disabled={!diff || diff.summary.length === 0} onClick={() => setScheduling((x) => !x)} aria-expanded={scheduling}>
+              <Icon name="clock" size={14} /> Schedule release…
+            </button>
+          )}
         </div>
       )}
+      {scheduling && (
+        <ScheduleForm
+          siteId={props.siteId}
+          branch={props.branch}
+          toast={props.toast}
+          onCancel={() => setScheduling(false)}
+          onDone={(s) => (setPending(s), setScheduling(false))}
+        />
+      )}
+      {pending && <ScheduleList siteId={props.siteId} items={[pending]} canChange={!!props.canShip} toast={props.toast} onChanged={() => void loadSchedule()} />}
       <section>
         <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Branch history</h3>
         <table className="table">
@@ -132,17 +155,23 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
   );
 }
 
-export function HistoryDrawer(props: { siteId: string; branch: string; onClose: () => void; onRestored: () => void; toast: (m: string, tone?: "error") => void }) {
+export function HistoryDrawer(props: { siteId: string; branch: string; onClose: () => void; onRestored: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean }) {
   const [versions, setVersions] = useState<Version[]>([]);
   const [deps, setDeps] = useState<Deployment[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const load = () => {
     Sites.versions(props.siteId, props.branch).then(setVersions).catch(() => {});
     Sites.deployments(props.siteId).then(setDeps).catch(() => {});
+    Schedules.list(props.siteId).then(setSchedules).catch(() => {});
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [props.siteId, props.branch]);
   return (
     <Drawer title="History" onClose={props.onClose}>
+      <section>
+        <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Scheduled publishing</h3>
+        <ScheduleList siteId={props.siteId} items={schedules} canChange={!!props.canShip} toast={props.toast} onChanged={load} />
+      </section>
       <section>
         <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Versions on {props.branch}</h3>
         <table className="table">

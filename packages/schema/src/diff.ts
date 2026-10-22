@@ -67,7 +67,7 @@ export function diffDocuments(before: SiteDocument, after: SiteDocument): Docume
   for (const [id, p] of pb) {
     const old = pa.get(id);
     if (!old) d.pagesAdded.push(p.path);
-    else if (old.path !== p.path || old.title !== p.title || old.description !== p.description || old.ogImage !== p.ogImage) d.pagesChanged.push(p.path);
+    else if (old.path !== p.path || old.title !== p.title || old.description !== p.description || old.ogImage !== p.ogImage || !!old.unpublished !== !!p.unpublished) d.pagesChanged.push(p.path);
   }
   for (const [id, p] of pa) if (!pb.has(id)) d.pagesRemoved.push(p.path);
   d.themeChanged = stable(before.theme) !== stable(after.theme);

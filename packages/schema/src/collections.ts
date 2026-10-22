@@ -56,7 +56,7 @@ export const itemPath = (templatePath: string, slug: string) => templatePath.rep
 /** Root-relative URL of an item's page, or null when its collection has no template page. */
 export function itemUrl(doc: SiteDocument, c: Collection, item: CollectionItem): string | null {
   const page = templatePageOf(doc, c.id);
-  return page ? itemPath(page.path, item.slug) : null;
+  return page && !page.unpublished ? itemPath(page.path, item.slug) : null;
 }
 
 export interface Route {
@@ -70,6 +70,7 @@ export interface Route {
 export function siteRoutes(doc: SiteDocument, opts: { includeDrafts?: boolean } = {}): Route[] {
   const out: Route[] = [];
   for (const page of doc.pages) {
+    if (page.unpublished && !opts.includeDrafts) continue;
     if (!page.collectionId) {
       out.push({ path: page.path, page });
       continue;

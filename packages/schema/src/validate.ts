@@ -135,6 +135,7 @@ export const pageSchema = z
     id: idSchema,
     path: z.string(),
     collectionId: idSchema.optional(),
+    unpublished: z.boolean().optional(),
     title: z.string().min(1).max(200),
     description: z.string().max(500).optional(),
     ogImage: z.string().refine(isSafeSrc, "Unsafe og image").optional(),
@@ -142,6 +143,7 @@ export const pageSchema = z
   })
   .strict()
   .superRefine((page, ctx) => {
+    if (page.unpublished && page.path === "/") ctx.addIssue({ code: z.ZodIssueCode.custom, message: "The home page can't be hidden from the published site" });
     if (page.collectionId) {
       if (!TEMPLATE_PATH.test(page.path)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A template page path must end in /:slug, like /blog/:slug" });
     } else if (!PAGE_PATH.test(page.path)) {
