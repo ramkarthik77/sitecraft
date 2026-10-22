@@ -1,5 +1,7 @@
 # Working on Sitecraft
 
+Guides: `docs/LOCAL_SETUP.md` (run it), `docs/ARCHITECTURE.md` (how it fits together), `docs/CLAUDE_CODE.md` (the MCP tools), `docs/TROUBLESHOOTING.md`.
+
 - Monorepo with pnpm. Build order matters: `packages/schema` → `packages/renderer` → apps. `pnpm build` handles it.
 - Every document change goes through the operations in `packages/schema/src/ops.ts`. Add a new kind of edit there (with validation and a test) rather than mutating documents in the API, editor or MCP server.
 - The renderer is shared by the canvas, previews and publishing; keep it free of Node or DOM APIs.

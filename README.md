@@ -16,66 +16,39 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | **Publishing** | Static HTML/CSS per page with SEO tags, sitemap, robots.txt and 404. Served at `/s/<slug>`, `<slug>.<your-domain>`, or a custom domain. Instant rollback |
 | **Forms** | Form sections store submissions; view them in site settings |
 
-## Run it locally (end to end)
+## Guides
 
-You need Docker. Then:
+| Guide | For |
+|---|---|
+| [Local setup](docs/LOCAL_SETUP.md) | Running Sitecraft on your computer, with or without Docker; tokens; tests; every setting |
+| [Claude Code](docs/CLAUDE_CODE.md) | Connecting Claude Code, the plugin, example requests, every tool, guardrails |
+| [Deploy on Cloudflare](docs/CLOUDFLARE.md) | The live setup at `sitecraft.guduriphaniram1988.workers.dev`, deployed from GitHub Actions |
+| [Deploy elsewhere](docs/DEPLOY.md) | AWS, Google Cloud or any container host |
+| [How it works](docs/ARCHITECTURE.md) | The document model, branches, live updates, publishing, roles, extending it |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems and fixes |
+
+## Quick start
+
+With Docker installed:
 
 ```bash
 git clone https://github.com/ramkarthik77/sitecraft && cd sitecraft
-cp .env.example .env          # change the tokens if you like
+cp .env.example .env
 docker compose up --build
 ```
 
-- Editor: <http://localhost:4000> — sign in with `EDITOR_TOKEN` from `.env` (default `dev-editor-token`)
-- MCP server for Claude Code: <http://localhost:4100/mcp>
-- Published sites: <http://localhost:4000/s/your-site-slug>
-- Storage console (MinIO): <http://localhost:9001> (`sitecraft` / `sitecraft-secret`)
+Open <http://localhost:4000> and sign in with `dev-editor-token`. Published sites appear at `http://localhost:4000/s/<slug>`.
 
-### Without Docker (for development)
-
-Needs Node 22, pnpm 10 and a Postgres 16 you can reach.
-
-```bash
-pnpm install
-cp .env.example .env
-pnpm build
-set -a; . ./.env; set +a
-pnpm seed          # optional demo site
-pnpm dev           # API :4000, editor :5173 (hot reload), MCP :4100
-```
-
-Open <http://localhost:5173>.
-
-## Connect Claude Code
-
-Claude Code talks to the MCP server with a Sitecraft token, so every edit is attributed to that token and limited by its role.
-
-**Quick start (this repo):** the repo ships a `.mcp.json`. Set your token and start Claude Code here:
+To let Claude Code build sites, from the same folder:
 
 ```bash
 export SITECRAFT_TOKEN=dev-agent-token
-export SITECRAFT_MCP_URL=http://localhost:4100/mcp   # default
 claude
 ```
 
-Then ask, for example: *"Create a Sitecraft site for Northstar Coffee with a menu section and a contact form, then send me the review link."*
+Then ask: *"Create a Sitecraft site for Northstar Coffee with a menu section and a contact form, then send me the review link."* Open the editor while it works to watch the changes arrive.
 
-**As a plugin (any project):** this repo is also a plugin marketplace. In Claude Code:
-
-```
-/plugin marketplace add ramkarthik77/sitecraft
-/plugin install sitecraft@sitecraft
-```
-
-The plugin adds the MCP server, the `build-site` skill and the confirm-before-publish hook.
-
-**For your whole organization (Claude Code Enterprise):** deploy it (on Cloudflare: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md); elsewhere: [docs/DEPLOY.md](docs/DEPLOY.md)), mint one agent token per person (`pnpm --filter @sitecraft/api exec tsx src/cli.ts token "Jane Doe" agent`), and push the plugin and MCP allowlist through managed settings. [deploy/claude-code/managed-settings.example.json](deploy/claude-code/managed-settings.example.json) is a starting point.
-
-### What Claude can do
-
-`list_sites`, `create_site`, `get_site` (outline with node ids), `get_node`, `list_blocks`, `list_branches`, `create_branch`, `edit_site` (any batch of operations), `add_section`, `update_text`, `update_style`, `set_theme`, `add_page`, `get_diff`, `list_versions`, `restore_version`, `get_preview_url`, `request_review`, `merge_branch`, `publish_site`.
-
-By default an agent token can do everything except edit `main`, merge or publish. Set `AGENT_CAN_PUBLISH=true` to let agents ship; the plugin's hook still asks the person first.
+No Docker, or want hot reload while changing the code? See [Local setup](docs/LOCAL_SETUP.md#option-b-without-docker).
 
 ## Deploy
 
@@ -85,13 +58,11 @@ By default an agent token can do everything except edit `main`, merge or publish
 ## Tests
 
 ```bash
-pnpm test        # schema, renderer, API and MCP tests (needs Postgres; TEST_DATABASE_URL)
-pnpm test:e2e    # builds everything and drives the editor in Chromium (needs Postgres; DATABASE_URL)
+pnpm test        # schema, renderer, Cloudflare routing, API and MCP tests
+pnpm test:e2e    # builds everything and drives the editor in Chromium
 ```
 
-The browser test covers the whole loop: sign in, create a site, edit text on the canvas, insert a section, undo/redo, set a phone-only style, let an agent edit a branch while the editor is open, review and merge, publish, check the live site on a phone width, submit its contact form, restore an old version.
-
-Run `pnpm exec playwright install chromium` once before the first e2e run.
+Both need Postgres; [Local setup](docs/LOCAL_SETUP.md#run-the-tests) has the one-time steps. The browser test covers the whole loop: sign in, create a site, edit text on the canvas, insert a section, undo/redo, set a phone-only style, let an agent edit a branch while the editor is open (and check its changes are highlighted), review and merge, publish, check the live site at phone width, submit its contact form, restore an old version.
 
 ## How it fits together
 
