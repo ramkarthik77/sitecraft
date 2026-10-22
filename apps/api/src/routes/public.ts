@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { resolveRoute } from "@sitecraft/schema";
+import { resolveRoute, splitLocale } from "@sitecraft/schema";
 import { renderNotFound, renderPage } from "@sitecraft/renderer";
 import { verifyPreview } from "../auth.js";
 import { HttpError } from "../errors.js";
@@ -67,13 +67,14 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!verifyPreview(cfg.secret, siteId, branch, key)) return reply.status(403).send("This preview link is invalid or has expired.");
     const head = await repo.getHead(siteId, branch);
     const path = "/" + (req.params["*"] ?? "").replace(/\/+$/, "");
-    const route = resolveRoute(head.document, path === "" ? "/" : path, { includeDrafts: true });
+    const lang = splitLocale(head.document, path === "" ? "/" : path);
+    const route = resolveRoute(head.document, lang.path, { includeDrafts: true });
     reply.headers(siteHeaders(cfg)).header("Cache-Control", "no-store").header("X-Robots-Tag", "noindex");
     if (!route) return reply.status(404).type("text/html").send(renderNotFound(head.document));
     const basePath = `/preview/${key}/${siteId}/${encodeURIComponent(branch)}`;
     return reply
       .type("text/html; charset=utf-8")
-      .send(renderPage(head.document, route.page, { mode: "preview", basePath, itemId: route.item?.id, formAction: formActionFor(cfg, siteId), ...renderSecurity(cfg) }));
+      .send(renderPage(head.document, route.page, { mode: "preview", basePath, itemId: route.item?.id, locale: lang.locale, formAction: formActionFor(cfg, siteId), ...renderSecurity(cfg) }));
   });
 
   // Form submissions from published sites.

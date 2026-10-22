@@ -11,6 +11,7 @@ import {
   type SiteDocument,
   type SiteNode,
 } from "./types.js";
+import { LOCALE, TRANSLATABLE } from "./i18n.js";
 
 const FORBIDDEN_CSS = /[;{}<>\\]|\/\*|expression\s*\(|@import|javascript:/i;
 
@@ -114,6 +115,21 @@ export const nodeSchema: z.ZodType<SiteNode> = z.lazy(() =>
       if (node.type === "richtext" && p.markdown !== undefined && (typeof p.markdown !== "string" || p.markdown.length > 200_000)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Rich text on node ${node.id} must be text` });
       }
+      if (p.i18n !== undefined) {
+        const allowed = new Set((TRANSLATABLE[node.type] ?? []).flatMap((k) => [k, `~${k}`]));
+        const ok =
+          p.i18n !== null &&
+          typeof p.i18n === "object" &&
+          !Array.isArray(p.i18n) &&
+          Object.entries(p.i18n as Record<string, unknown>).every(
+            ([loc, t]) =>
+              LOCALE.test(loc) &&
+              t !== null &&
+              typeof t === "object" &&
+              Object.entries(t as Record<string, unknown>).every(([k, v]) => allowed.has(k) && typeof v === "string" && v.length <= 200_000),
+          );
+        if (!ok) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid translations on node ${node.id}` });
+      }
       if (node.type === "collection-list") {
         if (typeof p.collectionId !== "string") ctx.addIssue({ code: z.ZodIssueCode.custom, message: `List node ${node.id} needs props.collectionId` });
         if (p.limit !== undefined && !(Number.isInteger(p.limit) && (p.limit as number) >= 1 && (p.limit as number) <= 500)) {
@@ -136,6 +152,7 @@ export const pageSchema = z
     path: z.string(),
     collectionId: idSchema.optional(),
     unpublished: z.boolean().optional(),
+    i18n: z.record(z.string().regex(LOCALE), z.record(z.enum(["title", "description", "~title", "~description"]), z.string().max(1000))).optional(),
     title: z.string().min(1).max(200),
     description: z.string().max(500).optional(),
     ogImage: z.string().refine(isSafeSrc, "Unsafe og image").optional(),
@@ -176,6 +193,7 @@ const fieldSchema = z
     id: z.string().regex(FIELD_KEY, "Field keys are lowercase letters, numbers and underscores").refine((k) => !(ITEM_BUILTINS as readonly string[]).includes(k), "slug and url are reserved"),
     name: z.string().min(1).max(80),
     type: z.enum(FIELD_TYPES),
+    localized: z.boolean().optional(),
   })
   .strict();
 
@@ -185,6 +203,7 @@ const itemSchema = z
     slug: z.string().max(80).regex(SLUG, "Slugs are lowercase letters, numbers and dashes"),
     draft: z.boolean().optional(),
     values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+    i18n: z.record(z.string().regex(LOCALE), z.record(z.string().regex(/^~?[a-z][a-z0-9_]{0,39}$/), z.string().max(200_000))).optional(),
   })
   .strict();
 
@@ -205,11 +224,15 @@ export const collectionSchema = z
       if (keys.has(f.id)) issue(`two fields use the key ${f.id}`);
       keys.add(f.id);
     }
+    for (const f of c.fields) if (f.localized && f.type !== "text" && f.type !== "richtext") issue(`${f.name} is a ${f.type} field; only text and rich text are translated`);
     const byKey = new Map(c.fields.map((f) => [f.id, f]));
     const slugs = new Set<string>();
     for (const item of c.items) {
       if (slugs.has(item.slug)) issue(`two items use the slug ${item.slug}`);
       slugs.add(item.slug);
+      for (const t of Object.values(item.i18n ?? {})) {
+        for (const k of Object.keys(t)) if (!byKey.get(k.replace(/^~/, ""))?.localized) issue(`item ${item.slug} has a translation for ${k.replace(/^~/, "")}, which isn't translated`);
+      }
       for (const [k, v] of Object.entries(item.values)) {
         const f = byKey.get(k);
         if (!f) issue(`item ${item.slug} has a value for unknown field ${k}`);
@@ -248,6 +271,7 @@ export const documentSchema = z
     settings: z
       .object({
         lang: z.string().regex(/^[a-zA-Z-]{2,10}$/),
+        locales: z.array(z.string().regex(LOCALE, "Language codes look like fr, de or pt-BR")).max(20).optional(),
         favicon: z.string().refine(isSafeSrc, "Unsafe favicon").optional(),
       })
       .strict(),
@@ -259,6 +283,10 @@ export const documentSchema = z
     for (const page of doc.pages) {
       if (paths.has(page.path)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate page path ${page.path}` });
       paths.add(page.path);
+    }
+    const locales = doc.settings.locales ?? [];
+    if (new Set(locales).size !== locales.length || locales.includes(doc.settings.lang)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Each language can be added once, and the main language isn't repeated" });
     }
     const componentIds = new Set(doc.components.map((c) => c.id));
     const collections = new Map((doc.collections ?? []).map((c) => [c.id, c]));

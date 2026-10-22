@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, FIELD_TYPES, STYLE_PROPERTIES } from "@sitecraft/schema";
+import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, FIELD_TYPES, STYLE_PROPERTIES, translationStatus } from "@sitecraft/schema";
 import { z } from "zod";
 import { ApiError, enc, SitecraftClient } from "./client.js";
 
@@ -39,8 +39,9 @@ const OPS_HELP = `Each operation is an object with an "op" field:
   add_field {collectionId, name, type, index?} · update_field {collectionId, fieldId, name} · remove_field {collectionId, fieldId}
   add_item {collectionId, values, slug?, draft?, index?} · update_item {collectionId, itemId, values?, slug?, draft?} · remove_item · move_item {collectionId, itemId, index}
   add_collection_list {parentId, collectionId, headline?, section?, limit?, sortBy?, sortDir?} · add_page {path, title, collectionId} makes a template page (/blog/:slug)
+- Languages: set_locales {locales} · set_translation {locale, nodeId|pageId|collectionId+itemId, values:{prop:text}} (or use get_translations / set_translations)
   Field types: ${FIELD_TYPES.join(", ")}. collectionId/itemId/fieldId also accept the slug or name.
-Node types: section, stack, grid, heading{text,level}, text{text}, image{src,alt}, button{label,href}, link{href}, divider, spacer, form{formName}, input{name,label,inputType,required}, embed{url}, instance{componentId}, richtext{markdown}, collection-list{collectionId,limit?,sortBy?,sortDir?} (children are the card repeated per item).
+Node types: section, stack, grid, heading{text,level}, text{text}, image{src,alt}, button{label,href}, link{href}, divider, spacer, form{formName}, input{name,label,inputType,required}, embed{url}, instance{componentId}, richtext{markdown}, collection-list{collectionId,limit?,sortBy?,sortDir?} (children are the card repeated per item), language-switch (links to this page in each language).
 Inside a template page or a collection-list, props.bind maps a prop to a field: {text:"title"}, {src:"cover_image"}, {href:"url"} (the item's page), {markdown:"body"}.
 Containers (can have children): section, stack, grid, form, link, collection-list.
 Style keys (camelCase CSS): ${STYLE_PROPERTIES.join(", ")}. Use theme tokens like var(--color-primary), var(--font-heading), var(--radius).
@@ -309,6 +310,72 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
       }),
   );
 
+
+  server.registerTool(
+    "get_translations",
+    {
+      title: "Read what to translate",
+      description:
+        "List the site's texts for a language: page titles and descriptions, every heading, paragraph, button and alt text, and translated CMS fields, each with its id, the original text and whether its translation is missing, out of date or done. Then call set_translations.",
+      inputSchema: { site, branch, locale: z.string().describe("Language code, e.g. fr"), only: z.enum(["missing", "stale", "todo", "all"]).optional().describe("todo = missing or out of date (default)") },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s, branch: b, locale, only }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const r = await client.get<{ document: import("@sitecraft/schema").SiteDocument }>(`/sites/${id}/branches/${enc(b)}`);
+        const langs = r.document.settings.locales ?? [];
+        if (!langs.includes(locale)) return `${locale} isn't one of this site's languages (${[r.document.settings.lang, ...langs].join(", ")}). Add it with set_languages first.`;
+        const want = only ?? "todo";
+        const list = translationStatus(r.document, locale).filter((e) => want === "all" || (want === "todo" ? e.state !== "done" : e.state === want));
+        const done = translationStatus(r.document, locale).filter((e) => e.state === "done").length;
+        if (!list.length) return `Nothing ${want === "todo" ? "left " : ""}to translate into ${locale}. ${done} texts are translated.`;
+        return (
+          UNTRUSTED +
+          `Main language: ${r.document.settings.lang}. ${done} done; ${list.length} listed.\n` +
+          list.slice(0, 300).map((e) => `- ${e.kind} ${e.id} ${e.prop} [${e.state}] (${e.where}): ${JSON.stringify(e.source)}`).join("\n") +
+          (list.length > 300 ? `\n…and ${list.length - 300} more; call again after saving these.` : "")
+        );
+      }),
+  );
+
+  server.registerTool(
+    "set_translations",
+    {
+      title: "Save translations",
+      description: "Save translated texts for one language in a single version. Use the kind, id and prop from get_translations. Keep markdown formatting in rich text, and keep the brand's voice.",
+      inputSchema: {
+        site,
+        branch,
+        locale: z.string(),
+        items: z.array(z.object({ kind: z.enum(["node", "page", "item"]), id: z.string(), prop: z.string(), text: z.string() })).min(1).max(300),
+      },
+    },
+    ({ site: s, branch: b, locale, items }) =>
+      run(() =>
+        applyOps(
+          s,
+          b,
+          items.map((x) => {
+            if (x.kind === "node") return { op: "set_translation", locale, nodeId: x.id, values: { [x.prop]: x.text } };
+            if (x.kind === "page") return { op: "set_translation", locale, pageId: x.id, values: { [x.prop]: x.text } };
+            const [collectionId, itemId] = x.id.split("/");
+            return { op: "set_translation", locale, collectionId, itemId, values: { [x.prop]: x.text } };
+          }),
+          `Translate ${items.length} ${items.length === 1 ? "text" : "texts"} into ${locale}`,
+        ),
+      ),
+  );
+
+  server.registerTool(
+    "set_languages",
+    {
+      title: "Set the site's languages",
+      description: "Choose the languages a site is published in besides its main one, e.g. [\"fr\", \"de\"]. Each publishes at /fr/…, /de/…. Removing one deletes its translations.",
+      inputSchema: { site, branch, locales: z.array(z.string()).max(20) },
+    },
+    ({ site: s, branch: b, locales }) => run(() => applyOps(s, b, [{ op: "set_locales", locales }], `Languages: ${locales.join(", ") || "main only"}`)),
+  );
 
   server.registerTool(
     "list_comments",

@@ -175,3 +175,22 @@ describe("review comments", () => {
     expect(text(await client.callTool({ name: "list_comments", arguments: { site: "trailhead", branch: "agent/comments" } }))).toBe("No open comments on agent/comments.");
   });
 });
+
+describe("translation tools", () => {
+  it("Claude adds a language, reads what to translate and saves translations", async () => {
+    await client.callTool({ name: "create_site", arguments: { name: "Polyglot", template: "landing" } });
+    await client.callTool({ name: "create_branch", arguments: { site: "polyglot", name: "agent/french" } });
+    expect((await client.callTool({ name: "set_languages", arguments: { site: "polyglot", branch: "agent/french", locales: ["fr"] } })).isError).toBeFalsy();
+    const todo = text(await client.callTool({ name: "get_translations", arguments: { site: "polyglot", branch: "agent/french", locale: "fr" } }));
+    expect(todo).toMatch(/^\[Site content follows/);
+    const line = todo.split("\n").find((l) => l.includes("Build beautiful sites, faster"))!;
+    const [, kind, id, prop] = /^- (\w+) (\S+) (\w+) \[missing\]/.exec(line)!;
+    const saved = await client.callTool({ name: "set_translations", arguments: { site: "polyglot", branch: "agent/french", locale: "fr", items: [{ kind, id, prop, text: "Créez de beaux sites, plus vite" }] } });
+    expect(text(saved)).toContain("Saved version");
+    const preview = /Preview: (\S+)/.exec(text(saved))![1]!;
+    const fr = await (await fetch(preview.replace(/\/$/, "") + "/fr")).text();
+    expect(fr).toContain('<html lang="fr">');
+    expect(fr).toContain("Créez de beaux sites, plus vite");
+    expect(text(await client.callTool({ name: "get_translations", arguments: { site: "polyglot", branch: "agent/french", locale: "de" } }))).toContain("isn't one of this site's languages");
+  });
+});

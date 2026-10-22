@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef, useState } from "react";
-import { findCollection, type Breakpoint, type Collection, type Operation, type Page, type SiteDocument, type SiteNode, type Style, type StyleProperty } from "@sitecraft/schema";
+import { findCollection, languageName, TRANSLATABLE, type Breakpoint, type Collection, type Operation, type Page, type SiteDocument, type SiteNode, type Style, type StyleProperty } from "@sitecraft/schema";
 import { Sites } from "../api";
 import { AssetPicker } from "./Assets";
 import { Icon } from "./Icon";
@@ -99,13 +99,22 @@ function StyleRow(props: { node: SiteNode; bp: Breakpoint; prop: StyleProperty; 
   );
 }
 
-function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Apply; siteId: string; doc: SiteDocument }) {
+function ContentFields({ node, apply, siteId, doc, locale }: { node: SiteNode; apply: Apply; siteId: string; doc: SiteDocument; locale?: string }) {
   const p = node.props;
   // Props bound to a collection field come from each item, so there's nothing to type.
   const bound = new Set(Object.keys((p.bind as Record<string, string> | undefined) ?? {}));
   const free = (prop: string) => !bound.has(prop);
-  const set = (key: string, v: unknown) => apply([{ op: "update_node", nodeId: node.id, props: { [key]: v === "" ? null : v } }], `${node.id}:props:${key}`);
-  const str = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
+  // In another language, translatable text is edited as that language's translation.
+  const tkeys = locale ? TRANSLATABLE[node.type] ?? [] : [];
+  const tr = (locale ? (p.i18n as Record<string, Record<string, string>> | undefined)?.[locale] : undefined) ?? {};
+  const set = (key: string, v: unknown) =>
+    tkeys.includes(key)
+      ? apply([{ op: "set_translation", locale: locale!, nodeId: node.id, values: { [key]: v === "" ? null : String(v) } }], `${node.id}:tr:${locale}:${key}`)
+      : apply([{ op: "update_node", nodeId: node.id, props: { [key]: v === "" ? null : v } }], `${node.id}:props:${key}`);
+  const base = (k: string) => (typeof p[k] === "string" ? (p[k] as string) : "");
+  const str = (k: string) => (tkeys.includes(k) ? tr[k] ?? "" : base(k));
+  /** In another language, the original text shows as the placeholder. */
+  const ph = (k: string, d?: string) => (tkeys.includes(k) ? base(k) : d);
   const file = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -124,7 +133,7 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
         <>
           {free("text") && (
             <Field label="Text">
-              <textarea className="textarea" aria-label="Text" value={str("text")} onChange={(e) => set("text", e.target.value)} />
+              <textarea className="textarea" aria-label="Text" value={str("text")} placeholder={ph("text")} onChange={(e) => set("text", e.target.value)} />
             </Field>
           )}
           <Field label="Level">
@@ -141,15 +150,23 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
     case "text":
       return free("text") ? (
         <Field label="Text">
-          <textarea className="textarea" aria-label="Text" value={str("text")} onChange={(e) => set("text", e.target.value)} />
+          <textarea className="textarea" aria-label="Text" value={str("text")} placeholder={ph("text")} onChange={(e) => set("text", e.target.value)} />
         </Field>
       ) : null;
     case "richtext":
       return free("markdown") ? (
         <Field label="Text">
-          <textarea className="textarea rich" aria-label="Rich text" value={str("markdown")} placeholder="## Heading, **bold**, - list, [link](https://…)" onChange={(e) => set("markdown", e.target.value)} />
+          <textarea className="textarea rich" aria-label="Rich text" value={str("markdown")} placeholder={ph("markdown", "## Heading, **bold**, - list, [link](https://…)")} onChange={(e) => set("markdown", e.target.value)} />
         </Field>
       ) : null;
+    case "language-switch":
+      return (
+        <p className="muted small" style={{ margin: 0 }}>
+          {(doc.settings.locales ?? []).length
+            ? "Links to this page in each of the site's languages, named in that language."
+            : "Add languages in Site settings and this shows a link to each version of the page."}
+        </p>
+      );
     case "collection-list":
       return <ListFields node={node} doc={doc} apply={apply as never} />;
     case "button":
@@ -157,7 +174,7 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
         <>
           {free("label") && (
             <Field label="Label">
-              <TextInput label="Label" value={str("label")} onChange={(v) => set("label", v)} />
+              <TextInput label="Label" value={str("label")} placeholder={ph("label")} onChange={(v) => set("label", v)} />
             </Field>
           )}
           {!p.submit && (
@@ -193,7 +210,7 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
       if (!free("src")) {
         return free("alt") ? (
           <Field label="Alt text">
-            <TextInput label="Alt text" value={str("alt")} placeholder="Describe the image" onChange={(v) => set("alt", v)} />
+            <TextInput label="Alt text" value={str("alt")} placeholder={ph("alt", "Describe the image")} onChange={(v) => set("alt", v)} />
           </Field>
         ) : null;
       }
@@ -245,7 +262,7 @@ function ContentFields({ node, apply, siteId, doc }: { node: SiteNode; apply: Ap
           </Field>
           {free("alt") && (
             <Field label="Alt text">
-              <TextInput label="Alt text" value={str("alt")} placeholder="Describe the image" onChange={(v) => set("alt", v)} />
+              <TextInput label="Alt text" value={str("alt")} placeholder={ph("alt", "Describe the image")} onChange={(v) => set("alt", v)} />
             </Field>
           )}
         </>
@@ -323,6 +340,8 @@ export function NodeInspector(props: {
   bindCollection?: Collection;
   onComment?: () => void;
   commentCount?: number;
+  /** Editing this language's translation (not the main language). */
+  locale?: string;
 }) {
   const { node, bp, apply } = props;
   const S = (prop: StyleProperty, label: string, kind?: "color" | "select", options?: string[]) => (
@@ -349,7 +368,10 @@ export function NodeInspector(props: {
         <Field label="Layer name">
           <TextInput label="Layer name" value={node.name ?? ""} placeholder={node.type} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, name: v }], `${node.id}:name`)} />
         </Field>
-        <ContentFields node={node} apply={apply} siteId={props.siteId} doc={props.doc} />
+        {props.locale && (TRANSLATABLE[node.type] ?? []).length > 0 && (
+          <TranslationNote node={node} locale={props.locale} main={props.doc.settings.lang} />
+        )}
+        <ContentFields node={node} apply={apply} siteId={props.siteId} doc={props.doc} locale={props.locale} />
         {!props.isRoot && node.type !== "instance" && node.type !== "collection-list" && BOXY.has(node.type) && (
           <button className="btn sm" style={{ alignSelf: "flex-start" }} onClick={() => apply([{ op: "create_component", nodeId: node.id, name: node.name || "Component" }])}>
             Make reusable component
@@ -480,7 +502,18 @@ export function NodeInspector(props: {
   );
 }
 
-export function PageInspector(props: { doc: SiteDocument; page: Page; apply: Apply; onDeletePage: () => void }) {
+function TranslationNote({ node, locale, main }: { node: SiteNode; locale: string; main: string }) {
+  const tr = (node.props.i18n as Record<string, Record<string, string>> | undefined)?.[locale] ?? {};
+  const stale = (TRANSLATABLE[node.type] ?? []).filter((k) => tr[k] && tr[`~${k}`] !== undefined && tr[`~${k}`] !== node.props[k]);
+  return (
+    <div className="tr-note small">
+      Translating to <b>{languageName(locale)}</b>. Empty fields show the {languageName(main)} text.
+      {stale.length > 0 && <span className="warn soft" style={{ marginLeft: 6 }}>The {languageName(main)} text changed since this was translated</span>}
+    </div>
+  );
+}
+
+export function PageInspector(props: { doc: SiteDocument; page: Page; apply: Apply; onDeletePage: () => void; locale?: string }) {
   const { doc, page, apply } = props;
   const theme = doc.theme;
   const setColor = (name: string, v: string) => apply([{ op: "set_theme", colors: { [name]: v } }], `theme:${name}`);
@@ -501,15 +534,31 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
       )}
       <div className="group">
         <h3>Page</h3>
-        <Field label="Title">
-          <TextInput label="Page title" value={page.title} onChange={(v) => v && apply([{ op: "update_page", pageId: page.id, title: v }], `page:${page.id}:title`)} />
-        </Field>
+        {props.locale ? (
+          <>
+            <div className="tr-note small">
+              Translating to <b>{languageName(props.locale)}</b>.
+            </div>
+            <Field label="Title">
+              <TextInput label="Page title" value={page.i18n?.[props.locale]?.title ?? ""} placeholder={page.title} onChange={(v) => apply([{ op: "set_translation", locale: props.locale!, pageId: page.id, values: { title: v || null } }], `page:${page.id}:tr:title`)} />
+            </Field>
+            <Field label="Description">
+              <textarea className="textarea" aria-label="SEO description" value={page.i18n?.[props.locale]?.description ?? ""} placeholder={page.description} onChange={(e) => apply([{ op: "set_translation", locale: props.locale!, pageId: page.id, values: { description: e.target.value || null } }], `page:${page.id}:tr:desc`)} />
+            </Field>
+          </>
+        ) : (
+          <Field label="Title">
+            <TextInput label="Page title" value={page.title} onChange={(v) => v && apply([{ op: "update_page", pageId: page.id, title: v }], `page:${page.id}:title`)} />
+          </Field>
+        )}
         <Field label="Path">
           <TextInput label="Page path" value={page.path} onChange={(v) => apply([{ op: "update_page", pageId: page.id, path: v }], `page:${page.id}:path`)} />
         </Field>
-        <Field label="Description">
-          <textarea className="textarea" aria-label="SEO description" value={page.description ?? ""} placeholder="Shown in search results" onChange={(e) => apply([{ op: "update_page", pageId: page.id, description: e.target.value }], `page:${page.id}:desc`)} />
-        </Field>
+        {!props.locale && (
+          <Field label="Description">
+            <textarea className="textarea" aria-label="SEO description" value={page.description ?? ""} placeholder="Shown in search results" onChange={(e) => apply([{ op: "update_page", pageId: page.id, description: e.target.value }], `page:${page.id}:desc`)} />
+          </Field>
+        )}
         <Field label="Share image">
           <TextInput label="Social share image" value={page.ogImage ?? ""} placeholder="https://…" onChange={(v) => apply([{ op: "update_page", pageId: page.id, ogImage: v }], `page:${page.id}:og`)} />
         </Field>

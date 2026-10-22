@@ -82,6 +82,7 @@ export const RESET_CSS = [
   ".sc-field input,.sc-field textarea{font:inherit;font-size:16px;padding:12px 14px;border:1px solid var(--color-border);border-radius:var(--radius);background:var(--color-background);color:var(--color-text)}",
   ".sc-field textarea{min-height:120px;resize:vertical}",
   ".sc-form-status{font-size:15px;color:var(--color-text)}",
+  ".sc-lang{display:flex;gap:10px;flex-wrap:wrap;font-size:14px}.sc-lang a{color:var(--color-muted);text-decoration:none}.sc-lang a[aria-current]{color:var(--color-text);font-weight:600}",
   ".sc-hp{position:absolute!important;left:-10000px!important;width:1px;height:1px;overflow:hidden}",
   "button.sc-btn{font:inherit;cursor:pointer}",
   "a.sc-btn:hover,button.sc-btn:hover{opacity:.92}",

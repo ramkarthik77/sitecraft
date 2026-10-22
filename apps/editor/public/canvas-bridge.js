@@ -6,7 +6,7 @@
   function post(m){parent.postMessage(Object.assign({source:'sc-canvas'},m),'*')}
   function nodeOf(t){return t&&t.closest?t.closest('[data-node-id]'):null}
   var agent=[], comments=[], agentLabel='Claude', zoom=1, overlay=document.getElementById('sc-overlay');
-  var TYPE={heading:'H',text:'Text',image:'Image',button:'Button',link:'Link',section:'Section',stack:'Stack',grid:'Grid',form:'Form',input:'Field',embed:'Embed',divider:'Divider',spacer:'Spacer',richtext:'Rich text','collection-list':'List'};
+  var TYPE={heading:'H',text:'Text',image:'Image',button:'Button',link:'Link',section:'Section',stack:'Stack',grid:'Grid',form:'Form',input:'Field',embed:'Embed',divider:'Divider',spacer:'Spacer',richtext:'Rich text','collection-list':'List','language-switch':'Languages'};
   function tag(cls,txt,x,y){var d=document.createElement('span');d.className=cls;d.textContent=txt;d.style.left=x+'px';d.style.top=y+'px';if(zoom<1){d.style.transform='scale('+(1/zoom)+')'}overlay.appendChild(d)}
   function mark(){
     document.querySelectorAll('.sc-sel').forEach(function(e){e.classList.remove('sc-sel')});

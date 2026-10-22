@@ -1,5 +1,11 @@
 import {
+  allLocales,
   findCollection,
+  isRtl,
+  languageName,
+  localePath,
+  TRANSLATABLE,
+  translated,
   formatValue,
   isSafeHref,
   isSafeSrc,
@@ -9,6 +15,7 @@ import {
   listItems,
   placeholderItem,
   type Collection,
+  type CollectionField,
   type CollectionItem,
   type Page,
   type SiteDocument,
@@ -42,6 +49,8 @@ export interface RenderOptions {
    * embedded page script its way out of the sandbox.
    */
   selfOrigins?: string[];
+  /** Language to render, one of the site's languages. Defaults to the main one. */
+  locale?: string;
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -65,6 +74,35 @@ interface Ctx {
   item?: { collection: Collection; item: CollectionItem };
   /** Set once a form is rendered, so the page loads the bot check script. */
   hasForm?: boolean;
+  /** The route being rendered (without the language prefix), for the language switcher. */
+  routePath?: string;
+}
+
+/** The language being rendered when it isn't the main one. */
+function altLocale(ctx: Ctx): string | undefined {
+  const l = ctx.opts.locale;
+  return l && l !== ctx.doc.settings.lang && (ctx.doc.settings.locales ?? []).includes(l) ? l : undefined;
+}
+
+/** An item's value for a field, in the current language when the field is translated. */
+function itemValue(ctx: Ctx, field: CollectionField | undefined, item: CollectionItem, key: string) {
+  const l = altLocale(ctx);
+  if (l && field?.localized) {
+    const t = item.i18n?.[l]?.[key];
+    if (typeof t === "string" && t) return t;
+  }
+  return item.values[key];
+}
+
+/** Element props in the current language (bound props come from the item instead). */
+function translateProps(n: SiteNode, p: Record<string, unknown>, ctx: Ctx): Record<string, unknown> {
+  const l = altLocale(ctx);
+  const keys = TRANSLATABLE[n.type];
+  if (!l || !keys || !n.props.i18n) return p;
+  const bind = (n.props.bind ?? {}) as Record<string, string>;
+  const out = { ...p };
+  for (const k of keys) if (!(k in bind)) out[k] = translated(n.props, n.props.i18n, l, k);
+  return out;
 }
 
 /** Props after applying field bindings for the current item. */
@@ -78,8 +116,8 @@ function boundProps(n: SiteNode, ctx: Ctx): Record<string, unknown> {
     else if (key === "url") out[prop] = (item.id === "placeholder" ? null : itemUrl(ctx.doc, collection, item)) ?? "#";
     else {
       const field = collection.fields.find((f) => f.id === key);
-      const raw = item.values[key];
-      out[prop] = prop === "src" || prop === "href" ? (typeof raw === "string" && raw ? raw : prop === "href" ? "#" : "") : formatValue(field, raw, ctx.doc.settings.lang);
+      const raw = itemValue(ctx, field, item, key);
+      out[prop] = prop === "src" || prop === "href" ? (typeof raw === "string" && raw ? raw : prop === "href" ? "#" : "") : formatValue(field, raw, ctx.opts.locale ?? ctx.doc.settings.lang);
     }
   }
   return out;
@@ -87,6 +125,9 @@ function boundProps(n: SiteNode, ctx: Ctx): Record<string, unknown> {
 
 function resolveHref(href: string, ctx: Ctx): string {
   if (!isSafeHref(href)) return "#";
+  // Links between pages stay in the reader's language.
+  const l = altLocale(ctx);
+  if (l && href.startsWith("/") && !href.startsWith("//") && !/^\/(media|forms)\//.test(href)) href = localePath(href, l, ctx.doc);
   const base = ctx.opts.basePath ?? "";
   if (base && href.startsWith("/") && !href.startsWith("//")) return base + (href === "/" ? "/" : href);
   return href;
@@ -111,7 +152,7 @@ function children(n: SiteNode, ctx: Ctx): string {
 
 export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
   collectNodeCss(n, ctx.css, ctx.seen);
-  const p = boundProps(n, ctx);
+  const p = translateProps(n, boundProps(n, ctx), ctx);
   const a = (extra: string[] = []) => attrs(n, ctx, extra, editorId);
   switch (n.type) {
     case "section": {
@@ -181,6 +222,17 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
       const trusted = ctx.opts.mode !== "editor" && embedOrigin && !(ctx.opts.selfOrigins ?? []).includes(embedOrigin);
       const sandbox = `allow-scripts${trusted ? " allow-same-origin" : ""} allow-popups allow-presentation`;
       return `<iframe${a(["sc-embed"])} src="${escapeHtml(url)}" title="${escapeHtml(p.title ?? "Embedded content")}" loading="lazy" sandbox="${sandbox}" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+    }
+    case "language-switch": {
+      const langs = allLocales(ctx.doc);
+      const current = ctx.opts.locale ?? ctx.doc.settings.lang;
+      const links = langs
+        .map((l) => {
+          const href = resolveHref(localePath(ctx.routePath ?? "/", l, ctx.doc), { ...ctx, opts: { ...ctx.opts, locale: undefined } });
+          return `<a href="${escapeHtml(href)}" hreflang="${escapeHtml(l)}" lang="${escapeHtml(l)}"${l === current ? ' aria-current="true"' : ""}>${escapeHtml(nativeName(l))}</a>`;
+        })
+        .join("");
+      return `<nav aria-label="Language"${a(["sc-lang"])}>${links}</nav>`;
     }
     case "richtext": {
       const md = typeof p.markdown === "string" ? p.markdown : "";
@@ -259,15 +311,32 @@ export function pageItem(doc: SiteDocument, page: Page, itemId: string | undefin
   return { collection, item };
 }
 
-/** Title, description, share image and path for a page, taken from its item on a template page. */
-function pageMeta(page: Page, item: Ctx["item"]) {
-  if (!item) return { title: page.title, description: page.description, ogImage: page.ogImage, path: page.path };
+/** A language's own name ("Français", "Deutsch"), for the language switcher. */
+function nativeName(code: string): string {
+  try {
+    const n = new Intl.DisplayNames([code], { type: "language" }).of(code);
+    if (n && n !== code) return n[0]!.toLocaleUpperCase(code) + n.slice(1);
+  } catch {
+    /* unknown code */
+  }
+  return languageName(code);
+}
+
+/** Title, description, share image and path for a page, in the current language, taken from its item on a template page. */
+function pageMeta(page: Page, item: Ctx["item"], ctx: Ctx) {
+  const l = altLocale(ctx);
+  const pt = l ? page.i18n?.[l] : undefined;
+  const title = pt?.title || page.title;
+  const description = pt?.description || page.description;
+  if (!item) return { title, description, ogImage: page.ogImage, path: page.path };
   const { collection: c, item: it } = item;
-  const text = c.fields.slice(1).find((f) => f.type === "text" && typeof it.values[f.id] === "string" && it.values[f.id]);
+  const val = (f: CollectionField) => itemValue(ctx, f, it, f.id);
+  const text = c.fields.slice(1).find((f) => f.type === "text" && typeof val(f) === "string" && val(f));
   const image = c.fields.find((f) => f.type === "image" && typeof it.values[f.id] === "string" && it.values[f.id]);
+  const first = c.fields[0];
   return {
-    title: itemTitle(c, it),
-    description: text ? String(it.values[text.id]) : page.description,
+    title: first && typeof val(first) === "string" && val(first) ? String(val(first)) : itemTitle(c, it),
+    description: text ? String(val(text)) : description,
     ogImage: image ? String(it.values[image.id]) : page.ogImage,
     path: itemPath(page.path, it.slug),
   };
@@ -277,11 +346,20 @@ function pageMeta(page: Page, item: Ctx["item"]) {
 export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): string {
   const item = pageItem(doc, page, opts.itemId, opts.mode !== "publish");
   const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [], item };
+  const meta = pageMeta(page, item, ctx);
+  ctx.routePath = meta.path;
   const body = renderNode(page.root, ctx);
   const withAnim = opts.mode !== "editor";
   const css = assembleCss(doc, ctx.css, withAnim);
-  const meta = pageMeta(page, item);
-  const canonical = opts.siteUrl ? `${opts.siteUrl.replace(/\/$/, "")}${meta.path === "/" ? "/" : meta.path}` : "";
+  const lang = altLocale(ctx) ?? doc.settings.lang;
+  const site = opts.siteUrl?.replace(/\/$/, "");
+  const here = localePath(meta.path, lang, doc);
+  const canonical = site ? `${site}${here}` : "";
+  // Every language version of this page, so search engines link them.
+  const alternates =
+    site && (doc.settings.locales ?? []).length
+      ? [...allLocales(doc).map((l) => `<link rel="alternate" hreflang="${escapeHtml(l)}" href="${escapeHtml(site + localePath(meta.path, l, doc))}">`), `<link rel="alternate" hreflang="x-default" href="${escapeHtml(site + meta.path)}">`].join("")
+      : "";
   const head = [
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
@@ -291,6 +369,7 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
     meta.description ? `<meta property="og:description" content="${escapeHtml(meta.description)}">` : "",
     meta.ogImage && isSafeSrc(meta.ogImage) ? `<meta property="og:image" content="${escapeHtml(meta.ogImage)}">` : "",
     canonical ? `<link rel="canonical" href="${escapeHtml(canonical)}"><meta property="og:url" content="${escapeHtml(canonical)}">` : "",
+    alternates,
     doc.settings.favicon && isSafeSrc(doc.settings.favicon) ? `<link rel="icon" href="${escapeHtml(doc.settings.favicon)}">` : "",
     opts.mode !== "publish" ? `<meta name="robots" content="noindex">` : "",
     `<meta name="generator" content="Sitecraft">`,
@@ -302,13 +381,14 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
     .join("\n");
   const turnstile = ctx.hasForm && opts.turnstileSiteKey && opts.mode !== "editor" ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>` : "";
   const script = opts.mode === "editor" ? "" : `<script>${RUNTIME_SCRIPT}</script>${turnstile}`;
-  return `<!doctype html>\n<html lang="${escapeHtml(doc.settings.lang)}">\n<head>\n${head}\n</head>\n<body>\n${body}\n${script}${opts.bodyEnd ?? ""}\n</body>\n</html>\n`;
+  return `<!doctype html>\n<html lang="${escapeHtml(lang)}"${isRtl(lang) ? ' dir="rtl"' : ""}>\n<head>\n${head}\n</head>\n<body>\n${body}\n${script}${opts.bodyEnd ?? ""}\n</body>\n</html>\n`;
 }
 
 /** Render just the body markup and stylesheet (used for live editor updates). */
 export function renderPageParts(doc: SiteDocument, page: Page, opts: RenderOptions): { body: string; css: string } {
   const item = pageItem(doc, page, opts.itemId, opts.mode !== "publish");
   const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [], item };
+  ctx.routePath = pageMeta(page, item, ctx).path;
   const body = renderNode(page.root, ctx);
   return { body, css: assembleCss(doc, ctx.css, opts.mode !== "editor") };
 }

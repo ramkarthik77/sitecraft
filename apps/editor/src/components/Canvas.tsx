@@ -48,6 +48,8 @@ export function Canvas(props: {
   itemId?: string;
   /** Open comment threads per element id, shown as markers. */
   commentCounts?: Record<string, number>;
+  /** Show the page in this language. */
+  locale?: string;
   onEvent: (e: CanvasEvent) => void;
 }) {
   const { doc, page, breakpoint, selectedId, onEvent } = props;
@@ -60,7 +62,7 @@ export function Canvas(props: {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
-  const parts = useMemo(() => renderPageParts(doc, page, { mode: "editor", itemId: props.itemId }), [doc, page, props.itemId]);
+  const parts = useMemo(() => renderPageParts(doc, page, { mode: "editor", itemId: props.itemId, locale: props.locale }), [doc, page, props.itemId, props.locale]);
 
   const shell = useMemo(
     () =>

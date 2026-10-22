@@ -136,6 +136,9 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `list_comments` | Open review comments on a branch, and which element each is about |
 | `add_comment` | Comment, or reply to a thread with what was changed |
 | `resolve_comment` | Mark a thread handled |
+| `set_languages` | Add or remove the site's languages, or change the main one |
+| `get_translations` | What still needs translating into a language, and what's out of date |
+| `set_translations` | Save translations of text, page titles and CMS fields |
 | `search_assets` | Approved images in the company library, with alt text and focal point |
 | `get_collection` | A collection's fields and items |
 | `create_collection` | New CMS collection from a preset (`blog`, `team`, `products`, `jobs`) or your own fields, with a list page and an item page template |

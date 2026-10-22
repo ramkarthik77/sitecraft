@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
+import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, languageName, TRANSLATABLE, translationStatus, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
 import { Comments, Schedules, Sites, type Branch, type Comment, type Me, type Schedule, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
@@ -61,6 +61,8 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentTarget, setCommentTarget] = useState<CommentTarget>({ kind: "site", label: "the whole site" });
   const [reviewTick, setReviewTick] = useState(0);
+  /** The language being viewed and edited; null for the main one. */
+  const [locale, setLocale] = useState<string | null>(null);
   const loadComments = useCallback(() => Comments.list(siteId, branch).then(setComments).catch(() => {}), [siteId, branch]);
   const [scheduling, setScheduling] = useState(false);
   const loadSchedules = useCallback(() => Schedules.list(siteId).then(setSchedules).catch(() => {}), [siteId]);
@@ -76,6 +78,13 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const cmsCollection = doc && tab === "cms" && cmsId ? findCollection(doc, cmsId) ?? null : null;
   const cmsItem = cmsCollection && cmsItemId ? cmsCollection.items.find((i) => i.id === cmsItemId) ?? null : null;
   const pageCollection = doc && page?.collectionId ? findCollection(doc, page.collectionId) : undefined;
+  const locales = doc?.settings.locales ?? [];
+  const activeLocale = locale && locales.includes(locale) ? locale : undefined;
+  const progress = useMemo(() => {
+    if (!doc || !activeLocale) return null;
+    const all = translationStatus(doc, activeLocale);
+    return { done: all.filter((x) => x.state === "done").length, stale: all.filter((x) => x.state === "stale").length, total: all.length };
+  }, [doc, activeLocale]);
   const shownItem = pageCollection ? pageCollection.items.find((i) => i.id === templateItem) ?? pageCollection.items[0] : undefined;
 
   // Opening the CMS tab shows the first collection.
@@ -261,7 +270,10 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
     if (e.type === "select") setSelectedId(e.id);
     else if (e.type === "text") {
       const n = findNodeInDocument(doc, e.id)?.node;
-      if (n) apply([{ op: "update_node", nodeId: e.id, props: { [n.type === "button" ? "label" : "text"]: e.text } }]);
+      const key = n?.type === "button" ? "label" : "text";
+      // In another language, typing on the canvas writes that language's translation.
+      if (n && activeLocale && (TRANSLATABLE[n.type] ?? []).includes(key)) apply([{ op: "set_translation", locale: activeLocale, nodeId: e.id, values: { [key]: e.text } }]);
+      else if (n) apply([{ op: "update_node", nodeId: e.id, props: { [key]: e.text } }]);
     } else if (e.type === "drop") {
       const [kind, value] = [e.payload.split(":")[0], e.payload.slice(e.payload.indexOf(":") + 1)];
       if (kind === "block" || kind === "list" || kind === "comp") {
@@ -433,6 +445,19 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           </select>
           <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
         </span>
+        {locales.length > 0 && (
+          <span className={`picker hide-narrow ${activeLocale ? "lang-on" : ""}`} title="Language to view and translate">
+            <select aria-label="Language" value={activeLocale ?? ""} onChange={(e) => (setLocale(e.target.value || null), setSelectedId(null))}>
+              <option value="">{languageName(doc.settings.lang)}</option>
+              {locales.map((l) => (
+                <option key={l} value={l}>
+                  {languageName(l)}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
+          </span>
+        )}
         {pageCollection && !cmsCollection && (
           <span className="picker cms hide-narrow" title={`Which ${pageCollection.name} item the template shows`}>
             <Icon name="database" size={13} style={{ position: "absolute", left: 9, pointerEvents: "none", color: "var(--cms)" }} />
@@ -670,6 +695,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             page={page}
             itemId={shownItem?.id}
             commentCounts={commentCounts}
+            locale={activeLocale}
             breakpoint={bp}
             selectedId={selectedId}
             zoom={1}
@@ -679,6 +705,18 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             agentLabel={work.onlyAgent ? "Claude" : "Changed on this branch"}
             pageLabel={pageLabel}
           />
+          )}
+          {activeLocale && progress && !cmsCollection && (
+            <div className="lang-bar" role="status">
+              <span>
+                Translating to <b>{languageName(activeLocale)}</b> · {progress.done} of {progress.total} texts done
+                {progress.stale ? ` · ${progress.stale} out of date` : ""}
+              </span>
+              <span className="muted">Edit text on the canvas or in the panel; empty texts show the {languageName(doc.settings.lang)} version.</span>
+              <button className="btn sm ghost" onClick={() => setLocale(null)}>
+                Back to {languageName(doc.settings.lang)}
+              </button>
+            </div>
           )}
           {branch !== "main" && agentActive && !cmsCollection && (
             <section className="agent-bar" aria-label="Claude's activity on this branch">
@@ -731,9 +769,10 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
               bindCollection={bindingCollection(doc, page, selected.id)}
               onComment={() => commentOn(selected)}
               commentCount={commentCounts[selected.id] ?? 0}
+              locale={activeLocale}
             />
           ) : (
-            <PageInspector doc={doc} page={page} apply={apply} onDeletePage={() => (apply([{ op: "remove_page", pageId: page.id }]), setPageId(null))} />
+            <PageInspector doc={doc} page={page} apply={apply} locale={activeLocale} onDeletePage={() => (apply([{ op: "remove_page", pageId: page.id }]), setPageId(null))} />
           )}
         </aside>
       </div>
@@ -786,6 +825,8 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           canEdit={me.role !== "agent"}
           onClose={() => setDrawer(null)}
           onSaved={setSite}
+          doc={doc}
+          apply={apply}
           onBrandChanged={() => (branch === "main" ? void ed.reload() : toast("The brand is on main now. Merge or start a new branch to see it here."))}
         />
       )}

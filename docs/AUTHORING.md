@@ -1,4 +1,4 @@
-# Templates, brands, assets, reviews and releases
+# Templates, brands, languages, assets, reviews and releases
 
 How teams keep many sites consistent and launch on time: **templates** decide how a new site starts, **brands** keep the look and voice the same across sites afterwards.
 
@@ -97,3 +97,21 @@ Claude Code reads them too: ask it to *"work through the comments on agent/hero-
 - People who changed the branch can't approve it, and Claude can never approve.
 - Scheduled releases need their approvals too, or they don't run.
 - Admins can **Merge without approval**; it's recorded in the audit log.
+
+## Languages
+
+One site, one design, many languages. Only the words change per language, so a layout fix shows up in every language at once.
+
+1. **Site settings → Languages**: choose the main language and add others. Each one is published under its own path: `/fr/`, `/de/about`, `/es/blog/welcome`.
+2. **Translate**: pick a language in the editor's top bar. The canvas shows that language; edit text on the canvas or in the inspector and it saves as the translation. Anything not translated yet shows the main-language text, so pages are never blank.
+3. **CMS**: in a collection's fields, tick **Translate** on the text and rich-text fields that differ per language (not prices or dates). Each item then has a Translations section.
+4. **Language switcher**: insert **Languages** from Insert → Elements; it links to the same page in each language, named in that language.
+5. **Claude Code**: "Translate the site into French" uses `get_translations` and `set_translations` on a branch, so it goes through review like any other change.
+
+What you get on publish: `lang` and `dir="rtl"` for Arabic and Hebrew, `hreflang` links between versions, and every language in the sitemap.
+
+**Out of date**: each translation remembers the text it was made from. When someone changes the original, the translation is marked out of date in the inspector and in `get_translations`, until it's updated.
+
+Removing a language deletes its translations; the confirmation says so.
+
+Like in AEM: language copies and translation projects, without separate page trees to keep in sync.

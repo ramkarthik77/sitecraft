@@ -7,6 +7,7 @@ import {
   formatValue,
   itemTitle,
   itemUrl,
+  languageName,
   slugify,
   uniqueName,
   templatePageOf,
@@ -442,6 +443,34 @@ export function ItemInspector(props: {
             </div>
           );
         })}
+        {(props.doc.settings.locales ?? []).length > 0 && c.fields.some((f) => f.localized) && (
+          <div className="field-stack item-tr">
+            <strong className="small">Translations</strong>
+            {(props.doc.settings.locales ?? []).map((l) =>
+              c.fields
+                .filter((f) => f.localized)
+                .map((f) => {
+                  const t = item.i18n?.[l]?.[f.id] ?? "";
+                  const stale = !!t && item.i18n?.[l]?.[`~${f.id}`] !== undefined && item.i18n?.[l]?.[`~${f.id}`] !== item.values[f.id];
+                  return (
+                    <div key={`${l}:${f.id}`} className="field-stack">
+                      <label className="small muted">
+                        {f.name} · {languageName(l)}
+                        {stale && <span className="warn soft" style={{ marginLeft: 6 }}>Out of date</span>}
+                      </label>
+                      <textarea
+                        className={`textarea short ${f.type === "richtext" ? "rich" : ""}`}
+                        aria-label={`${f.name} in ${languageName(l)}`}
+                        value={t}
+                        placeholder={String(item.values[f.id] ?? "")}
+                        onChange={(e) => apply([{ op: "set_translation", locale: l, collectionId: c.id, itemId: item.id, values: { [f.id]: e.target.value || null } }], `tr:${item.id}:${l}:${f.id}`)}
+                      />
+                    </div>
+                  );
+                }),
+            )}
+          </div>
+        )}
         <div className="field-stack">
           <label className="small muted" htmlFor="item-slug">
             Slug
@@ -542,6 +571,11 @@ export function CollectionInspector(props: { doc: SiteDocument; collection: Coll
             <span className="type-chip" title={`Key: ${f.id}`}>
               {i === 0 ? "Title" : FIELD_TYPE_LABEL[f.type]}
             </span>
+            {(doc.settings.locales ?? []).length > 0 && (f.type === "text" || f.type === "richtext") && (
+              <label className="check tr-toggle" title="Translate this field into the site's other languages">
+                <input type="checkbox" checked={!!f.localized} onChange={(e) => apply([{ op: "update_field", collectionId: c.id, fieldId: f.id, localized: e.target.checked }])} /> Translate
+              </label>
+            )}
             {i === 0 ? (
               <span style={{ width: 28 }} />
             ) : (

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
+import { LANGUAGES, languageName, translationStatus, type Operation, type SiteDocument } from "@sitecraft/schema";
 import { Icon } from "./Icon";
 import { ScheduleForm, ScheduleList } from "./Schedule";
 
@@ -296,6 +297,8 @@ export function SettingsDrawer(props: {
   canEdit?: boolean;
   /** Called after the site's brand changed, so the editor reloads main. */
   onBrandChanged?: () => void;
+  doc?: SiteDocument;
+  apply?: (ops: Operation[]) => unknown;
 }) {
   const [name, setName] = useState(props.site.name);
   const [domain, setDomain] = useState(props.site.domain ?? "");
@@ -333,6 +336,7 @@ export function SettingsDrawer(props: {
           Save settings
         </button>
       </section>
+      {props.doc && props.apply && props.canEdit && <LanguagesSetting doc={props.doc} apply={props.apply} />}
       {props.isAdmin && <ApprovalsSetting site={props.site} toast={props.toast} onSaved={(n) => props.onSaved({ ...props.site, requiredApprovals: n })} />}
       <BrandSection site={props.site} isAdmin={!!props.isAdmin} toast={props.toast} onChanged={(brandId) => (props.onSaved({ ...props.site, brandId }), props.onBrandChanged?.())} />
       {props.canEdit && <SaveAsTemplate site={props.site} toast={props.toast} />}
@@ -563,6 +567,75 @@ function ApprovalsSetting(props: { site: SiteSummary; toast: (m: string, tone?: 
         </select>
       </div>
       <span className="muted small">People who changed a branch can't approve it, and neither can Claude. Admins can merge without approval; it's recorded in the audit log.</span>
+    </section>
+  );
+}
+
+function LanguagesSetting({ doc, apply }: { doc: SiteDocument; apply: (ops: Operation[]) => unknown }) {
+  const locales = doc.settings.locales ?? [];
+  const [adding, setAdding] = useState("");
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const choices = Object.entries(LANGUAGES).filter(([code]) => code !== doc.settings.lang && !locales.includes(code));
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Languages</h3>
+      <div className="row">
+        <label htmlFor="s-lang">Main</label>
+        <select id="s-lang" className="select" value={doc.settings.lang} onChange={(e) => apply([{ op: "set_locales", locales, main: e.target.value }])}>
+          {!LANGUAGES[doc.settings.lang] && <option value={doc.settings.lang}>{doc.settings.lang}</option>}
+          {Object.entries(LANGUAGES)
+            .filter(([code]) => !locales.includes(code))
+            .map(([code, name]) => (
+              <option key={code} value={code}>
+                {name}
+              </option>
+            ))}
+        </select>
+      </div>
+      {locales.map((l) => {
+        const st = translationStatus(doc, l);
+        const done = st.filter((x) => x.state === "done").length;
+        return (
+          <div key={l} className="lang-row">
+            <span className="grow">
+              {languageName(l)} <span className="mono muted">/{l}/</span>
+            </span>
+            <span className="muted small">
+              {done} of {st.length} translated
+            </span>
+            {confirm === l ? (
+              <>
+                <button className="btn sm danger" onClick={() => (apply([{ op: "set_locales", locales: locales.filter((x) => x !== l) }]), setConfirm(null))}>
+                  Remove and delete its translations
+                </button>
+                <button className="btn sm ghost" onClick={() => setConfirm(null)}>
+                  Keep
+                </button>
+              </>
+            ) : (
+              <button className="btn ghost icon sm" aria-label={`Remove ${languageName(l)}`} onClick={() => setConfirm(l)}>
+                <Icon name="close" size={13} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", gap: 6 }}>
+        <select className="select" aria-label="Add a language" value={adding} onChange={(e) => setAdding(e.target.value)}>
+          <option value="">Add a language…</option>
+          {choices.map(([code, name]) => (
+            <option key={code} value={code}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <button className="btn sm" disabled={!adding} onClick={() => (apply([{ op: "set_locales", locales: [...locales, adding] }]), setAdding(""))}>
+          Add
+        </button>
+      </div>
+      <span className="muted small">
+        Each language is published at /code/… with links between the versions for search engines. Switch language in the top bar to translate, add a Languages element for a switcher, or ask Claude to translate the site.
+      </span>
     </section>
   );
 }

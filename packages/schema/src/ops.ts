@@ -17,6 +17,7 @@ import { newId } from "./ids.js";
 import { cloneWithNewIds, collectIds, ensureUniqueIds, findInTree, findNodeInDocument, findPage } from "./tree.js";
 import { CONTAINER_TYPES, FIELD_TYPES, type Breakpoint, type Collection, type CollectionField, type FieldValue, type SiteDocument, type SiteNode, type Style } from "./types.js";
 import { brandViolations } from "./brand.js";
+import { LOCALE, PAGE_TRANSLATABLE, stripLocale, TRANSLATABLE } from "./i18n.js";
 import { validateDocument } from "./validate.js";
 
 /**
@@ -120,8 +121,28 @@ export const operationSchema = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("update_collection"), collectionId: z.string(), name: z.string().min(1).max(80).optional(), slug: z.string().optional() }),
   z.object({ op: z.literal("remove_collection"), collectionId: z.string() }),
-  z.object({ op: z.literal("add_field"), collectionId: z.string(), name: z.string().min(1).max(80), type: z.enum(FIELD_TYPES), id: z.string().optional(), index: z.number().int().min(1).optional() }),
-  z.object({ op: z.literal("update_field"), collectionId: z.string(), fieldId: z.string(), name: z.string().min(1).max(80) }),
+  z.object({
+    op: z.literal("add_field"),
+    collectionId: z.string(),
+    name: z.string().min(1).max(80),
+    type: z.enum(FIELD_TYPES),
+    id: z.string().optional(),
+    index: z.number().int().min(1).optional(),
+    localized: z.boolean().optional(),
+  }),
+  /** The site's extra languages (the main one is settings.lang). Removing one deletes its translations. */
+  z.object({ op: z.literal("set_locales"), locales: z.array(z.string()).max(20), main: z.string().optional() }),
+  /** Set (or clear with null) translations of one element, page or CMS item. */
+  z.object({
+    op: z.literal("set_translation"),
+    locale: z.string(),
+    nodeId: z.string().optional(),
+    pageId: z.string().optional(),
+    collectionId: z.string().optional(),
+    itemId: z.string().optional(),
+    values: z.record(z.string(), z.union([z.string(), z.null()])),
+  }),
+  z.object({ op: z.literal("update_field"), collectionId: z.string(), fieldId: z.string(), name: z.string().min(1).max(80).optional(), localized: z.boolean().optional() }),
   z.object({ op: z.literal("remove_field"), collectionId: z.string(), fieldId: z.string() }),
   z.object({
     op: z.literal("add_item"),
@@ -445,12 +466,23 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       const c = getCollection(doc, op.collectionId, i);
       const id = uniqueName(fieldKey(op.id ?? op.name), new Set(c.fields.map((f) => f.id)), "_");
       const at = Math.min(op.index ?? c.fields.length, c.fields.length);
-      c.fields.splice(Math.max(1, at), 0, { id, name: op.name, type: op.type });
+      const field: CollectionField = { id, name: op.name, type: op.type };
+      if (op.localized) field.localized = true;
+      c.fields.splice(Math.max(1, at), 0, field);
       return id;
     }
     case "update_field": {
       const c = getCollection(doc, op.collectionId, i);
-      getField(c, op.fieldId, i).name = op.name;
+      const f = getField(c, op.fieldId, i);
+      if (op.name !== undefined) f.name = op.name;
+      if (op.localized !== undefined) {
+        if (op.localized && f.type !== "text" && f.type !== "richtext") throw new OperationError(`only text and rich text fields can be translated`, i);
+        if (op.localized) f.localized = true;
+        else {
+          delete f.localized;
+          for (const item of c.items) for (const t of Object.values(item.i18n ?? {})) (delete t[f.id], delete t[`~${f.id}`]);
+        }
+      }
       return null;
     }
     case "remove_field": {
@@ -505,6 +537,62 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       const [item] = c.items.splice(getItemIndex(c, op.itemId, i), 1);
       c.items.splice(Math.min(op.index, c.items.length), 0, item!);
       return item!.id;
+    }
+    case "set_locales": {
+      const main = op.main ?? doc.settings.lang;
+      if (!/^[a-zA-Z-]{2,10}$/.test(main)) throw new OperationError(`"${main}" isn't a language code`, i);
+      const next = [...new Set(op.locales.map((l) => l.trim()))].filter((l) => l && l !== main);
+      for (const l of next) if (!LOCALE.test(l)) throw new OperationError(`"${l}" isn't a language code like fr, de or pt-BR`, i);
+      if (main !== doc.settings.lang && (doc.settings.locales ?? []).includes(main)) {
+        throw new OperationError("to make a translated language the main one, remove it first; its translations don't replace the main text", i);
+      }
+      for (const old of doc.settings.locales ?? []) if (!next.includes(old)) stripLocale(doc, old);
+      doc.settings.lang = main;
+      if (next.length) doc.settings.locales = next;
+      else delete doc.settings.locales;
+      return null;
+    }
+    case "set_translation": {
+      if (!(doc.settings.locales ?? []).includes(op.locale)) throw new OperationError(`add ${op.locale} to the site's languages first`, i);
+      const write = (target: { i18n?: Record<string, Record<string, string>> }, source: Record<string, unknown>, allowed: readonly string[]) => {
+        for (const [k, v] of Object.entries(op.values)) {
+          if (!allowed.includes(k)) throw new OperationError(`"${k}" can't be translated here. Translatable: ${allowed.join(", ") || "nothing"}`, i);
+          target.i18n ??= {};
+          const t = (target.i18n[op.locale] ??= {});
+          if (v === null || v === "") {
+            delete t[k];
+            delete t[`~${k}`];
+          } else {
+            t[k] = v;
+            // Remember what it was translated from, to spot when the original changes.
+            if (typeof source[k] === "string") t[`~${k}`] = source[k] as string;
+          }
+          if (!Object.keys(t).length) delete target.i18n[op.locale];
+          if (!Object.keys(target.i18n).length) delete target.i18n;
+        }
+      };
+      if (op.nodeId) {
+        const hit = findNodeInDocument(doc, op.nodeId);
+        if (!hit) throw new OperationError(`node "${op.nodeId}" not found`, i);
+        const holder = hit.node.props as { i18n?: Record<string, Record<string, string>> };
+        write(holder, hit.node.props, TRANSLATABLE[hit.node.type] ?? []);
+        return hit.node.id;
+      }
+      if (op.pageId) {
+        const page = findPage(doc, op.pageId);
+        if (!page) throw new OperationError(`page "${op.pageId}" not found`, i);
+        write(page, page as unknown as Record<string, unknown>, PAGE_TRANSLATABLE);
+        return page.id;
+      }
+      if (op.collectionId && op.itemId) {
+        const c = getCollection(doc, op.collectionId, i);
+        const item = c.items[getItemIndex(c, op.itemId, i)]!;
+        const keys = Object.fromEntries(Object.entries(op.values).map(([k, v]) => [getField(c, k, i).id, v]));
+        op.values = keys;
+        write(item, item.values, c.fields.filter((f) => f.localized).map((f) => f.id));
+        return item.id;
+      }
+      throw new OperationError("say what to translate: nodeId, pageId, or collectionId and itemId", i);
     }
     case "add_collection_list": {
       const c = getCollection(doc, op.collectionId, i);

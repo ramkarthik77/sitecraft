@@ -20,6 +20,7 @@ export const NODE_TYPES = [
   "instance",
   "richtext",
   "collection-list",
+  "language-switch",
 ] as const;
 
 export type NodeType = (typeof NODE_TYPES)[number];
@@ -155,6 +156,8 @@ export interface Page {
   collectionId?: string;
   /** Left out of the published site and sitemap (still in the editor and previews). */
   unpublished?: boolean;
+  /** Title and description per language: { fr: { title, "~title" } }. */
+  i18n?: Record<string, Record<string, string>>;
   title: string;
   /** SEO meta description. */
   description?: string;
@@ -200,6 +203,8 @@ export interface CollectionField {
   /** Label shown in the editor, e.g. "Cover image". */
   name: string;
   type: FieldType;
+  /** Translated per language (text and rich text fields). */
+  localized?: boolean;
 }
 
 export type FieldValue = string | number | boolean;
@@ -211,6 +216,8 @@ export interface CollectionItem {
   /** Drafts show in the editor and previews but are left out when publishing. */
   draft?: boolean;
   values: Record<string, FieldValue>;
+  /** Values of localized fields per language: { fr: { title, "~title" } }. */
+  i18n?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -242,8 +249,10 @@ export interface SiteDocument {
   brand?: BrandRef;
   pages: Page[];
   settings: {
-    /** Language code for <html lang>. */
+    /** Main language code, for <html lang>. */
     lang: string;
+    /** More languages, published at /<code>/… (e.g. ["fr", "de"]). */
+    locales?: string[];
     favicon?: string;
   };
 }

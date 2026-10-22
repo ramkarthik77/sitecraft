@@ -50,6 +50,11 @@ export const ELEMENTS: Record<string, { label: string; glyph: string; make: () =
     glyph: "❡",
     make: () => ({ type: "richtext", props: { markdown: "## A short heading\n\nWrite longer text here, with **bold**, *italic*, lists and [links](https://example.com)." }, style: { base: { fontSize: "18px", lineHeight: "1.7", color: "var(--color-text)", maxWidth: "720px" } } }),
   },
+  languages: {
+    label: "Languages",
+    glyph: "文",
+    make: () => ({ type: "language-switch", props: {}, style: { base: { display: "flex", gap: "12px" } } }),
+  },
   divider: { label: "Divider", glyph: "—", make: () => ({ type: "divider", props: {}, style: { base: { border: "0", borderTop: "1px solid var(--color-border)", margin: "0", width: "100%" } } }) },
   spacer: { label: "Spacer", glyph: "↕", make: () => ({ type: "spacer", props: {}, style: { base: { height: "48px" } } }) },
   embed: { label: "Video", glyph: "▶", make: () => ({ type: "embed", props: { url: "https://www.youtube.com/embed/aqz-KE-bpKQ", title: "Video" }, style: { base: { borderRadius: "var(--radius)" } } }) },
