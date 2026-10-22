@@ -131,6 +131,7 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `add_section` | Insert a ready-made section with real content |
 | `update_text` | Change a heading, paragraph or button label |
 | `update_style` | Set styles on an element for desktop, tablet or phone |
+| `set_motion` | Entrance animations, hover effects (including 3D tilt) and parallax on one or many elements |
 | `set_theme` | Change brand colors, fonts or corner radius across the site |
 | `add_page` | Add a page with starting sections |
 | `list_comments` | Open review comments on a branch, and which element each is about |

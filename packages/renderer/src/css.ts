@@ -3,6 +3,7 @@ import {
   isSafeCssValue,
   STYLE_PROPERTIES,
   type Animation,
+  type HoverEffect,
   type SiteDocument,
   type SiteNode,
   type Style,
@@ -100,26 +101,96 @@ export const RESET_CSS = [
   ".sc-rich hr{border:0;border-top:1px solid var(--color-border)}",
 ].join("");
 
+/** Where each entrance effect starts; every one ends at its natural place. */
+const FROM: Record<string, string> = {
+  "fade-in": "",
+  "slide-up": "transform:translateY(24px)",
+  "slide-down": "transform:translateY(-24px)",
+  "slide-left": "transform:translateX(32px)",
+  "slide-right": "transform:translateX(-32px)",
+  "scale-in": "transform:scale(.96)",
+  "zoom-out": "transform:scale(1.08)",
+  "blur-in": "filter:blur(12px);transform:scale(1.02)",
+  "flip-up": "transform:perspective(900px) rotateX(22deg) translateY(18px);transform-origin:50% 100%",
+  rise: "transform:translateY(64px) scale(.94)",
+};
+
+export const EASING_CSS: Record<string, string> = {
+  smooth: "cubic-bezier(.2,.7,.2,1)",
+  spring: "cubic-bezier(.34,1.56,.64,1)",
+  "ease-out": "ease-out",
+  linear: "linear",
+};
+
+/** How many children a stagger numbers; later ones share the last delay. */
+const STAGGER_MAX = 24;
+
 export const ANIMATION_CSS = [
   "@media (prefers-reduced-motion:no-preference){",
-  ".sc-anim{opacity:0;transition-property:opacity,transform;transition-timing-function:cubic-bezier(.2,.7,.2,1)}",
-  ".sc-anim.sc-slide-up{transform:translateY(24px)}",
-  ".sc-anim.sc-slide-left{transform:translateX(32px)}",
-  ".sc-anim.sc-scale-in{transform:scale(.96)}",
-  ".sc-anim.sc-in{opacity:1;transform:none}",
+  ".sc-anim,.sc-stagger>:not(.sc-anim){transition-property:opacity,transform,filter;transition-timing-function:var(--sc-ease,cubic-bezier(.2,.7,.2,1));transition-duration:var(--sc-dur,600ms);transition-delay:var(--sc-delay,0ms)}",
+  ".sc-anim:not(.sc-in),.sc-stagger:not(.sc-in)>:not(.sc-anim){opacity:0}",
+  ...Object.entries(FROM)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `.sc-anim.sc-${k}:not(.sc-in),.sc-stagger.sc-${k}:not(.sc-in)>:not(.sc-anim){${v}}`),
+  ".sc-stagger>:not(.sc-anim){transition-delay:calc(var(--sc-delay,0ms) + var(--sc-step,0ms) * var(--sc-i,0))}",
+  ...Array.from({ length: STAGGER_MAX - 1 }, (_, i) => `.sc-stagger>:nth-child(${i + 2}){--sc-i:${i + 1}}`),
+  `.sc-stagger>:nth-child(n+${STAGGER_MAX + 1}){--sc-i:${STAGGER_MAX}}`,
   "}",
 ].join("");
 
-export function animationAttrs(a: Animation | undefined): { classes: string[]; style: string; attrs: string } {
-  if (!a || a.preset === "none") return { classes: [], style: "", attrs: "" };
-  const classes = ["sc-anim", `sc-${a.preset}`];
-  const style = `transition-duration:${a.durationMs ?? 600}ms;transition-delay:${a.delayMs ?? 0}ms`;
-  return { classes, style, attrs: ` data-sc-trigger="${a.trigger}"` };
+/** Ready-made hover effects. Movement only for people who haven't asked for less motion. */
+export const HOVER_CSS = [
+  ".sc-h{transition:transform .28s cubic-bezier(.2,.7,.2,1),box-shadow .28s,opacity .2s,filter .28s}",
+  "@media (hover:hover){",
+  ".sc-h-glow:hover{box-shadow:0 0 0 1px var(--color-primary),0 10px 36px -6px var(--color-primary)}",
+  ".sc-h-dim:hover{opacity:.72}",
+  "}",
+  "@media (hover:hover) and (prefers-reduced-motion:no-preference){",
+  ".sc-h-lift:hover{transform:translateY(-6px);box-shadow:0 18px 40px -12px rgba(0,0,0,.28)}",
+  ".sc-h-grow:hover{transform:scale(1.04)}",
+  ".sc-h-tilt{transform:perspective(900px) rotateX(var(--sc-rx,0deg)) rotateY(var(--sc-ry,0deg));transition:transform .18s ease-out,box-shadow .28s;will-change:transform}",
+  ".sc-h-tilt:hover{box-shadow:0 24px 48px -16px rgba(0,0,0,.32)}",
+  "}",
+].join("");
+
+export interface MotionAttrs {
+  classes: string[];
+  style: string;
+  attrs: string;
+}
+
+/** Classes, CSS variables and runtime hooks for an element's motion. */
+export function motionAttrs(n: { animation?: Animation; hover?: HoverEffect; parallax?: number }, withEntrance: boolean): MotionAttrs {
+  const classes: string[] = [];
+  const vars: string[] = [];
+  let attrs = "";
+  const a = n.animation;
+  if (withEntrance && a && a.preset !== "none") {
+    classes.push(a.staggerMs ? "sc-stagger" : "sc-anim", `sc-${a.preset}`);
+    if ((a.durationMs ?? 600) !== 600) vars.push(`--sc-dur:${a.durationMs}ms`);
+    if (a.delayMs) vars.push(`--sc-delay:${a.delayMs}ms`);
+    if (a.staggerMs) vars.push(`--sc-step:${a.staggerMs}ms`);
+    if (a.easing && a.easing !== "smooth") vars.push(`--sc-ease:${EASING_CSS[a.easing]}`);
+    attrs += ` data-sc-trigger="${a.trigger === "load" ? "load" : "scroll"}"`;
+  }
+  const h = n.hover?.preset;
+  if (h) {
+    classes.push("sc-h", `sc-h-${h}`);
+    if (h === "tilt" && withEntrance) attrs += " data-sc-tilt";
+  }
+  if (withEntrance && n.parallax) attrs += ` data-sc-parallax="${n.parallax}"`;
+  return { classes, style: vars.join(";"), attrs };
+}
+
+/** @deprecated use motionAttrs */
+export function animationAttrs(a: Animation | undefined): MotionAttrs {
+  return motionAttrs({ animation: a }, true);
 }
 
 export function assembleCss(doc: SiteDocument, c: CssCollector, withAnimations: boolean): string {
   const parts = [themeCss(doc), RESET_CSS];
   if (withAnimations) parts.push(ANIMATION_CSS);
+  parts.push(HOVER_CSS);
   parts.push(c.base.join(""));
   if (c.hover.length) parts.push(`@media (hover:hover){${c.hover.join("")}}`);
   if (c.tablet.length) parts.push(`@media (max-width:${BREAKPOINT_MAX_WIDTH.tablet}px){${c.tablet.join("")}}`);

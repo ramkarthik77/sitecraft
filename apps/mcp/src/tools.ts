@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, FIELD_TYPES, STYLE_PROPERTIES, translationStatus } from "@sitecraft/schema";
+import { ANIMATION_PRESETS, BLOCK_DESCRIPTIONS, BLOCK_NAMES, COLLECTION_PRESET_NAMES, EASINGS, FIELD_TYPES, HOVER_PRESETS, STYLE_PROPERTIES, translationStatus, walk, type Animation, type SiteDocument, type SiteNode } from "@sitecraft/schema";
 import { z } from "zod";
 import { ApiError, enc, SitecraftClient } from "./client.js";
 
@@ -29,7 +29,7 @@ const branch = z.string().describe("Branch name. Agents edit on their own branch
 const OPS_HELP = `Each operation is an object with an "op" field:
 - add_block {parentId, block, content?, index?} — insert a ready-made section. Blocks: ${BLOCK_NAMES.join(", ")}
 - add_node {parentId, node:{type, props, style:{base?,tablet?,mobile?}, children?}, index?}
-- update_node {nodeId, props?, style?, breakpoint?: base|tablet|mobile, name?, animation?:{preset,trigger,durationMs?}|null, hidden?}
+- update_node {nodeId, props?, style?, breakpoint?: base|tablet|mobile, name?, animation?:{preset,trigger,durationMs?,delayMs?,easing?,staggerMs?}|null, hover?:{preset?,style?}|null, parallax?: -0.5..0.5|null, hidden?} (set_motion is easier for motion)
   (props/style merge; set a key to null to remove it)
 - remove_node {nodeId} · move_node {nodeId, parentId, index?} · duplicate_node {nodeId}
 - add_page {path, title, description?, blocks?[]} · update_page {pageId, path?, title?, description?, ogImage?} · remove_page {pageId}
@@ -249,6 +249,63 @@ export function createSitecraftServer(client: SitecraftClient): McpServer {
       },
     },
     ({ site: s, branch: b, nodeId, style, breakpoint }) => run(() => applyOps(s, b, [{ op: "update_node", nodeId, style, breakpoint }], "Restyle")),
+  );
+
+  server.registerTool(
+    "set_motion",
+    {
+      title: "Set motion",
+      description: `Animate elements: an entrance when they scroll into view or the page loads, a hover effect, and scroll parallax. Apply to several elements at once (for example every section on a page).
+Entrances: ${ANIMATION_PRESETS.filter((p) => p !== "none").join(", ")}; "none" removes it. Easing: ${EASINGS.join(", ")}. staggerMs plays the entrance on each child in turn (cards, list items, a CMS list) instead of the element itself.
+Hover: ${HOVER_PRESETS.join(", ")} ("tilt" follows the pointer in 3D); "none" removes it. Parallax: -0.5 to 0.5 (positive moves slower than the page; 0.1-0.2 is subtle).
+Keep it tasteful: one entrance style per page, durations 400-900 ms, small delays (0-300 ms) to sequence a hero's heading, text and buttons. Visitors who ask for reduced motion see no movement.`,
+      inputSchema: {
+        site,
+        branch,
+        nodeIds: z.array(z.string()).min(1).max(100),
+        entrance: z.enum(ANIMATION_PRESETS).optional(),
+        trigger: z.enum(["scroll", "load"]).optional(),
+        durationMs: z.number().int().min(0).max(10000).optional(),
+        delayMs: z.number().int().min(0).max(10000).optional(),
+        easing: z.enum(EASINGS).optional(),
+        staggerMs: z.number().int().min(0).max(2000).optional(),
+        hover: z.enum([...HOVER_PRESETS, "none"]).optional(),
+        parallax: z.number().min(-0.5).max(0.5).optional(),
+      },
+    },
+    ({ site: s, branch: b, nodeIds, entrance, trigger, durationMs, delayMs, easing, staggerMs, hover, parallax }) =>
+      run(async () => {
+        const head = await client.get<{ document: SiteDocument }>(`/sites/${await resolveId(s)}/branches/${enc(b)}`);
+        const byId = new Map<string, SiteNode>();
+        const visit = (r: SiteNode) => walk(r, (n) => void byId.set(n.id, n));
+        head.document.pages.forEach((p) => visit(p.root));
+        head.document.components.forEach((c) => visit(c.root));
+        const ops = nodeIds.map((nodeId) => {
+          const n = byId.get(nodeId);
+          if (!n) throw new Error(`No element ${nodeId} on ${b}. Use get_site for ids.`);
+          const op: Record<string, unknown> = { op: "update_node", nodeId };
+          const touchesEntrance = [trigger, durationMs, delayMs, easing, staggerMs].some((v) => v !== undefined);
+          if (entrance === "none") op.animation = null;
+          else if (entrance || (touchesEntrance && n.animation)) {
+            const cur: Partial<Animation> = n.animation ?? {};
+            const next = {
+              preset: entrance ?? cur.preset,
+              trigger: trigger ?? cur.trigger ?? "scroll",
+              durationMs: durationMs ?? cur.durationMs ?? 600,
+              delayMs: delayMs ?? cur.delayMs,
+              easing: easing ?? cur.easing,
+              staggerMs: staggerMs ?? cur.staggerMs,
+            };
+            // Leave out unset and zero options so the document stays tidy.
+            op.animation = Object.fromEntries(Object.entries(next).filter(([k, v]) => v !== undefined && !(v === 0 && (k === "delayMs" || k === "staggerMs"))));
+          }
+          if (hover === "none") op.hover = n.hover?.style ? { style: n.hover.style } : null;
+          else if (hover) op.hover = { ...n.hover, preset: hover };
+          if (parallax !== undefined) op.parallax = parallax;
+          return op;
+        });
+        return applyOps(s, b, ops, `Animate ${nodeIds.length} ${nodeIds.length === 1 ? "element" : "elements"}`);
+      }),
   );
 
   server.registerTool(

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   ANIMATION_PRESETS,
+  EASINGS,
+  HOVER_PRESETS,
   CONTAINER_TYPES,
   FIELD_TYPES,
   ITEM_BUILTINS,
@@ -67,6 +69,8 @@ const animationSchema = z
     trigger: z.enum(["load", "scroll"]),
     durationMs: z.number().int().min(0).max(10000).optional(),
     delayMs: z.number().int().min(0).max(10000).optional(),
+    easing: z.enum(EASINGS).optional(),
+    staggerMs: z.number().int().min(0).max(2000).optional(),
   })
   .strict();
 
@@ -81,7 +85,8 @@ export const nodeSchema: z.ZodType<SiteNode> = z.lazy(() =>
       props: z.record(z.string(), z.unknown()),
       style: styleSetSchema,
       animation: animationSchema.optional(),
-      hover: z.object({ style: styleSchema }).strict().optional(),
+      hover: z.object({ preset: z.enum(HOVER_PRESETS).optional(), style: styleSchema.optional() }).strict().optional(),
+      parallax: z.number().min(-0.5).max(0.5).optional(),
       hidden: z.object({ base: z.boolean().optional(), tablet: z.boolean().optional(), mobile: z.boolean().optional() }).strict().optional(),
       children: z.array(nodeSchema).optional(),
     })

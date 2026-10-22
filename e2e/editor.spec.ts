@@ -195,3 +195,36 @@ test("CMS: make a blog, write a post, list it on the home page and publish", asy
   await expect(page).toHaveTitle("Seasonal menu");
   await expect(page.locator("h2", { hasText: "New this week" })).toBeVisible();
 });
+
+test("motion: set an entrance and hover in the inspector, then watch it play", async ({ page }) => {
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  const h1 = canvas(page).locator("h1");
+  await h1.click();
+  await page.getByLabel("Animation", { exact: true }).selectOption("blur-in");
+  await page.getByRole("group", { name: "Easing" }).getByRole("button", { name: "Spring" }).click();
+  await page.getByLabel("Hover effect").selectOption("lift");
+  await saved(page);
+  // The canvas plays the entrance on demand and shows hover effects while editing.
+  await page.getByRole("button", { name: "Play the entrance on the canvas" }).click();
+  await expect(h1).toHaveClass(/sc-h-lift/);
+  await page.screenshot({ path: "test-results/motion-inspector.png" });
+
+  const { url } = await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main/preview-url`);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  const live = page.locator("h1");
+  await expect(live).toHaveClass(/sc-in/);
+  // Once played, the effect classes go so hover and layout behave normally.
+  await expect(live).not.toHaveClass(/sc-anim/, { timeout: 3000 });
+  await expect(live).toHaveCSS("opacity", "1");
+  await live.hover();
+  await expect.poll(async () => live.evaluate((e) => getComputedStyle(e).transform)).not.toBe("none");
+
+  // Visitors who ask for less motion see everything at once.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.locator("h1")).toHaveCSS("opacity", "1");
+});

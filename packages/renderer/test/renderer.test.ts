@@ -56,3 +56,49 @@ describe("renderer", () => {
     expect(html).toContain('href="#features"');
   });
 });
+
+describe("motion", () => {
+  const setup = (node: Record<string, unknown>) => {
+    const doc = createStarterDocument({ template: "blank" });
+    const { document, created } = applyOperations(doc, [
+      { op: "add_node", parentId: doc.pages[0]!.root.id, node: { type: "stack", props: {}, style: {}, children: [{ type: "text", props: { text: "a" }, style: {} }, { type: "text", props: { text: "b" }, style: {} }] } },
+    ]);
+    const id = created[0]!;
+    const r = applyOperations(document, [{ op: "update_node", nodeId: id, ...node } as never]);
+    return { doc: r.document, id };
+  };
+
+  it("staggers children, sets timing as variables and keeps reduced-motion visitors still", () => {
+    const { doc } = setup({ animation: { preset: "flip-up", trigger: "scroll", durationMs: 800, delayMs: 100, easing: "spring", staggerMs: 120 } });
+    const html = renderPage(doc, doc.pages[0]!, { mode: "publish" });
+    expect(html).toMatch(/sc-stagger sc-flip-up" style="--sc-dur:800ms;--sc-delay:100ms;--sc-step:120ms;--sc-ease:cubic-bezier\(\.34,1\.56,\.64,1\)" data-sc-trigger="scroll"/);
+    const css = html.slice(html.indexOf("prefers-reduced-motion:no-preference"));
+    expect(css).toContain(".sc-stagger>:nth-child(2){--sc-i:1}");
+    expect(html).toContain("@media (prefers-reduced-motion:no-preference){.sc-anim");
+  });
+
+  it("hover presets render on the canvas too; tilt and parallax hooks only when published", () => {
+    const { doc } = setup({ hover: { preset: "tilt" }, parallax: 0.2 });
+    const pub = renderPage(doc, doc.pages[0]!, { mode: "publish" });
+    expect(pub).toContain("sc-h sc-h-tilt");
+    expect(pub).toContain("data-sc-tilt");
+    expect(pub).toContain('data-sc-parallax="0.2"');
+    const ed = renderPage(doc, doc.pages[0]!, { mode: "editor" });
+    expect(ed).toContain("sc-h-tilt");
+    expect(ed).not.toContain("data-sc-tilt");
+    expect(ed).not.toContain("data-sc-parallax");
+  });
+
+  it("rejects motion outside the allowed range", () => {
+    const doc = createStarterDocument({ template: "blank" });
+    const id = doc.pages[0]!.root.id;
+    expect(() => applyOperations(doc, [{ op: "update_node", nodeId: id, parallax: 3 }])).toThrow();
+    expect(() => applyOperations(doc, [{ op: "update_node", nodeId: id, hover: { preset: "spin" } }])).toThrow();
+    expect(() => applyOperations(doc, [{ op: "update_node", nodeId: id, animation: { preset: "rise", trigger: "scroll", staggerMs: 9000 } }])).toThrow();
+    // Removing everything leaves no trace.
+    const { document } = applyOperations(doc, [{ op: "update_node", nodeId: id, hover: { preset: "lift" }, parallax: 0.1 }]);
+    const cleared = applyOperations(document, [{ op: "update_node", nodeId: id, hover: null, parallax: 0 }]).document;
+    expect(cleared.pages[0]!.root.hover).toBeUndefined();
+    expect(cleared.pages[0]!.root.parallax).toBeUndefined();
+  });
+});

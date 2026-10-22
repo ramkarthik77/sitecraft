@@ -115,3 +115,21 @@ What you get on publish: `lang` and `dir="rtl"` for Arabic and Hebrew, `hreflang
 Removing a language deletes its translations; the confirmation says so.
 
 Like in AEM: language copies and translation projects, without separate page trees to keep in sync.
+
+## Motion
+
+Select any element and open **Motion** in the inspector.
+
+| | Options |
+|---|---|
+| Entrance | Fade in, slide up/down/left/right, scale in, zoom out, blur in, flip up (3D), rise. Plays when the element scrolls into view or when the page loads |
+| Timing | Duration, delay, and a feel: smooth, spring (a little overshoot), ease out or linear |
+| One child at a time | On a stack, grid or CMS list, the children come in one after another, a set number of milliseconds apart |
+| Hover | Lift, grow, glow, dim, or tilt, which follows the pointer in 3D |
+| Parallax | The element drifts slower or faster than the page as people scroll |
+
+**Play** replays the entrance on the canvas. The canvas otherwise stays still while you edit; hover effects work there. Previews and the published site play everything.
+
+Visitors whose device asks for reduced motion see the finished page with no movement. Motion runs from the site's own script under its security policy; nothing is loaded from elsewhere.
+
+With Claude Code: "Animate the home page: hero comes in on load, feature cards one at a time, and the pricing cards tilt on hover" uses `set_motion`.

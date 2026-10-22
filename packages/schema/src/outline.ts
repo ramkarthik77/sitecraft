@@ -15,7 +15,12 @@ export function describeNode(n: SiteNode): string {
   else if (typeof p.markdown === "string" && p.markdown) detail = ` — ${truncate(p.markdown, 60)}`;
   const bind = p.bind && typeof p.bind === "object" ? Object.entries(p.bind as Record<string, string>) : [];
   const bound = bind.length ? ` ← ${bind.map(([k, v]) => `${k}:${v}`).join(", ")}` : "";
-  return `${n.type}${label} (${n.id})${bound}${bind.length ? "" : detail}`;
+  const motion = [
+    n.animation ? `${n.animation.preset}${n.animation.staggerMs ? " staggered" : ""}` : "",
+    n.hover?.preset ? `hover ${n.hover.preset}` : "",
+    n.parallax ? `parallax ${n.parallax}` : "",
+  ].filter(Boolean);
+  return `${n.type}${label} (${n.id})${bound}${bind.length ? "" : detail}${motion.length ? ` {${motion.join(", ")}}` : ""}`;
 }
 
 function truncate(s: string, max: number) {

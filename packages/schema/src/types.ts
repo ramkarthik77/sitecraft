@@ -114,7 +114,23 @@ export type StyleProperty = (typeof STYLE_PROPERTIES)[number];
 export type Style = Partial<Record<StyleProperty, string | number>>;
 export type StyleSet = Partial<Record<Breakpoint, Style>>;
 
-export const ANIMATION_PRESETS = ["none", "fade-in", "slide-up", "slide-left", "scale-in"] as const;
+export const ANIMATION_PRESETS = [
+  "none",
+  "fade-in",
+  "slide-up",
+  "slide-down",
+  "slide-left",
+  "slide-right",
+  "scale-in",
+  "zoom-out",
+  "blur-in",
+  "flip-up",
+  "rise",
+] as const;
+export const EASINGS = ["smooth", "spring", "ease-out", "linear"] as const;
+export type Easing = (typeof EASINGS)[number];
+export const HOVER_PRESETS = ["lift", "grow", "glow", "tilt", "dim"] as const;
+export type HoverPreset = (typeof HOVER_PRESETS)[number];
 export type AnimationPreset = (typeof ANIMATION_PRESETS)[number];
 
 export interface Animation {
@@ -123,11 +139,19 @@ export interface Animation {
   trigger: "load" | "scroll";
   durationMs?: number;
   delayMs?: number;
+  easing?: Easing;
+  /**
+   * Play the effect on each child in turn instead of on this element,
+   * this many milliseconds apart (a row of cards coming in one by one).
+   */
+  staggerMs?: number;
 }
 
 export interface HoverEffect {
+  /** A ready-made effect; "tilt" follows the pointer in 3D. */
+  preset?: HoverPreset;
   /** Style applied while hovering (desktop pointer devices). */
-  style: Style;
+  style?: Style;
 }
 
 export interface SiteNode {
@@ -140,6 +164,11 @@ export interface SiteNode {
   style: StyleSet;
   animation?: Animation;
   hover?: HoverEffect;
+  /**
+   * Scroll parallax: how much slower (positive) or faster (negative) than
+   * the page this element moves, from -0.5 to 0.5.
+   */
+  parallax?: number;
   /** Hide this node at specific breakpoints. */
   hidden?: Partial<Record<Breakpoint, boolean>>;
   children?: SiteNode[];

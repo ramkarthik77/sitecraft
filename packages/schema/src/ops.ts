@@ -35,6 +35,7 @@ const looseNode: z.ZodType<Partial<SiteNode> & { type: SiteNode["type"] }> = z.l
       style: z.record(z.string(), z.record(z.string(), z.union([z.string(), z.number()]))).optional(),
       animation: z.any().optional(),
       hover: z.any().optional(),
+      parallax: z.number().optional(),
       hidden: z.any().optional(),
       children: z.array(looseNode).optional(),
     })
@@ -69,6 +70,7 @@ export const operationSchema = z.discriminatedUnion("op", [
     breakpoint: breakpoint.optional(),
     animation: z.any().optional(),
     hover: z.any().optional(),
+    parallax: z.number().nullable().optional(),
     hidden: z.any().optional(),
   }),
   z.object({ op: z.literal("remove_node"), nodeId: z.string() }),
@@ -322,8 +324,12 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
         else n.animation = op.animation;
       }
       if (op.hover !== undefined) {
-        if (op.hover === null) delete n.hover;
+        if (op.hover === null || (!op.hover?.preset && !Object.keys(op.hover?.style ?? {}).length)) delete n.hover;
         else n.hover = op.hover;
+      }
+      if (op.parallax !== undefined) {
+        if (op.parallax === null || op.parallax === 0) delete n.parallax;
+        else n.parallax = Math.round(op.parallax * 100) / 100;
       }
       if (op.hidden !== undefined) {
         if (op.hidden === null) delete n.hidden;

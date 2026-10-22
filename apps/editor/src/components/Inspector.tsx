@@ -440,44 +440,7 @@ export function NodeInspector(props: {
         {node.type === "image" && S("aspectRatio", "Ratio")}
       </div>
 
-      <div className="group">
-        <h3>Motion</h3>
-        <Field label="Effect">
-          <select
-            className="select"
-            aria-label="Animation"
-            value={anim?.preset ?? "none"}
-            onChange={(e) =>
-              apply([{ op: "update_node", nodeId: node.id, animation: e.target.value === "none" ? null : { preset: e.target.value, trigger: anim?.trigger ?? "scroll", durationMs: anim?.durationMs ?? 600 } }])
-            }
-          >
-            <option value="none">None</option>
-            <option value="fade-in">Fade in</option>
-            <option value="slide-up">Slide up</option>
-            <option value="slide-left">Slide in from right</option>
-            <option value="scale-in">Scale in</option>
-          </select>
-        </Field>
-        {anim && (
-          <>
-            <Field label="Starts">
-              <select className="select" aria-label="Animation trigger" value={anim.trigger} onChange={(e) => apply([{ op: "update_node", nodeId: node.id, animation: { ...anim, trigger: e.target.value } }])}>
-                <option value="scroll">When scrolled into view</option>
-                <option value="load">On page load</option>
-              </select>
-            </Field>
-            <div className="row2">
-              <Field label="Duration">
-                <TextInput label="Duration ms" value={String(anim.durationMs ?? 600)} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, animation: { ...anim, durationMs: Math.min(10000, Number(v) || 0) } }], `${node.id}:anim:d`)} />
-              </Field>
-              <Field label="Delay">
-                <TextInput label="Delay ms" value={String(anim.delayMs ?? 0)} onChange={(v) => apply([{ op: "update_node", nodeId: node.id, animation: { ...anim, delayMs: Math.min(10000, Number(v) || 0) } }], `${node.id}:anim:l`)} />
-              </Field>
-            </div>
-          </>
-        )}
-        <span className="muted small">Effects play on the published site and in previews. Visitors who prefer reduced motion won't see them.</span>
-      </div>
+      <MotionGroup node={node} apply={apply as never} />
 
       {!props.isRoot && (
         <div className="group">
@@ -626,3 +589,137 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
 }
 
 export type { Style };
+
+const ENTRANCES: [string, string][] = [
+  ["fade-in", "Fade in"],
+  ["slide-up", "Slide up"],
+  ["slide-down", "Slide down"],
+  ["slide-left", "Slide in from right"],
+  ["slide-right", "Slide in from left"],
+  ["scale-in", "Scale in"],
+  ["zoom-out", "Zoom out"],
+  ["blur-in", "Blur in"],
+  ["flip-up", "Flip up (3D)"],
+  ["rise", "Rise"],
+];
+const HOVERS: [string, string][] = [
+  ["lift", "Lift"],
+  ["grow", "Grow"],
+  ["glow", "Glow"],
+  ["tilt", "Tilt toward the pointer (3D)"],
+  ["dim", "Dim"],
+];
+
+/** Ask the canvas to play an element's entrance once, so you can see it while editing. */
+export function playMotion(nodeId: string) {
+  window.dispatchEvent(new CustomEvent("sc-play", { detail: { nodeId } }));
+}
+
+function MotionGroup({ node, apply }: { node: SiteNode; apply: (ops: Operation[], coalesceKey?: string) => void }) {
+  const anim = node.animation;
+  const setAnim = (next: Record<string, unknown> | null, key?: string) => {
+    apply([{ op: "update_node", nodeId: node.id, animation: next } as Operation], key);
+    if (next) setTimeout(() => playMotion(node.id), 60);
+  };
+  const hasKids = (node.children?.length ?? 0) > 1 || node.type === "collection-list";
+  const num = (v: string, max: number) => Math.min(max, Math.max(0, Math.round(Number(v) || 0)));
+  return (
+    <div className="group motion">
+      <h3>
+        Motion
+        {anim && (
+          <button className="btn ghost sm" onClick={() => playMotion(node.id)} aria-label="Play the entrance on the canvas">
+            <Icon name="play" size={12} /> Play
+          </button>
+        )}
+      </h3>
+      <Field label="Entrance">
+        <select
+          className="select"
+          aria-label="Animation"
+          value={anim?.preset ?? "none"}
+          onChange={(e) => setAnim(e.target.value === "none" ? null : { ...(anim ?? { trigger: "scroll", durationMs: 600 }), preset: e.target.value })}
+        >
+          <option value="none">None</option>
+          {ENTRANCES.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {anim && (
+        <>
+          <Field label="Starts">
+            <select className="select" aria-label="Animation trigger" value={anim.trigger} onChange={(e) => setAnim({ ...anim, trigger: e.target.value })}>
+              <option value="scroll">When scrolled into view</option>
+              <option value="load">On page load</option>
+            </select>
+          </Field>
+          <div className="row2">
+            <Field label="Duration">
+              <TextInput label="Duration ms" value={String(anim.durationMs ?? 600)} onChange={(v) => setAnim({ ...anim, durationMs: num(v, 10000) }, `${node.id}:anim:d`)} />
+            </Field>
+            <Field label="Delay">
+              <TextInput label="Delay ms" value={String(anim.delayMs ?? 0)} onChange={(v) => setAnim({ ...anim, delayMs: num(v, 10000) }, `${node.id}:anim:l`)} />
+            </Field>
+          </div>
+          <div className="field-stack">
+            <span className="small muted">Feel</span>
+            <div className="seg" role="group" aria-label="Easing">
+              {(["smooth", "spring", "ease-out", "linear"] as const).map((e) => (
+                <button key={e} aria-pressed={(anim.easing ?? "smooth") === e} onClick={() => setAnim({ ...anim, easing: e === "smooth" ? undefined : e })}>
+                  {e === "ease-out" ? "Ease out" : e[0]!.toUpperCase() + e.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+          {hasKids && (
+            <label className="check">
+              <input type="checkbox" checked={!!anim.staggerMs} onChange={(e) => setAnim({ ...anim, staggerMs: e.target.checked ? 120 : undefined })} />
+              One child at a time
+              {anim.staggerMs ? (
+                <span className="stagger-ms">
+                  <TextInput label="Gap between children ms" value={String(anim.staggerMs)} onChange={(v) => setAnim({ ...anim, staggerMs: num(v, 2000) || 1 }, `${node.id}:anim:s`)} />
+                  ms apart
+                </span>
+              ) : null}
+            </label>
+          )}
+        </>
+      )}
+      <Field label="Hover">
+        <select
+          className="select"
+          aria-label="Hover effect"
+          value={node.hover?.preset ?? "none"}
+          onChange={(e) => apply([{ op: "update_node", nodeId: node.id, hover: e.target.value === "none" ? (node.hover?.style ? { style: node.hover.style } : null) : { ...node.hover, preset: e.target.value } } as Operation])}
+        >
+          <option value="none">None</option>
+          {HOVERS.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="field-stack">
+        <span className="small muted range-label">
+          Parallax <span>{!node.parallax ? "Off" : node.parallax > 0 ? "Slower than scroll" : "Faster than scroll"}</span>
+        </span>
+        <div className="range-row">
+          <input
+            type="range"
+            min={-50}
+            max={50}
+            step={5}
+            aria-label="Parallax"
+            value={Math.round((node.parallax ?? 0) * 100)}
+            onChange={(e) => apply([{ op: "update_node", nodeId: node.id, parallax: Number(e.target.value) / 100 } as Operation], `${node.id}:parallax`)}
+          />
+        </div>
+      </div>
+      <span className="muted small">Entrances and parallax play on the published site and in previews; hover effects work on the canvas too. Visitors who ask for reduced motion see the page without movement.</span>
+    </div>
+  );
+}

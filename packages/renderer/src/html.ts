@@ -21,7 +21,7 @@ import {
   type SiteDocument,
   type SiteNode,
 } from "@sitecraft/schema";
-import { animationAttrs, assembleCss, collectNodeCss, newCollector, nodeClass, type CssCollector } from "./css.js";
+import { assembleCss, motionAttrs, collectNodeCss, newCollector, nodeClass, type CssCollector } from "./css.js";
 import { renderMarkdown } from "./markdown.js";
 
 export type RenderMode = "publish" | "preview" | "editor";
@@ -134,7 +134,7 @@ function resolveHref(href: string, ctx: Ctx): string {
 }
 
 function attrs(n: SiteNode, ctx: Ctx, extraClass: string[] = [], editorId?: string): string {
-  const anim = ctx.opts.mode === "editor" ? { classes: [], style: "", attrs: "" } : animationAttrs(n.animation);
+  const anim = motionAttrs(n, ctx.opts.mode !== "editor");
   const cls = [nodeClass(n.id), ...extraClass, ...anim.classes].join(" ");
   let out = ` class="${cls}"`;
   if (anim.style) out += ` style="${anim.style}"`;
@@ -278,11 +278,19 @@ function applyOverrides(root: SiteNode, overrides: unknown): SiteNode {
 
 /** The only inline script on published pages; servers allow it by hash in their CSP. */
 export const RUNTIME_SCRIPT = `(function(){
-var els=[].slice.call(document.querySelectorAll('[data-sc-trigger]'));
-function show(e){e.classList.add('sc-in')}
-if(!('IntersectionObserver' in window)){els.forEach(show)}else{
+var Q=function(q){return [].slice.call(document.querySelectorAll(q))};
+var calm=window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches;
+function done(e){e.classList.remove('sc-anim','sc-stagger');e.style.removeProperty('--sc-delay')}
+function show(e){e.classList.add('sc-in');var t=(parseFloat(getComputedStyle(e).getPropertyValue('--sc-dur'))||600)+(parseFloat(e.style.getPropertyValue('--sc-delay'))||0)+(parseFloat(e.style.getPropertyValue('--sc-step'))||0)*e.children.length;setTimeout(function(){done(e)},t+80)}
+var els=Q('[data-sc-trigger]');
+if(calm||!('IntersectionObserver' in window)){els.forEach(show)}else{
 var io=new IntersectionObserver(function(es){es.forEach(function(x){if(x.isIntersecting){show(x.target);io.unobserve(x.target)}})},{threshold:.12});
 els.forEach(function(e){if(e.getAttribute('data-sc-trigger')==='load'){requestAnimationFrame(function(){show(e)})}else{io.observe(e)}})}
+if(!calm&&window.matchMedia&&matchMedia('(hover:hover)').matches){Q('[data-sc-tilt]').forEach(function(e){
+e.addEventListener('pointermove',function(v){var r=e.getBoundingClientRect();var x=(v.clientX-r.left)/r.width-.5,y=(v.clientY-r.top)/r.height-.5;e.style.setProperty('--sc-rx',(-y*10).toFixed(2)+'deg');e.style.setProperty('--sc-ry',(x*12).toFixed(2)+'deg')});
+e.addEventListener('pointerleave',function(){e.style.setProperty('--sc-rx','0deg');e.style.setProperty('--sc-ry','0deg')})})}
+var px=calm?[]:Q('[data-sc-parallax]');if(px.length){var busy=0;function move(){busy=0;var h=innerHeight;px.forEach(function(e){var s=parseFloat(e.getAttribute('data-sc-parallax'))||0;var r=e.getBoundingClientRect();var top=r.top-(e._sc||0);if(top+r.height<-h||top>2*h)return;e._sc=(top+r.height/2-h/2)*s;e.style.translate='0 '+e._sc.toFixed(1)+'px'})}
+addEventListener('scroll',function(){if(!busy){busy=1;requestAnimationFrame(move)}},{passive:true});addEventListener('resize',move);move()}
 [].slice.call(document.querySelectorAll('form[data-sc-form]')).forEach(function(f){f.addEventListener('submit',function(ev){
 if(!window.fetch)return;ev.preventDefault();var s=f.querySelector('.sc-form-status');var d={};new FormData(f).forEach(function(v,k){d[k]=v});
 fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(function(r){

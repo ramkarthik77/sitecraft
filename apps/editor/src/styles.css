@@ -493,3 +493,15 @@ fieldset.group.plain:disabled { opacity: .55; }
 .field-row:has(.tr-toggle) { grid-template-columns: 1fr auto auto auto; }
 .tr-toggle { font-size: 11px; white-space: nowrap; }
 .item-tr { border-top: 1px solid var(--line); padding-top: 10px; gap: 8px; }
+
+/* Motion */
+.motion .seg { display: flex; }
+.motion .seg button { flex: 1; justify-content: center; padding: 0 6px; font-size: 12px; }
+.motion .check { flex-wrap: wrap; }
+.stagger-ms { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--ink-3); }
+.stagger-ms input { width: 64px; }
+.range-row { display: flex; align-items: center; gap: 10px; }
+.range-row input[type="range"] { flex: 1; accent-color: var(--human, #7aa2ff); }
+.range-label { display: flex; justify-content: space-between; }
+.range-label span { color: var(--ink-2); }
+.motion .seg button { white-space: nowrap; }

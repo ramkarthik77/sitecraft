@@ -23,10 +23,17 @@
   }
   window.addEventListener('resize',function(){mark()});
   function height(){post({type:'height',h:Math.max(document.documentElement.scrollHeight, 200)})}
+  // Preview an entrance in the editor (the canvas renders without motion so editing stays calm).
+  var FROM={'fade-in':'','slide-up':'translateY(24px)','slide-down':'translateY(-24px)','slide-left':'translateX(32px)','slide-right':'translateX(-32px)','scale-in':'scale(.96)','zoom-out':'scale(1.08)','blur-in':'scale(1.02)','flip-up':'perspective(900px) rotateX(22deg) translateY(18px)','rise':'translateY(64px) scale(.94)'};
+  var EASE={smooth:'cubic-bezier(.2,.7,.2,1)',spring:'cubic-bezier(.34,1.56,.64,1)','ease-out':'ease-out',linear:'linear'};
+  function play(el,a){ var targets=a.staggerMs?[].slice.call(el.children):[el]; var from={opacity:0}; if(FROM[a.preset])from.transform=FROM[a.preset]; if(a.preset==='blur-in')from.filter='blur(12px)';
+    var to={opacity:1}; if(from.transform)to.transform='none'; if(from.filter)to.filter='blur(0)';
+    targets.forEach(function(t,i){ if(a.preset==='flip-up')t.style.transformOrigin='50% 100%'; t.animate([from,to],{duration:a.durationMs==null?600:a.durationMs,delay:Math.min(400,a.delayMs||0)+(a.staggerMs||0)*Math.min(i,24),easing:EASE[a.easing||'smooth'],fill:'backwards'}); }); }
   window.addEventListener('message',function(e){
     var d=e.data||{}; if(d.source!=='sc-editor')return;
     if(d.type==='render'){ if(editing)return; css.textContent=d.css; root.innerHTML=d.body; sel=d.selected; agent=d.agent||[]; agentLabel=d.agentLabel||'Claude'; mark(); setTimeout(function(){height();mark()},0); [].slice.call(document.images).forEach(function(i){if(!i.complete)i.addEventListener('load',function(){mark()},{once:true})}); }
     if(d.type==='agent'){ agent=d.agent||[]; agentLabel=d.agentLabel||'Claude'; mark(); }
+    if(d.type==='play'){ var pe=document.querySelector('[data-node-id="'+CSS.escape(d.id)+'"]'); if(pe&&pe.animate)play(pe,d.animation||{}); }
     if(d.type==='comments'){ comments=d.items||[]; mark(); }
     if(d.type==='zoom'){ zoom=d.zoom||1; mark(); }
     if(d.type==='select'){ sel=d.id; mark(); if(d.scroll){var el=document.querySelector('[data-node-id="'+CSS.escape(sel)+'"]'); if(el){var r=el.getBoundingClientRect(); post({type:'scrollTo', y:r.top+scrollY})}} }

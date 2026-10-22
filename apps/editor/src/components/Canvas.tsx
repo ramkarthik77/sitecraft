@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { renderPageParts } from "@sitecraft/renderer";
-import { BREAKPOINT_CANVAS_WIDTH, type Breakpoint, type Page, type SiteDocument } from "@sitecraft/schema";
+import { BREAKPOINT_CANVAS_WIDTH, walk, type Breakpoint, type Page, type SiteDocument, type SiteNode } from "@sitecraft/schema";
 
 export type CanvasEvent =
   | { type: "select"; id: string | null }
@@ -87,6 +87,19 @@ export function Canvas(props: {
   }, []);
 
   const post = (m: Record<string, unknown>) => iframe.current?.contentWindow?.postMessage({ source: "sc-editor", ...m }, "*");
+  // The inspector's Play button: replay an element's entrance on the canvas.
+  useEffect(() => {
+    const onPlay = (e: Event) => {
+      const id = (e as CustomEvent<{ nodeId: string }>).detail.nodeId;
+      let found: SiteNode | undefined;
+      walk(props.page.root, (n) => {
+        if (n.id === id) found = n;
+      });
+      if (found?.animation) post({ type: "play", id, animation: found.animation });
+    };
+    window.addEventListener("sc-play", onPlay);
+    return () => window.removeEventListener("sc-play", onPlay);
+  });
 
   useEffect(() => {
     if (ready) post({ type: "render", body: parts.body, css: parts.css, selected: selectedId, agent: agentRef.current, agentLabel: props.agentLabel });

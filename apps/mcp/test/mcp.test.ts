@@ -194,3 +194,32 @@ describe("translation tools", () => {
     expect(text(await client.callTool({ name: "get_translations", arguments: { site: "polyglot", branch: "agent/french", locale: "de" } }))).toContain("isn't one of this site's languages");
   });
 });
+
+describe("motion tool", () => {
+  it("Claude animates a hero and its cards", async () => {
+    await client.callTool({ name: "create_site", arguments: { name: "Kinetic", template: "landing" } });
+    await client.callTool({ name: "create_branch", arguments: { site: "kinetic", name: "agent/motion" } });
+    const outline = text(await client.callTool({ name: "get_site", arguments: { site: "kinetic", branch: "agent/motion" } }));
+    const heading = /heading[^(]*\((\w+)\)/.exec(outline)![1]!;
+    const grid = /grid[^(]*\((\w+)\)/.exec(outline)![1]!;
+    const saved = await client.callTool({
+      name: "set_motion",
+      arguments: { site: "kinetic", branch: "agent/motion", nodeIds: [heading], entrance: "blur-in", trigger: "load", easing: "spring", hover: "tilt" },
+    });
+    expect(text(saved)).toContain("Saved version");
+    await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: [grid], entrance: "rise", staggerMs: 90, parallax: 0.15 } });
+    const after = text(await client.callTool({ name: "get_site", arguments: { site: "kinetic", branch: "agent/motion" } }));
+    expect(after).toContain(`(${heading})`);
+    expect(after).toMatch(new RegExp(`\\(${heading}\\).*\\{blur-in, hover tilt\\}`));
+    expect(after).toMatch(new RegExp(`\\(${grid}\\).*\\{rise staggered, parallax 0.15\\}`));
+    const preview = /Preview: (\S+)/.exec(text(saved))![1]!;
+    const html = await (await fetch(preview)).text();
+    expect(html).toContain("sc-stagger sc-rise");
+    expect(html).toContain("data-sc-tilt");
+    // Changing only the timing keeps the effect.
+    await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: [grid], durationMs: 900 } });
+    expect(text(await client.callTool({ name: "get_site", arguments: { site: "kinetic", branch: "agent/motion" } }))).toMatch(/rise staggered/);
+    const gone = await client.callTool({ name: "set_motion", arguments: { site: "kinetic", branch: "agent/motion", nodeIds: ["nope"], entrance: "fade-in" } });
+    expect(gone.isError).toBe(true);
+  });
+});
