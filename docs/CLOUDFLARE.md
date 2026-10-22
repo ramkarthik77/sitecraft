@@ -13,9 +13,10 @@ Same setup as pagefold: one Worker on your `guduriphaniram1988.workers.dev` subd
  ┌─────────────────────────────────────────────────────────┐
  │  sitecraft.<you>.workers.dev                            │
  │    /mcp ─────────> Worker ──> Container: mcp            │
- │    everything else   │  └───> Container: app (×2) ──────┼──> Neon Postgres
- │                      │             │                    │
- │               edge cache           └──> R2 (sites, images)
+ │    everything else   │  └───> Container: app (×2)       │
+ │                      │             ├──> R2 (sites, images)
+ │               edge cache           └──> PlanetScale Postgres,
+ │                                         created and billed in Cloudflare
  └─────────────────────────────────────────────────────────┘
 ```
 
@@ -24,7 +25,9 @@ Same setup as pagefold: one Worker on your `guduriphaniram1988.workers.dev` subd
 | App and MCP servers | Cloudflare Containers behind one Worker | Workers Paid plan, $5/month, then usage |
 | Published sites and images | R2 (bucket `sitecraft`) | Free tier covers 10 GB |
 | Edge cache | Workers Cache API | Included |
-| Database | Neon Postgres (Cloudflare doesn't host Postgres) | Free tier |
+| Database | PlanetScale Postgres, created from the Cloudflare dashboard | From $5/month for one node |
+
+Everything is set up from your Cloudflare account. Cloudflare planned to bill PlanetScale databases created there on your Cloudflare invoice from May 2026; the dashboard shows which applies to yours. Any other Postgres 16+ (Neon, Supabase, RDS) also works with the same `DATABASE_URL` secret.
 
 ## One-time setup (about 15 minutes)
 
@@ -51,8 +54,19 @@ The app container reaches R2 through its S3-compatible API, which uses its own k
 
 ### 4. Database
 
-1. Create a project at [neon.tech](https://neon.tech), region close to your users (for example AWS us-east-1).
-2. Copy the **direct** connection string, not the pooled one. Sitecraft uses Postgres `LISTEN/NOTIFY` to push Claude's edits into open editors, and connection poolers break that. It looks like `postgres://user:pass@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require`.
+Cloudflare creates Postgres databases through its PlanetScale partnership.
+
+1. In the Cloudflare dashboard, open **Storage & databases → Hyperdrive → Create configuration** and pick **PlanetScale** as the provider, then **Postgres**. Connect or create the PlanetScale account when asked, choose a region close to your users (for example `us-east-1`) and the smallest size to start.
+2. Open the new database in PlanetScale (the dashboard links to it) and create a **role** with full access under **Connect**. Sitecraft creates its own tables on first start, so the role needs to create tables.
+3. Build the connection URL from what it shows, using **port 5432**:
+
+   ```
+   postgresql://<role>.<branch-id>:<password>@<host>.horizon.psdb.cloud:5432/<database>?sslmode=verify-full
+   ```
+
+   - Use port **5432** (direct), not 6432 (PgBouncer). Sitecraft uses Postgres `LISTEN/NOTIFY` to push Claude's edits into open editors, and poolers drop those. The deploy refuses a pooled URL.
+   - Use the `postgresql://` form above, not the `psql 'host=… port=…'` form. Extras copied from PlanetScale's examples (`sslrootcert=system`, `sslnegotiation=direct`) are fine; Sitecraft ignores them.
+   - Sitecraft's containers connect to the database directly. The Hyperdrive configuration from step 1 isn't used by Sitecraft; you can keep it or delete it.
 
 Tables are created on first start.
 
@@ -98,6 +112,24 @@ For Claude Code, each person sets:
 export SITECRAFT_MCP_URL=https://sitecraft.guduriphaniram1988.workers.dev/mcp
 export SITECRAFT_TOKEN=<their agent token>
 ```
+
+### 8. Bring your local sites (optional)
+
+If you built sites in the local app (`pnpm start`), copy them up. With the local app running:
+
+```bash
+SITECRAFT_TOKEN=<admin or editor token> pnpm move-to-cloud --dry-run   # see what would be copied
+SITECRAFT_TOKEN=<admin or editor token> pnpm move-to-cloud --publish   # copy, and publish what was live locally
+```
+
+Each site's current `main` comes across: pages, design, CMS collections and items, and its uploaded images (copied to R2 and re-linked). Branches, history and form submissions stay on your computer, and your local copies aren't changed.
+
+| Option | |
+|---|---|
+| `--site <slug>` | Only this site; repeat for more |
+| `--rename` | A site whose address is already used in the cloud gets a new one (`blog-2`) instead of being skipped |
+| `--to <url>` | Another Sitecraft, if not `sitecraft.guduriphaniram1988.workers.dev` |
+| `--from <url>` | The local app, if not on `localhost:4000` |
 
 ## Use your own domain (optional, later)
 

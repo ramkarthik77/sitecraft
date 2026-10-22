@@ -47,7 +47,7 @@ The server keeps the editor page it loaded at startup. Restart it after `pnpm bu
 Claude or a teammate saved the same branch first, so your last edit wasn't saved. Choose **Load the latest version**, then redo the edit. To avoid it, edit on your own branch while Claude works on its own.
 
 **Claude's changes don't appear live**
-Live updates use Postgres `LISTEN/NOTIFY`. A connection pooler in `DATABASE_URL` (Neon's `-pooler` host, PgBouncer in transaction mode) drops them. Use the direct connection string. Reloading the page always shows the latest version.
+Live updates use Postgres `LISTEN/NOTIFY`. A connection pooler in `DATABASE_URL` (PlanetScale's port 6432, Neon's `-pooler` host, PgBouncer in transaction mode) drops them. Use the direct connection string. Reloading the page always shows the latest version.
 
 **Fonts on the canvas look different from the published site**
 Theme fonts load from Google Fonts. If your network blocks `fonts.googleapis.com`, the canvas and site fall back to system fonts.
@@ -79,7 +79,7 @@ It names the missing secret. Add it under Settings → Secrets and variables →
 The account needs the Workers Paid plan, and the API token needs Containers: Edit. See [CLOUDFLARE.md](CLOUDFLARE.md#2-api-token).
 
 **`/healthz` doesn't answer within 10 minutes**
-The first rollout downloads the image and can be slow. If it keeps failing, open Workers & Pages → sitecraft → Logs. A database error there usually means `DATABASE_URL` is wrong or uses the pooled host.
+The first rollout downloads the image and can be slow. If it keeps failing, open Workers & Pages → sitecraft → Logs. A database error there usually means `DATABASE_URL` is wrong, uses the pooled port or host, or the role can't create tables.
 
 **Images or published pages return errors on Cloudflare**
 The R2 keys need Object Read & Write on the `sitecraft` bucket, and `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` must be the R2 keys, not the Cloudflare API token.

@@ -1,4 +1,5 @@
 import pg from "pg";
+import { pgConnectionString } from "./db.js";
 import type { Db, Queryable } from "./db.js";
 
 export interface SiteEvent {
@@ -53,7 +54,7 @@ export class EventBus {
   }
 
   private async connect() {
-    const client = new pg.Client({ connectionString: this.databaseUrl });
+    const client = new pg.Client({ connectionString: pgConnectionString(this.databaseUrl) });
     client.on("notification", (msg) => this.dispatch(msg.payload));
     client.on("error", () => {
       this.client = null;

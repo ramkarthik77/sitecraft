@@ -8,7 +8,7 @@ On Cloudflare? Follow [CLOUDFLARE.md](CLOUDFLARE.md) instead; it's automated end
 |---|---|---|
 | App container (API, editor, hosting) | `docker compose` | Any container host: AWS ECS/Fargate, Google Cloud Run, Fly.io, Render, Kubernetes |
 | MCP container | `docker compose` | Same host, its own service and URL |
-| Postgres 16 | Compose `db` | Managed: RDS, Cloud SQL, Neon, Supabase |
+| Postgres 16 | Compose `db` | Managed: PlanetScale, RDS, Cloud SQL, Neon, Supabase |
 | Object storage | Compose MinIO | S3, GCS (S3 API), Cloudflare R2 |
 | TLS and DNS | Not needed | Domains for the app, the MCP server and published sites (wildcard for subdomains) |
 | CDN (optional) | — | CloudFront or Cloudflare in front of the app for published sites |

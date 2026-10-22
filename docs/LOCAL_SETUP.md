@@ -50,6 +50,8 @@ Back up by copying the folder while Sitecraft is stopped. To start over, stop Si
 
 **Publishing.** Published sites are served at `http://localhost:4000/s/<slug>`, which only you can see. To put a site online, open **Settings → Export**, optionally enter the address it will live at (this adds a sitemap and search-engine links), and download the .zip. It's plain HTML, CSS and images; upload it to Cloudflare Pages, Netlify or any web server.
 
+**Moving to the cloud.** When your team moves to the Cloudflare setup, `pnpm move-to-cloud` copies your sites up, CMS content and images included. See [CLOUDFLARE.md](CLOUDFLARE.md#8-bring-your-local-sites-optional).
+
 **Options**
 
 | | |

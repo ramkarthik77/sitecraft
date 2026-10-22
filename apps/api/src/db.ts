@@ -44,8 +44,25 @@ export async function createDb(databaseUrl: string): Promise<Db> {
   return isEmbedded(databaseUrl) ? createEmbedded(databaseUrl) : createPostgres(databaseUrl);
 }
 
+/**
+ * Accept connection strings copied from provider dashboards. PlanetScale's
+ * psql examples add sslrootcert=system and sslnegotiation=direct, which
+ * node-postgres doesn't understand (it would read "system" as a file);
+ * verify-full against the system CAs is node's default for TLS anyway.
+ */
+export function pgConnectionString(databaseUrl: string): string {
+  try {
+    const u = new URL(databaseUrl);
+    if (u.searchParams.get("sslrootcert") === "system") u.searchParams.delete("sslrootcert");
+    u.searchParams.delete("sslnegotiation");
+    return u.toString();
+  } catch {
+    return databaseUrl;
+  }
+}
+
 function createPostgres(databaseUrl: string): Db {
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 10 });
+  const pool = new pg.Pool({ connectionString: pgConnectionString(databaseUrl), max: 10 });
   pool.on("error", (err) => console.error("postgres pool error", err));
   return {
     kind: "postgres",

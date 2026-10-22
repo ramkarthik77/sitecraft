@@ -59,6 +59,15 @@ jobs:
             echo "::error::SITECRAFT_SECRET must be at least 32 characters (openssl rand -hex 32)."
             missing=1
           fi
+          case "$DATABASE_URL" in
+            postgres://*|postgresql://*) ;;
+            "") ;;
+            *) echo "::error::DATABASE_URL must be a postgres:// URL, not the psql 'host=… port=…' form. See docs/CLOUDFLARE.md step 4."; missing=1 ;;
+          esac
+          if echo "$DATABASE_URL" | grep -Eq ':6432/|-pooler\.|pgbouncer'; then
+            echo "::error::DATABASE_URL points at a connection pooler. Use the direct connection (port 5432) so Claude's edits reach open editors. See docs/CLOUDFLARE.md step 4."
+            missing=1
+          fi
           exit $missing
 
       - name: Install and test
