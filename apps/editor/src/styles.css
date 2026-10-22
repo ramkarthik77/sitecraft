@@ -363,3 +363,14 @@ a { color: var(--human-ink); }
 .bind-group h3 { color: #c9f3ec; }
 .bind-group h3 .type-chip { background: var(--cms-soft); color: var(--cms); }
 .select.bound { border-color: var(--cms-line); background: var(--cms-soft); color: #c9f3ec; }
+
+/* Access */
+.access .token-form { flex-wrap: wrap; }
+.access .token-form .input { flex: 2 1 260px; }
+.access .token-form .select { flex: 1 1 150px; width: auto; }
+.access .token-form .hint { flex-basis: 100%; }
+.site-scope { flex-basis: 100%; border: 1px solid var(--line-2); border-radius: var(--radius-m); padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
+.site-scope legend { font-size: 12px; color: var(--ink-2); padding: 0 4px; }
+.token-made { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.token-made code { font-family: var(--mono); font-size: 13px; padding: 8px 10px; border-radius: 7px; background: var(--bg); border: 1px solid var(--line-2); user-select: all; word-break: break-all; }
+.cms-table tr.dim td { opacity: .55; }

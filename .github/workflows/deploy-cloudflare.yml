@@ -28,6 +28,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Optional extras: set when the matching repository secrets exist.
+      HAS_TURNSTILE: ${{ secrets.TURNSTILE_SECRET != '' && secrets.TURNSTILE_SITE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,6 +115,23 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
+      - name: Turn on the form bot check (optional)
+        if: env.HAS_TURNSTILE == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: deploy/cloudflare
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          packageManager: pnpm
+          command: deploy
+          secrets: |
+            TURNSTILE_SITE_KEY
+            TURNSTILE_SECRET
+        env:
+          TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET: ${{ secrets.TURNSTILE_SECRET }}
+
       - name: Verify editor, API and MCP server
         id: verify
         env:
@@ -125,6 +145,7 @@ jobs:
           done
           echo "App is up."
           curl -fsS -H "accept: text/html" "$SITECRAFT_URL/" | grep -q "<title>Sitecraft</title>" || { echo "::error::The editor page didn't load."; exit 1; }
+          curl -fsS -D - -o /dev/null -H "accept: text/html" "$SITECRAFT_URL/" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || { echo "::error::The editor is missing its security headers."; exit 1; }
           curl -fsS -H "authorization: Bearer $ADMIN_TOKEN" "$SITECRAFT_URL/api/me" | grep -q '"role":"admin"' || { echo "::error::The API rejected SITECRAFT_ADMIN_TOKEN."; exit 1; }
           for i in $(seq 1 20); do
             code=$(curl -s -o /tmp/mcp.json -w "%{http_code}" -X POST "$SITECRAFT_URL/mcp" \

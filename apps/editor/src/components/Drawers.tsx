@@ -274,6 +274,7 @@ export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; 
       <section>
         <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>Form submissions</h3>
         {subs && subs.length === 0 && <div className="muted">No submissions yet. Add a form section and publish to start collecting them.</div>}
+        {subs && subs.length > 0 && <FormDataTools siteId={props.site.id} slug={props.site.slug} toast={props.toast} onChanged={() => void Sites.forms(props.site.id).then(setSubs)} />}
         {subs && subs.length > 0 && (
           <table className="table">
             <thead>
@@ -300,5 +301,58 @@ export function SettingsDrawer(props: { site: SiteSummary; onClose: () => void; 
         )}
       </section>
     </Drawer>
+  );
+}
+
+/** Export and delete form data: for data requests ("delete everything from jane@…") and clean-ups. */
+function FormDataTools(props: { siteId: string; slug: string; toast: (m: string, tone?: "error") => void; onChanged: () => void }) {
+  const [containing, setContaining] = useState("");
+  const [confirming, setConfirming] = useState<null | "all" | "match">(null);
+  const del = async (q: { containing?: string }) => {
+    try {
+      const r = await Sites.deleteForms(props.siteId, q);
+      props.toast(`Deleted ${r.deleted} ${r.deleted === 1 ? "submission" : "submissions"}.`);
+      setConfirming(null);
+      setContaining("");
+      props.onChanged();
+    } catch (e) {
+      props.toast((e as Error).message, "error");
+    }
+  };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button className="btn sm" onClick={() => void Sites.formsCsv(props.siteId, props.slug).catch((e) => props.toast((e as Error).message, "error"))}>
+          <Icon name="download" size={13} /> Download CSV
+        </button>
+        {confirming === "all" ? (
+          <>
+            <button className="btn sm danger" onClick={() => void del({})}>
+              Delete all submissions
+            </button>
+            <button className="btn sm ghost" onClick={() => setConfirming(null)}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button className="btn sm ghost" onClick={() => setConfirming("all")}>
+            Delete all…
+          </button>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input className="input" aria-label="Delete submissions containing" placeholder="Delete submissions containing, e.g. an email" value={containing} onChange={(e) => (setContaining(e.target.value), setConfirming(null))} />
+        {confirming === "match" ? (
+          <button className="btn sm danger" onClick={() => void del({ containing: containing.trim() })}>
+            Confirm
+          </button>
+        ) : (
+          <button className="btn sm" disabled={containing.trim().length < 3} onClick={() => setConfirming("match")}>
+            Delete
+          </button>
+        )}
+      </div>
+      <span className="muted small">Submissions are deleted automatically after the server's retention period (one year by default).</span>
+    </div>
   );
 }

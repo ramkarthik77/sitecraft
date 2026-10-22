@@ -34,6 +34,14 @@ export interface RenderOptions {
    * editor and previews show the first item, or example content.
    */
   itemId?: string;
+  /** Cloudflare Turnstile site key: adds a bot check to forms. */
+  turnstileSiteKey?: string;
+  /**
+   * Origins of Sitecraft itself (editor, API). Embeds from these never get
+   * allow-same-origin, which together with allow-scripts would let the
+   * embedded page script its way out of the sandbox.
+   */
+  selfOrigins?: string[];
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -55,6 +63,8 @@ interface Ctx {
   componentStack: string[];
   /** The collection item bound elements read from (template page or list). */
   item?: { collection: Collection; item: CollectionItem };
+  /** Set once a form is rendered, so the page loads the bot check script. */
+  hasForm?: boolean;
 }
 
 /** Props after applying field bindings for the current item. */
@@ -141,7 +151,11 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
       const name = String(p.formName ?? "form").replace(/[^a-z0-9-_]/gi, "") || "form";
       const action = ctx.opts.formAction ? ctx.opts.formAction(name) : "#";
       const success = escapeHtml(p.successMessage ?? "Thanks!");
-      return `<form method="post" action="${escapeHtml(action)}" data-sc-form data-sc-success="${success}"${a()}>${children(n, ctx)}<p class="sc-form-status" role="status" aria-live="polite"></p></form>`;
+      ctx.hasForm = true;
+      // A field people never see: bots that fill every field get dropped.
+      const trap = `<label class="sc-hp" aria-hidden="true">Leave this empty<input type="text" name="_hp" tabindex="-1" autocomplete="off"></label>`;
+      const bot = ctx.opts.turnstileSiteKey && ctx.opts.mode !== "editor" ? `<div class="cf-turnstile" data-sitekey="${escapeHtml(ctx.opts.turnstileSiteKey)}"></div>` : "";
+      return `<form method="post" action="${escapeHtml(action)}" data-sc-form data-sc-success="${success}"${a()}>${children(n, ctx)}${trap}${bot}<p class="sc-form-status" role="status" aria-live="polite"></p></form>`;
     }
     case "input": {
       const name = String(p.name ?? "field").replace(/[^a-z0-9-_]/gi, "") || "field";
@@ -157,7 +171,16 @@ export function renderNode(n: SiteNode, ctx: Ctx, editorId?: string): string {
     }
     case "embed": {
       const url = typeof p.url === "string" && /^https:\/\//i.test(p.url) ? p.url : "";
-      return `<iframe${a(["sc-embed"])} src="${escapeHtml(url)}" title="${escapeHtml(p.title ?? "Embedded content")}" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups allow-presentation" allowfullscreen></iframe>`;
+      let embedOrigin = "";
+      try {
+        embedOrigin = url ? new URL(url).origin : "";
+      } catch {
+        /* invalid URL: rendered empty */
+      }
+      // In the editor the canvas shares the editor's origin, so embeds there never get allow-same-origin.
+      const trusted = ctx.opts.mode !== "editor" && embedOrigin && !(ctx.opts.selfOrigins ?? []).includes(embedOrigin);
+      const sandbox = `allow-scripts${trusted ? " allow-same-origin" : ""} allow-popups allow-presentation`;
+      return `<iframe${a(["sc-embed"])} src="${escapeHtml(url)}" title="${escapeHtml(p.title ?? "Embedded content")}" loading="lazy" sandbox="${sandbox}" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
     }
     case "richtext": {
       const md = typeof p.markdown === "string" ? p.markdown : "";
@@ -201,7 +224,8 @@ function applyOverrides(root: SiteNode, overrides: unknown): SiteNode {
   return visit(root);
 }
 
-const RUNTIME_SCRIPT = `(function(){
+/** The only inline script on published pages; servers allow it by hash in their CSP. */
+export const RUNTIME_SCRIPT = `(function(){
 var els=[].slice.call(document.querySelectorAll('[data-sc-trigger]'));
 function show(e){e.classList.add('sc-in')}
 if(!('IntersectionObserver' in window)){els.forEach(show)}else{
@@ -276,7 +300,8 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
   ]
     .filter(Boolean)
     .join("\n");
-  const script = opts.mode === "editor" ? "" : `<script>${RUNTIME_SCRIPT}</script>`;
+  const turnstile = ctx.hasForm && opts.turnstileSiteKey && opts.mode !== "editor" ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>` : "";
+  const script = opts.mode === "editor" ? "" : `<script>${RUNTIME_SCRIPT}</script>${turnstile}`;
   return `<!doctype html>\n<html lang="${escapeHtml(doc.settings.lang)}">\n<head>\n${head}\n</head>\n<body>\n${body}\n${script}${opts.bodyEnd ?? ""}\n</body>\n</html>\n`;
 }
 

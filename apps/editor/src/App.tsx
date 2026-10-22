@@ -3,6 +3,7 @@ import { renderPage } from "@sitecraft/renderer";
 import type { SiteDocument } from "@sitecraft/schema";
 import { api, getToken, setToken, Sites, type Branch, type Me, type SiteSummary } from "./api";
 import { Editor } from "./Editor";
+import { AccessPage } from "./components/Access";
 import { Icon, Logo } from "./components/Icon";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
@@ -40,6 +41,13 @@ function Root() {
   if (m) {
     const q = new URLSearchParams(loc.search);
     return <Editor key={m[1]} siteId={m[1]!} me={me} branch={q.get("branch") ?? "main"} review={q.get("review") === "1"} />;
+  }
+  if (loc.path === "/access") {
+    return (
+      <DashShell me={me} active="access">
+        <AccessPage me={me} />
+      </DashShell>
+    );
   }
   return <Home me={me} />;
 }
@@ -122,6 +130,76 @@ function connectCommand(me: Me): string {
     : `claude mcp add --transport http --scope user sitecraft ${mcpAddress()} --header "Authorization: Bearer <your agent token>"`;
 }
 
+
+type NavKey = "sites" | "templates" | "brands" | "assets" | "access";
+const NAV: { key: NavKey; label: string; href: string; icon: string; admin?: boolean }[] = [
+  { key: "sites", label: "Sites", href: "/", icon: "grid" },
+  { key: "access", label: "Access", href: "/access", icon: "lock", admin: true },
+];
+
+/** The dashboard frame: workspace navigation, the Claude Code card and who's signed in. */
+export function DashShell({ me, active, reviews = 0, children }: { me: Me; active: NavKey; reviews?: number; children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="dash">
+      <nav className="dash-nav" aria-label="Workspace">
+        <span className="brand">
+          <Logo size={26} /> Sitecraft
+        </span>
+        {NAV.filter((n) => !n.admin || me.role === "admin").map((n) => (
+          <a key={n.key} className="nav-link" href={n.href} aria-current={active === n.key ? "page" : undefined} onClick={(e) => (e.preventDefault(), navigate(n.href))}>
+            <Icon name={n.icon} size={15} /> {n.label}
+            {n.key === "sites" && reviews > 0 && <span className="badge" title={`${reviews} waiting for review`}>{reviews}</span>}
+          </a>
+        ))}
+        <div className="connect-card">
+          <strong>
+            <Icon name="terminal" size={14} /> Claude Code
+          </strong>
+          <p>{me.local ? "Claude builds and edits sites here on its own branches. Run this once in a terminal:" : "Claude builds and edits sites here on its own branches. Connect it with your agent token:"}</p>
+          <code>{connectCommand(me)}</code>
+          <button
+            className="btn sm agent-outline"
+            onClick={() => {
+              void navigator.clipboard?.writeText(connectCommand(me)).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              });
+            }}
+          >
+            <Icon name="copy" size={13} />
+            {copied ? "Copied" : "Copy command"}
+          </button>
+        </div>
+        <div className="me-row">
+          <span className="avatar" aria-hidden="true">
+            {initials(me.name)}
+          </span>
+          <span className="grow" title={me.name}>
+            {me.name}
+            <br />
+            <span className="muted">{me.local ? "Local app on this computer" : me.role}</span>
+          </span>
+          {!me.local && (
+          <button
+            className="btn ghost icon sm"
+            aria-label="Sign out"
+            title="Sign out"
+            onClick={() => {
+              setToken(null);
+              location.reload();
+            }}
+          >
+            <Icon name="logout" size={14} />
+          </button>
+          )}
+        </div>
+      </nav>
+      {children}
+    </div>
+  );
+}
+
 function Home({ me }: { me: Me }) {
   const [sites, setSites] = useState<SiteSummary[] | null>(null);
   const [reviews, setReviews] = useState<PendingReview[]>([]);
@@ -131,7 +209,6 @@ function Home({ me }: { me: Me }) {
   const [creating, setCreating] = useState(false);
   const [query, setQueryText] = useState("");
   const [show, setShow] = useState<"all" | "live" | "drafts">("all");
-  const [copied, setCopied] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -180,62 +257,7 @@ function Home({ me }: { me: Me }) {
   const showCreate = creating || (sites !== null && sites.length === 0);
 
   return (
-    <div className="dash">
-      <nav className="dash-nav" aria-label="Workspace">
-        <span className="brand">
-          <Logo size={26} /> Sitecraft
-        </span>
-        <a className="nav-link" href="/" aria-current="page" onClick={(e) => e.preventDefault()}>
-          <Icon name="grid" size={15} /> Sites
-        </a>
-        <a className="nav-link" href="#reviews">
-          <Icon name="review" size={15} /> Reviews
-          {reviews.length > 0 && <span className="badge">{reviews.length}</span>}
-        </a>
-        <div className="connect-card">
-          <strong>
-            <Icon name="terminal" size={14} /> Claude Code
-          </strong>
-          <p>{me.local ? "Claude builds and edits sites here on its own branches. Run this once in a terminal:" : "Claude builds and edits sites here on its own branches. Connect it with your agent token:"}</p>
-          <code>{connectCommand(me)}</code>
-          <button
-            className="btn sm agent-outline"
-            onClick={() => {
-              void navigator.clipboard?.writeText(connectCommand(me)).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              });
-            }}
-          >
-            <Icon name="copy" size={13} />
-            {copied ? "Copied" : "Copy command"}
-          </button>
-        </div>
-        <div className="me-row">
-          <span className="avatar" aria-hidden="true">
-            {initials(me.name)}
-          </span>
-          <span className="grow" title={me.name}>
-            {me.name}
-            <br />
-            <span className="muted">{me.local ? "Local app on this computer" : me.role}</span>
-          </span>
-          {!me.local && (
-          <button
-            className="btn ghost icon sm"
-            aria-label="Sign out"
-            title="Sign out"
-            onClick={() => {
-              setToken(null);
-              location.reload();
-            }}
-          >
-            <Icon name="logout" size={14} />
-          </button>
-          )}
-        </div>
-      </nav>
-
+    <DashShell me={me} active="sites" reviews={reviews.length}>
       <main className="dash-main">
         <div className="dash-head">
           <h1>Sites</h1>
@@ -341,6 +363,6 @@ function Home({ me }: { me: Me }) {
           </div>
         </section>
       </main>
-    </div>
+    </DashShell>
   );
 }

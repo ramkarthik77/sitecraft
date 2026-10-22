@@ -23,6 +23,13 @@ export interface Config {
    * need no token and act as the owner; tokens still work (Claude Code uses one).
    */
   local: boolean;
+  /** Cloudflare Turnstile keys for the bot check on forms; both or neither. */
+  turnstileSiteKey?: string;
+  turnstileSecret?: string;
+  /** Form submissions older than this are deleted. 0 keeps them forever. */
+  formRetentionDays: number;
+  /** API requests allowed per IP per minute, per server. */
+  rateLimitPerMinute: number;
 }
 
 function bool(v: string | undefined, d: boolean) {
@@ -69,5 +76,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     editorDist: env.EDITOR_DIST || undefined,
     corsOrigins: (env.CORS_ORIGINS ?? "http://localhost:5173").split(",").map((s) => s.trim()).filter(Boolean),
     local,
+    turnstileSiteKey: env.TURNSTILE_SITE_KEY || undefined,
+    turnstileSecret: env.TURNSTILE_SECRET || undefined,
+    formRetentionDays: Number(env.FORM_RETENTION_DAYS ?? 365) || 0,
+    rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 600) || 600,
   };
 }

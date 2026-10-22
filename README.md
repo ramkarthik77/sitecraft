@@ -27,6 +27,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | [Deploy on Cloudflare](docs/CLOUDFLARE.md) | The live setup at `sitecraft.guduriphaniram1988.workers.dev`, deployed from GitHub Actions |
 | [Deploy elsewhere](docs/DEPLOY.md) | AWS, Google Cloud or any container host |
 | [How it works](docs/ARCHITECTURE.md) | The document model, branches, live updates, publishing, roles, extending it |
+| [Security](docs/SECURITY.md) | What's protected, and the settings to turn on before going live |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common problems and fixes |
 
 ## Quick start: the local app

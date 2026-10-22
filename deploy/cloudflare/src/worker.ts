@@ -22,6 +22,11 @@ export interface Env {
   ADMIN_TOKEN: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
+  /** Optional: Cloudflare Turnstile bot check on forms. */
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET?: string;
+  /** Optional: days to keep form submissions (default 365, 0 keeps them). */
+  FORM_RETENTION_DAYS?: string;
 }
 
 /** Environment for the app container, built from Worker vars and secrets. */
@@ -48,6 +53,11 @@ export function appEnv(env: Env): Record<string, string> {
     AGENT_CAN_EDIT_MAIN: env.AGENT_CAN_EDIT_MAIN ?? "false",
   };
   if (env.SITES_DOMAIN) out.SITES_DOMAIN = env.SITES_DOMAIN;
+  if (env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET) {
+    out.TURNSTILE_SITE_KEY = env.TURNSTILE_SITE_KEY;
+    out.TURNSTILE_SECRET = env.TURNSTILE_SECRET;
+  }
+  if (env.FORM_RETENTION_DAYS) out.FORM_RETENTION_DAYS = env.FORM_RETENTION_DAYS;
   return out;
 }
 

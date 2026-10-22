@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
-import { getToken, Sites, type Branch, type Me, type SiteSummary, type Version } from "./api";
+import { Sites, type Branch, type Me, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
@@ -130,8 +130,11 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const edRef = useRef(ed);
   edRef.current = ed;
   useEffect(() => {
-    const es = new EventSource(`/api/sites/${siteId}/events?token=${encodeURIComponent(getToken() ?? "")}`);
-    es.addEventListener("change", (msg) => {
+    // The stream signs in with a one-minute ticket, never the token itself; reconnects fetch a new one.
+    let es: EventSource | null = null;
+    let stopped = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const onChange = (msg: Event) => {
       const e = JSON.parse((msg as MessageEvent).data) as { type: string; branch?: string; versionId?: number; actor: string; actorRole: string; message?: string };
       if (e.type === "branch" || e.type === "version") loadBranches();
       if (e.type === "deploy") Sites.get(siteId).then(setSite).catch(() => {});
@@ -143,8 +146,27 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       } else {
         pushToast({ text: `${e.actor} changed this branch while you were editing.`, tone, action: { label: "Load their version", run: () => void edRef.current.reload() } }, 12000);
       }
-    });
-    return () => es.close();
+    };
+    const connect = async () => {
+      try {
+        const { ticket } = await Sites.eventsTicket(siteId);
+        if (stopped) return;
+        es = new EventSource(`/api/sites/${siteId}/events?ticket=${encodeURIComponent(ticket)}`);
+        es.addEventListener("change", onChange);
+        es.onerror = () => {
+          es?.close();
+          if (!stopped) retry = setTimeout(() => void connect(), 3000);
+        };
+      } catch {
+        if (!stopped) retry = setTimeout(() => void connect(), 5000);
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      es?.close();
+    };
   }, [siteId, branch, me.name, loadBranches, pushToast]);
 
   // Keep the selection valid when the document changes underneath it.

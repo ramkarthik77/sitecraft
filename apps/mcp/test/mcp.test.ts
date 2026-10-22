@@ -140,7 +140,9 @@ describe("CMS tools", () => {
     await client.callTool({ name: "update_item", arguments: { site: "trailhead", branch: "agent/journal", collection: "journal", item: "first-snow", draft: false } });
     expect((await client.callTool({ name: "add_collection_list", arguments: { site: "trailhead", branch: "agent/journal", collection: "journal", index: 2, headline: "From the journal", limit: 3 } })).isError).toBeFalsy();
 
-    const col = JSON.parse(text(await client.callTool({ name: "get_collection", arguments: { site: "trailhead", branch: "agent/journal", collection: "Journal" } })));
+    const raw = text(await client.callTool({ name: "get_collection", arguments: { site: "trailhead", branch: "agent/journal", collection: "Journal" } }));
+    expect(raw).toMatch(/^\[Site content follows/);
+    const col = JSON.parse(raw.slice(raw.indexOf("{")));
     expect(col.templatePage).toBe("/journal/:slug");
     expect(col.items.map((i: { slug: string; draft?: boolean }) => [i.slug, !!i.draft])).toEqual([
       ["packing-for-the-high-route", true],

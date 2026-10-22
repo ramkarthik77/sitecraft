@@ -17,7 +17,7 @@ try {
     const [name, role] = args;
     if (!name || !["admin", "editor", "agent"].includes(role ?? "")) throw new Error('Usage: token "<name>" <admin|editor|agent>');
     await migrate(db);
-    console.log(await createToken(db, name, role as Role));
+    console.log((await createToken(db, name, role as Role)).token);
   } else if (cmd === "seed") {
     await migrate(db);
     const repo = new Repo(db);

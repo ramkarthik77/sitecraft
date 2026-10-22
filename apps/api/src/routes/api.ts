@@ -10,9 +10,10 @@ import {
   type SiteDocument,
   type TemplateName,
 } from "@sitecraft/schema";
-import { authenticate, createToken, requireRole, signPreview, type Actor, type Role } from "../auth.js";
+import { authenticate, canAccessSite, clearTokenCache, createToken, requireRole, signPreview, signTicket, verifyTicket, type Actor, type Role } from "../auth.js";
 import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
+import { toCsv } from "../security.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -34,7 +35,22 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.decorateRequest("actor", null as unknown as Actor);
   app.addHook("preHandler", async (req) => {
+    const params = (req.params ?? {}) as Partial<Params>;
+    // The live-updates stream signs in with a short-lived ticket (see /events/ticket).
+    const ticket = (req.query as Record<string, unknown> | undefined)?.ticket;
+    if (typeof ticket === "string" && params.siteId && req.routeOptions.url?.endsWith("/events")) {
+      const site = await repo.getSite(params.siteId);
+      const actor = verifyTicket(cfg.secret, site.id, ticket);
+      if (!actor) throw new HttpError(401, "This live-updates link has expired. Reload the page.");
+      req.actor = actor;
+      return;
+    }
     req.actor = await authenticate(ctx.db, req, { local: cfg.local });
+    // Tokens limited to some sites can't see or touch the others.
+    if (req.actor.siteIds && params.siteId) {
+      const site = await repo.getSite(params.siteId);
+      if (!canAccessSite(req.actor, site.id)) throw new HttpError(403, "This token can't access that site.");
+    }
   });
 
   const reviewUrl = (siteId: string, branch: string) => `${cfg.editorUrl}/sites/${siteId}?branch=${encodeURIComponent(branch)}&review=1`;
@@ -67,17 +83,64 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/blocks", async () => BLOCK_NAMES.map((name) => ({ name, description: BLOCK_DESCRIPTIONS[name] ?? "" })));
   app.get("/templates", async () => TEMPLATES);
 
+  // People and Claude Code sign in with tokens. Admins create, list and revoke them.
   app.post("/tokens", async (req) => {
     requireRole(req.actor, "admin");
-    const { name, role } = body<{ name?: string; role?: Role }>(req);
-    if (!name || !role || !["admin", "editor", "agent"].includes(role)) throw new HttpError(400, "Provide name and role (admin, editor or agent).");
-    return { name, role, token: await createToken(ctx.db, name, role) };
+    const { name, role, expiresInDays, sites } = body<{ name?: string; role?: Role; expiresInDays?: number | null; sites?: string[] }>(req);
+    if (!name || typeof name !== "string" || name.length > 120 || !role || !["admin", "editor", "agent"].includes(role)) throw new HttpError(400, "Provide name and role (admin, editor or agent).");
+    if (expiresInDays !== undefined && expiresInDays !== null && !(Number.isInteger(expiresInDays) && expiresInDays >= 1 && expiresInDays <= 3650)) {
+      throw new HttpError(400, "expiresInDays must be a whole number of days from 1 to 3650, or null for no expiry.");
+    }
+    let siteIds: string[] | undefined;
+    if (sites?.length) {
+      if (role === "admin") throw new HttpError(400, "Admin tokens can't be limited to sites. Use an editor or agent token.");
+      siteIds = await Promise.all(sites.map(async (x) => (await repo.getSite(String(x))).id));
+    }
+    // New tokens expire after 90 days unless asked otherwise.
+    const days = expiresInDays === null ? undefined : expiresInDays ?? 90;
+    const t = await createToken(ctx.db, name, role, undefined, { expiresInDays: days, siteIds, createdBy: req.actor.name });
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'token.create', $3)", [req.actor.name, req.actor.role, { id: t.id, name, role, expiresAt: t.expiresAt, siteIds }]);
+    return { id: t.id, name, role, token: t.token, expiresAt: t.expiresAt, siteIds: siteIds ?? null };
+  });
+
+  app.get("/tokens", async (req) => {
+    requireRole(req.actor, "admin");
+    const { rows } = await ctx.db.query<Record<string, unknown>>(
+      "SELECT id, name, role, created_at, created_by, last_used_at, expires_at, revoked_at, site_ids FROM api_tokens ORDER BY revoked_at NULLS FIRST, created_at DESC",
+    );
+    const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      createdAt: iso(r.created_at),
+      createdBy: r.created_by ?? null,
+      lastUsedAt: iso(r.last_used_at),
+      expiresAt: iso(r.expires_at),
+      revokedAt: iso(r.revoked_at),
+      siteIds: Array.isArray(r.site_ids) ? r.site_ids : r.site_ids ? String(r.site_ids).replace(/^{|}$/g, "").split(",").filter(Boolean) : null,
+    }));
+  });
+
+  app.delete<{ Params: Params }>("/tokens/:id", async (req, reply) => {
+    requireRole(req.actor, "admin");
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw new HttpError(404, "No such token.");
+    const { rows } = await ctx.db.query<{ name: string }>("UPDATE api_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL RETURNING name", [req.params.id]);
+    if (!rows[0]) throw new HttpError(404, "No such token, or it's already revoked.");
+    clearTokenCache();
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'token.revoke', $3)", [req.actor.name, req.actor.role, { id: req.params.id, name: rows[0].name }]);
+    reply.status(204);
   });
 
   // Sites
-  app.get("/sites", async () => Promise.all((await repo.listSites()).map(async (s) => ({ ...(await siteOut(s)), updatedAt: s.updated_at }))));
+  app.get("/sites", async (req) =>
+    Promise.all(
+      (await repo.listSites()).filter((s) => canAccessSite(req.actor, s.id)).map(async (s) => ({ ...(await siteOut(s)), updatedAt: s.updated_at })),
+    ),
+  );
 
   app.post("/sites", async (req, reply) => {
+    if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
     const b = body<{ name?: string; slug?: string; template?: TemplateName; document?: SiteDocument }>(req);
     if (!b.name || typeof b.name !== "string") throw new HttpError(400, "Give the site a name.");
     if (b.template && !TEMPLATES.includes(b.template)) throw new HttpError(400, `Template must be one of ${TEMPLATES.join(", ")}.`);
@@ -210,6 +273,12 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     };
   });
 
+  // A one-minute ticket for opening the live change stream.
+  app.post<{ Params: Params }>("/sites/:siteId/events/ticket", async (req) => {
+    const site = await repo.getSite(req.params.siteId);
+    return { ticket: signTicket(cfg.secret, site.id, req.actor) };
+  });
+
   // Live change stream for open editors.
   app.get<{ Params: Params }>("/sites/:siteId/events", async (req, reply) => {
     const site = await repo.getSite(req.params.siteId);
@@ -273,10 +342,53 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     return repo.listSubmissions(site.id);
   });
 
+  // All of a site's form submissions as CSV, for export or a data request.
+  app.get<{ Params: Params }>("/sites/:siteId/forms.csv", async (req, reply) => {
+    requireRole(req.actor, "admin", "editor");
+    const site = await repo.getSite(req.params.siteId);
+    const { rows } = await ctx.db.query<{ id: number; form: string; data: Record<string, string>; created_at: string }>(
+      "SELECT id, form, data, created_at FROM form_submissions WHERE site_id = $1 ORDER BY id",
+      [site.id],
+    );
+    const fields = [...new Set(rows.flatMap((r) => Object.keys(r.data)))].sort();
+    const csv = toCsv(["submitted_at", "form", ...fields], rows.map((r) => [new Date(r.created_at).toISOString(), r.form, ...fields.map((f) => r.data[f] ?? "")]));
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'forms.export', $4)", [site.id, req.actor.name, req.actor.role, { count: rows.length }]);
+    return reply.type("text/csv; charset=utf-8").header("Content-Disposition", `attachment; filename="${site.slug}-forms.csv"`).send(csv);
+  });
+
+  // Delete submissions: all, one form's, older than a date, or those containing a value (an email, for a deletion request).
+  app.delete<{ Params: Params; Querystring: { form?: string; before?: string; containing?: string } }>("/sites/:siteId/forms", async (req) => {
+    requireRole(req.actor, "admin", "editor");
+    const site = await repo.getSite(req.params.siteId);
+    const { form, before, containing } = req.query;
+    if (before && Number.isNaN(Date.parse(before))) throw new HttpError(400, "before must be a date like 2026-01-31.");
+    const where = ["site_id = $1"];
+    const args: unknown[] = [site.id];
+    if (form) where.push(`form = $${args.push(form)}`);
+    if (before) where.push(`created_at < $${args.push(new Date(before).toISOString())}`);
+    if (containing) where.push(`data::text ILIKE $${args.push(`%${containing.replace(/[%_\\]/g, (c) => "\\" + c)}%`)}`);
+    const r = await ctx.db.query(`DELETE FROM form_submissions WHERE ${where.join(" AND ")} RETURNING id`, args);
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'forms.delete', $4)", [site.id, req.actor.name, req.actor.role, { form, before, containing: containing ? "(value)" : undefined, count: r.rows.length }]);
+    return { deleted: r.rows.length };
+  });
+
   app.get<{ Params: Params }>("/sites/:siteId/audit", async (req) => {
     requireRole(req.actor, "admin", "editor");
     const site = await repo.getSite(req.params.siteId);
     return repo.listAudit(site.id);
+  });
+
+  // The whole audit log as CSV, for a security tool or a review.
+  app.get<{ Querystring: { since?: string } }>("/audit.csv", async (req, reply) => {
+    requireRole(req.actor, "admin");
+    if (req.query.since && Number.isNaN(Date.parse(req.query.since))) throw new HttpError(400, "since must be a date like 2026-01-31.");
+    const since = req.query.since ? new Date(req.query.since).toISOString() : "1970-01-01T00:00:00Z";
+    const { rows } = await ctx.db.query<{ created_at: string; site_id: string | null; slug: string | null; actor: string; actor_role: string; action: string; detail: unknown }>(
+      "SELECT a.created_at, a.site_id, s.slug, a.actor, a.actor_role, a.action, a.detail FROM audit_log a LEFT JOIN sites s ON s.id = a.site_id WHERE a.created_at >= $1 ORDER BY a.id",
+      [since],
+    );
+    const csv = toCsv(["at", "site_id", "site", "actor", "role", "action", "detail"], rows.map((r) => [new Date(r.created_at).toISOString(), r.site_id ?? "", r.slug ?? "", r.actor, r.actor_role, r.action, r.detail]));
+    return reply.type("text/csv; charset=utf-8").header("Content-Disposition", 'attachment; filename="sitecraft-audit.csv"').send(csv);
   });
 
   // Image uploads

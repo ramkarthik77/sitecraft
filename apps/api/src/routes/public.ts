@@ -3,19 +3,14 @@ import { resolveRoute } from "@sitecraft/schema";
 import { renderNotFound, renderPage } from "@sitecraft/renderer";
 import { verifyPreview } from "../auth.js";
 import { HttpError } from "../errors.js";
-import { fileForPath, formActionFor } from "../publish.js";
+import { fileForPath, formActionFor, renderSecurity } from "../publish.js";
 import type { SiteRow } from "../repo.js";
 import type { AppContext } from "../server.js";
+import { siteHeaders, verifyTurnstile } from "../security.js";
 import { contentTypeFor } from "../storage.js";
 
-const SECURITY_HEADERS = {
-  "X-Content-Type-Options": "nosniff",
-  "Referrer-Policy": "strict-origin-when-cross-origin",
-  "X-Frame-Options": "SAMEORIGIN",
-};
-
 async function sendDeployedFile(ctx: AppContext, site: SiteRow, path: string, reply: FastifyReply) {
-  reply.headers(SECURITY_HEADERS);
+  reply.headers(siteHeaders(ctx.cfg));
   if (!site.current_deployment_id) {
     return reply.status(404).type("text/html").send("<!doctype html><title>Not published</title><p>This site hasn't been published yet.</p>");
   }
@@ -73,12 +68,12 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     const head = await repo.getHead(siteId, branch);
     const path = "/" + (req.params["*"] ?? "").replace(/\/+$/, "");
     const route = resolveRoute(head.document, path === "" ? "/" : path, { includeDrafts: true });
-    reply.headers(SECURITY_HEADERS).header("Cache-Control", "no-store").header("X-Robots-Tag", "noindex");
+    reply.headers(siteHeaders(cfg)).header("Cache-Control", "no-store").header("X-Robots-Tag", "noindex");
     if (!route) return reply.status(404).type("text/html").send(renderNotFound(head.document));
     const basePath = `/preview/${key}/${siteId}/${encodeURIComponent(branch)}`;
     return reply
       .type("text/html; charset=utf-8")
-      .send(renderPage(head.document, route.page, { mode: "preview", basePath, itemId: route.item?.id, formAction: formActionFor(cfg, siteId) }));
+      .send(renderPage(head.document, route.page, { mode: "preview", basePath, itemId: route.item?.id, formAction: formActionFor(cfg, siteId), ...renderSecurity(cfg) }));
   });
 
   // Form submissions from published sites.
@@ -89,15 +84,22 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     const site = await repo.getSite(req.params.siteId).catch(() => null);
     if (!site) throw new HttpError(404, "Unknown form.");
     const raw = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+    const json = (req.headers["content-type"] ?? "").includes("application/json");
+    const done = () => (json ? { ok: true } : reply.redirect(typeof req.headers.referer === "string" ? req.headers.referer : "/", 303));
+    // The hidden field only bots fill in: pretend it worked and keep nothing.
+    if (typeof raw._hp === "string" && raw._hp.trim()) return done();
+    if (cfg.turnstileSecret) {
+      const ok = await verifyTurnstile(cfg.turnstileSecret, typeof raw["cf-turnstile-response"] === "string" ? raw["cf-turnstile-response"] : undefined, req.ip);
+      if (!ok) throw new HttpError(400, "Please complete the check that you're not a robot, then send again.");
+    }
     const data: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw).slice(0, 30)) {
+    for (const [k, v] of Object.entries(raw).slice(0, 32)) {
+      if (k === "_hp" || k === "cf-turnstile-response") continue;
       if (/^[\w-]{1,64}$/.test(k)) data[k] = String(v ?? "").slice(0, 5000);
     }
     if (Object.keys(data).length === 0) throw new HttpError(400, "The form was empty.");
     await repo.addSubmission(site.id, req.params.form, data);
-    if ((req.headers["content-type"] ?? "").includes("application/json")) return { ok: true };
-    const back = typeof req.headers.referer === "string" ? req.headers.referer : "/";
-    return reply.redirect(back, 303);
+    return done();
   });
   app.options("/forms/:siteId/:form", async (_req, reply) =>
     reply.header("Access-Control-Allow-Origin", "*").header("Access-Control-Allow-Methods", "POST").header("Access-Control-Allow-Headers", "Content-Type").status(204).send(),
@@ -108,6 +110,11 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!/^[0-9a-f-]{36}$/i.test(siteId) || !/^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/i.test(file)) return reply.status(404).send("Not found");
     const body = await ctx.storage.get(`assets/${siteId}/${file}`);
     if (!body) return reply.status(404).send("Not found");
-    return reply.headers(SECURITY_HEADERS).header("Cache-Control", "public, max-age=31536000, immutable").type(contentTypeFor(file)).send(body);
+    // Images only: nothing in them may run, even if opened directly.
+    return reply
+      .headers({ "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox", "Cross-Origin-Resource-Policy": "cross-origin" })
+      .header("Cache-Control", "public, max-age=31536000, immutable")
+      .type(contentTypeFor(file))
+      .send(body);
   });
 }

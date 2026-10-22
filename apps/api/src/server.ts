@@ -12,6 +12,7 @@ import { EventBus } from "./events.js";
 import { Repo } from "./repo.js";
 import { apiRoutes } from "./routes/api.js";
 import { publicRoutes, serveHostedSite } from "./routes/public.js";
+import { apiHeaders, editorHeaders, RateLimiter } from "./security.js";
 import { createStorage, type Storage } from "./storage.js";
 
 export interface AppContext {
@@ -46,6 +47,28 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || cfg.corsOrigins.includes("*") || cfg.corsOrigins.includes(origin)),
     credentials: false,
+  });
+
+  // Per-server limits; Cloudflare rate limiting rules add a shared one in front.
+  const apiLimit = new RateLimiter(cfg.rateLimitPerMinute, 60_000);
+  const authFailures = new RateLimiter(30, 10 * 60_000);
+  app.addHook("onRequest", async (req, reply) => {
+    if (!req.url.startsWith("/api/")) return;
+    if (authFailures.over(req.ip)) return reply.status(429).header("Retry-After", "600").send({ error: "Too many failed sign-ins from this address. Try again in 10 minutes." });
+    if (apiLimit.hit(req.ip)) return reply.status(429).header("Retry-After", "60").send({ error: "Too many requests. Slow down and try again in a minute." });
+  });
+
+  const API_HEADERS = apiHeaders(cfg);
+  const EDITOR_HEADERS = editorHeaders(cfg);
+  app.addHook("onSend", async (req, reply, payload) => {
+    if (req.url.startsWith("/api/")) {
+      if (reply.statusCode === 401) authFailures.hit(req.ip);
+      reply.headers(API_HEADERS);
+    } else if (!reply.getHeader("content-security-policy")) {
+      // Everything else this server answers itself is the editor app.
+      reply.headers(EDITOR_HEADERS);
+    }
+    return payload;
   });
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
@@ -85,7 +108,18 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
     });
   }
 
+  // Delete form submissions past the retention period, hourly.
+  const purge = async () => {
+    if (cfg.formRetentionDays > 0) {
+      await db.query("DELETE FROM form_submissions WHERE created_at < now() - make_interval(days => $1)", [cfg.formRetentionDays]).catch((e) => app.log.error(e));
+    }
+  };
+  void purge();
+  const purgeTimer = setInterval(() => void purge(), 3_600_000);
+  purgeTimer.unref();
+
   app.addHook("onClose", async () => {
+    clearInterval(purgeTimer);
     await events.stop();
     await db.end();
   });

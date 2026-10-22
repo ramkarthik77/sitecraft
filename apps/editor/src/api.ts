@@ -82,6 +82,25 @@ export async function download(path: string, fallbackName: string): Promise<void
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
+export interface TokenInfo {
+  id: string;
+  name: string;
+  role: "admin" | "editor" | "agent";
+  createdAt: string;
+  createdBy: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  siteIds: string[] | null;
+}
+
+export const Tokens = {
+  list: () => api<TokenInfo[]>("GET", "/tokens"),
+  create: (t: { name: string; role: string; expiresInDays: number | null; sites?: string[] }) => api<TokenInfo & { token: string }>("POST", "/tokens", t),
+  revoke: (id: string) => api("DELETE", `/tokens/${id}`),
+  auditCsv: () => download("/audit.csv", "sitecraft-audit.csv"),
+};
+
 export interface SiteSummary {
   id: string;
   name: string;
@@ -144,6 +163,10 @@ export const Sites = {
   publish: (id: string) => api<{ url: string; versionId: number }>("POST", `/sites/${id}/publish`, {}),
   deployments: (id: string) => api<Deployment[]>("GET", `/sites/${id}/deployments`),
   rollback: (id: string, dep: string) => api("POST", `/sites/${id}/deployments/${dep}/rollback`, {}),
+  eventsTicket: (id: string) => api<{ ticket: string }>("POST", `/sites/${id}/events/ticket`, {}),
+  formsCsv: (id: string, slug: string) => download(`/sites/${id}/forms.csv`, `${slug}-forms.csv`),
+  deleteForms: (id: string, q: { form?: string; before?: string; containing?: string } = {}) =>
+    api<{ deleted: number }>("DELETE", `/sites/${id}/forms?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString()}`),
   forms: (id: string) => api<{ id: number; form: string; data: Record<string, string>; created_at: string }[]>("GET", `/sites/${id}/forms`),
   exportZip: (id: string, slug: string, url?: string) => download(`/sites/${id}/export${url ? `?url=${enc(url)}` : ""}`, `${slug}.zip`),
   upload: (id: string, file: File) =>

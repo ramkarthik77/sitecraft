@@ -14,6 +14,16 @@ const saved = (page: Page) => expect(page.locator(".save-state")).toHaveText("Sa
 
 test.describe.configure({ mode: "serial" });
 
+// The editor and published sites run under a strict Content-Security-Policy; anything it blocks is a bug.
+let cspViolations: string[] = [];
+test.beforeEach(({ page }) => {
+  cspViolations = [];
+  page.on("console", (m) => {
+    if (/Content Security Policy|Refused to (load|execute|apply|frame|connect)/i.test(m.text())) cspViolations.push(m.text());
+  });
+});
+test.afterEach(() => expect(cspViolations, cspViolations.join("\n")).toEqual([]));
+
 let siteId = "";
 
 test("sign in and create a site", async ({ page }) => {

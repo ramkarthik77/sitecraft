@@ -21,11 +21,23 @@ export function formActionFor(cfg: Config, siteId: string) {
   return (form: string) => `${cfg.publicUrl}/forms/${siteId}/${form}`;
 }
 
+/** Render options that keep pages safe: the form bot check, and embeds of Sitecraft itself kept sandboxed. */
+export function renderSecurity(cfg: Config) {
+  const origins = [cfg.publicUrl, cfg.editorUrl].map((u) => {
+    try {
+      return new URL(u).origin;
+    } catch {
+      return "";
+    }
+  });
+  return { turnstileSiteKey: cfg.turnstileSiteKey, selfOrigins: origins.filter(Boolean) };
+}
+
 /** Render a version to static files, upload them, then point the site at the new deployment. */
 export async function publishVersion(cfg: Config, repo: Repo, storage: Storage, actor: Actor, site: SiteRow, branch: string) {
   const head = await repo.getHead(site.id, branch);
   const loc = siteLocation(cfg, site);
-  const files = renderSite(head.document, { siteUrl: loc.url, basePath: loc.basePath, formAction: formActionFor(cfg, site.id) });
+  const files = renderSite(head.document, { siteUrl: loc.url, basePath: loc.basePath, formAction: formActionFor(cfg, site.id), ...renderSecurity(cfg) });
   const deploymentId = randomUUID();
   const prefix = `sites/${site.id}/deploys/${deploymentId}`;
   await Promise.all([...files].map(([name, body]) => storage.put(`${prefix}/${name}`, body, contentTypeFor(name))));
@@ -54,7 +66,7 @@ export async function exportSite(cfg: Config, repo: Repo, storage: Storage, site
   const mediaPrefix = `${cfg.publicUrl}/media/${site.id}/`;
   const json = JSON.stringify(head.document).split(mediaPrefix).join("/media/");
   const doc = JSON.parse(json) as SiteDocument;
-  const files = renderSite(doc, { siteUrl, basePath: "", formAction: formActionFor(cfg, site.id) });
+  const files = renderSite(doc, { siteUrl, basePath: "", formAction: formActionFor(cfg, site.id), ...renderSecurity(cfg) });
 
   const zip: Zippable = {};
   for (const [name, body] of files) zip[name] = strToU8(body);
