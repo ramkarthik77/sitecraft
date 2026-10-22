@@ -7,6 +7,7 @@ import { AccessPage } from "./components/Access";
 import { BrandsPage, TemplatesPage } from "./components/Library";
 import { AssetsPage } from "./components/Assets";
 import { Icon, Logo } from "./components/Icon";
+import { LayerScene, useTiltCards } from "./components/Scene3D";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
 import { ToastProvider, useToast } from "./Toasts";
@@ -90,6 +91,11 @@ function Login({ onDone }: { onDone: (m: Me) => void }) {
   };
   return (
     <div className="login-wrap">
+      <LayerScene />
+      <div className="login-copy">
+        <h2>Design it. Let Claude build it. Ship it together.</h2>
+        <p>Every page is layers you and Claude edit side by side, on branches, with a person approving what goes live.</p>
+      </div>
       <form className="login" onSubmit={submit}>
         <span className="brand">
           <Logo size={28} /> Sitecraft
@@ -290,6 +296,7 @@ function Home({ me }: { me: Me }) {
     return true;
   });
   const showCreate = creating || (sites !== null && sites.length === 0);
+  const grid = useTiltCards<HTMLDivElement>();
 
   return (
     <DashShell me={me} active="sites" reviews={reviews.length}>
@@ -385,9 +392,9 @@ function Home({ me }: { me: Me }) {
           </div>
           {sites && sites.length === 0 && <div className="empty">No sites yet. Name your first one above, or ask Claude Code to create one.</div>}
           {sites && sites.length > 0 && visible.length === 0 && <div className="empty">No sites match. Clear the search or pick another filter.</div>}
-          <div className="site-grid">
-            {visible.map((s) => (
-              <a key={s.id} className="site-card" href={`/sites/${s.id}`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${s.id}`))}>
+          <div className="site-grid" ref={grid}>
+            {visible.map((s, i) => (
+              <a key={s.id} className="site-card tilt" style={{ ["--i" as string]: Math.min(i, 12) }} href={`/sites/${s.id}`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${s.id}`))}>
                 <Thumb siteId={s.id} />
                 <div className="meta">
                   <strong>
