@@ -70,6 +70,31 @@ jobs:
           fi
           exit $missing
 
+      # Fail early, and say which credential is wrong, before building anything.
+      - name: Check Cloudflare access
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          api() { curl -sS -H "Authorization: Bearer $CF_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+          ok() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.exit(JSON.parse(d).success?0:1)}catch{process.exit(1)}})'; }
+          if ! api "/user/tokens/verify" | ok && ! api "/accounts/$CF_ACCOUNT/tokens/verify" | ok; then
+            echo "::error::CLOUDFLARE_API_TOKEN isn't a valid, active Cloudflare API token. Paste the token value again (not its name, not the R2 token, not the Global API Key)."
+            exit 1
+          fi
+          echo "Token is valid."
+          echo "Accounts this token can reach:"
+          api "/accounts?per_page=50" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const r=JSON.parse(d).result||[];for(const a of r)console.log("  "+a.name+" ("+a.id.slice(0,6)+"…)")})'
+          if ! api "/accounts/$CF_ACCOUNT" | ok; then
+            echo "::error::The token can't reach the account in CLOUDFLARE_ACCOUNT_ID. Either the ID is wrong (copy it from the dashboard address bar: the 32 characters after dash.cloudflare.com/), or the token's Account Resources don't include that account."
+            exit 1
+          fi
+          problems=0
+          api "/accounts/$CF_ACCOUNT/workers/scripts" | ok || { echo "::error::The token can't manage Workers on this account. Add Account · Workers Scripts · Edit."; problems=1; }
+          api "/accounts/$CF_ACCOUNT/r2/buckets" | ok || { echo "::error::The token can't manage R2 on this account. Add Account · Workers R2 Storage · Edit."; problems=1; }
+          [ $problems = 0 ] && echo "Token can manage Workers and R2 on this account."
+          exit $problems
+
       - name: Install and test
         run: |
           pnpm install --frozen-lockfile
