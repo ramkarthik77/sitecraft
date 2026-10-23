@@ -169,7 +169,7 @@ export const pageSchema = z
     path: z.string(),
     collectionId: idSchema.optional(),
     unpublished: z.boolean().optional(),
-    i18n: z.record(z.string().regex(LOCALE), z.record(z.enum(["title", "description", "~title", "~description"]), z.string().max(1000))).optional(),
+    i18n: z.record(z.string().regex(LOCALE), z.partialRecord(z.enum(["title", "description", "~title", "~description"]), z.string().max(1000))).optional(),
     title: z.string().min(1).max(200),
     description: z.string().max(500).optional(),
     ogImage: z.string().refine(isSafeSrc, "Unsafe og image").optional(),

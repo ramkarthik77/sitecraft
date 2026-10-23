@@ -1,6 +1,6 @@
 import { Container, getContainer } from "@cloudflare/containers";
 import type { DurableObject } from "cloudflare:workers";
-import { forwardHeaders, instanceOrder, isCacheableRequest, isCacheableResponse, isRetryable, startingResponse, targetFor } from "./routing";
+import { forwardHeaders, instanceOrder, isCacheableRequest, isCacheableResponse, isNotRunning, isRetryable, startingResponse, targetFor } from "./routing";
 
 export interface Env {
   APP: DurableObjectNamespace<SitecraftApp>;
@@ -94,17 +94,21 @@ async function proxy(request: Request, env: Env): Promise<Response> {
   const headers = forwardHeaders(request);
   if (targetFor(url, env) === "mcp") {
     try {
-      return await getContainer(env.MCP, "mcp-0").fetch(new Request(request, { headers }));
+      const res = await getContainer(env.MCP, "mcp-0").fetch(new Request(request, { headers }));
+      if (!(await isNotRunning(res))) return res;
+      console.error("MCP container isn't running");
     } catch (e) {
       console.error("MCP container not ready", e);
-      return startingResponse(request);
     }
+    return startingResponse(request);
   }
   // An instance that's still starting throws here; send safe requests to the next one.
   const order = instanceOrder(appCount(env));
   for (const name of isRetryable(request) ? order : order.slice(0, 1)) {
     try {
-      return await getContainer(env.APP, name).fetch(new Request(request, { headers }));
+      const res = await getContainer(env.APP, name).fetch(new Request(request, { headers }));
+      if (!(await isNotRunning(res))) return res;
+      console.error(`App container ${name} isn't running`);
     } catch (e) {
       console.error(`App container ${name} not ready`, e);
     }

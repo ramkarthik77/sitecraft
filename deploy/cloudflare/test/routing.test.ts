@@ -87,3 +87,12 @@ describe("instances that are still starting", () => {
     expect(((await api.json()) as { error: string }).error).toContain("starting");
   });
 });
+
+describe("the containers library's own 'not running' reply", () => {
+  it("is recognised, while the app's own errors are passed through", async () => {
+    const { isNotRunning } = await import("../src/routing");
+    expect(await isNotRunning(new Response("Error proxying request to container: The container is not running, consider calling start()", { status: 500 }))).toBe(true);
+    expect(await isNotRunning(Response.json({ error: "Internal server error" }, { status: 500 }))).toBe(false);
+    expect(await isNotRunning(new Response("ok"))).toBe(false);
+  });
+});

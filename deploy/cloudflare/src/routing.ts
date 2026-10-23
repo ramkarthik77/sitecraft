@@ -65,6 +65,16 @@ export function instanceOrder(n: number, rand = Math.random()): string[] {
   return Array.from({ length: count }, (_, i) => `app-${(first + i) % count}`);
 }
 
+/**
+ * The containers library answers with a 500 of its own, rather than throwing,
+ * when an instance isn't running (for example while a deploy swaps instances).
+ */
+export async function isNotRunning(res: Response): Promise<boolean> {
+  if (res.status !== 500 && res.status !== 503) return false;
+  const text = await res.clone().text().catch(() => "");
+  return /container is not running|Error proxying request to container|consider calling start/i.test(text);
+}
+
 /** Only these can be sent again to another instance without side effects. */
 export const isRetryable = (req: Request) => req.method === "GET" || req.method === "HEAD";
 
