@@ -62,7 +62,9 @@ export function pgConnectionString(databaseUrl: string): string {
 }
 
 function createPostgres(databaseUrl: string): Db {
-  const pool = new pg.Pool({ connectionString: pgConnectionString(databaseUrl), max: 10 });
+  // Give up on an unreachable database quickly, so startup fails with a clear
+  // reason instead of hanging past the host's health check.
+  const pool = new pg.Pool({ connectionString: pgConnectionString(databaseUrl), max: 10, connectionTimeoutMillis: 15_000, keepAlive: true });
   pool.on("error", (err) => console.error("postgres pool error", err));
   return {
     kind: "postgres",
@@ -197,4 +199,28 @@ export async function tx<T>(db: Db, fn: (c: DbClient) => Promise<T>): Promise<T>
   } finally {
     c.release();
   }
+}
+
+/** Where a connection string points, without its password, for error messages. */
+export function describeDatabase(databaseUrl: string): string {
+  if (isEmbedded(databaseUrl)) return databaseUrl;
+  try {
+    const u = new URL(databaseUrl);
+    return `${u.protocol}//${decodeURIComponent(u.username) || "(no user)"}@${u.hostname}:${u.port || "5432"}${u.pathname}`;
+  } catch {
+    return "(DATABASE_URL isn't a valid URL)";
+  }
+}
+
+/** A plain reason and what to check, for a database error at startup. */
+export function databaseHint(err: unknown): string {
+  const e = err as { code?: string; message?: string };
+  const m = `${e.code ?? ""} ${e.message ?? ""}`;
+  if (/28P01|password authentication failed/i.test(m)) return "The database rejected the user name or password. Copy both again from the database's Connect page into DATABASE_URL.";
+  if (/ENOTFOUND|EAI_AGAIN/i.test(m)) return "The database host name doesn't exist. Check the host part of DATABASE_URL.";
+  if (/ECONNREFUSED|ETIMEDOUT|timeout/i.test(m)) return "Couldn't reach the database. Check the host and that the port is 5432.";
+  if (/3D000|database .* does not exist/i.test(m)) return "That database name doesn't exist. For PlanetScale it's usually /postgres at the end of DATABASE_URL.";
+  if (/42501|permission denied/i.test(m)) return "The database user can't create tables. Use a role with full access.";
+  if (/self.signed|certificate|SSL|TLS/i.test(m)) return "The secure connection failed. Keep ?sslmode=verify-full at the end of DATABASE_URL.";
+  return "";
 }
