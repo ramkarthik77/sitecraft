@@ -60,3 +60,30 @@ describe("Worker helpers", () => {
     expect(h.get("x-forwarded-host")).toBe(APP);
   });
 });
+
+describe("instances that are still starting", () => {
+  it("tries every instance once, starting at a random one", async () => {
+    const { instanceOrder } = await import("../src/routing");
+    expect(instanceOrder(2, 0)).toEqual(["app-0", "app-1"]);
+    expect(instanceOrder(2, 0.99)).toEqual(["app-1", "app-0"]);
+    expect(instanceOrder(3, 0.5)).toEqual(["app-1", "app-2", "app-0"]);
+    expect(instanceOrder(0, 0.5)).toEqual(["app-0"]);
+  });
+
+  it("only retries requests without side effects", async () => {
+    const { isRetryable } = await import("../src/routing");
+    expect(isRetryable(new Request("https://x/", { method: "GET" }))).toBe(true);
+    expect(isRetryable(new Request("https://x/", { method: "POST", body: "{}" }))).toBe(false);
+  });
+
+  it("answers with a short starting page or JSON, never cached", async () => {
+    const { startingResponse } = await import("../src/routing");
+    const page = startingResponse(new Request("https://x/", { headers: { accept: "text/html" } }));
+    expect(page.status).toBe(503);
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(await page.text()).toContain("Sitecraft is starting");
+    const api = startingResponse(new Request("https://x/api/me"));
+    expect(api.headers.get("retry-after")).toBe("5");
+    expect(((await api.json()) as { error: string }).error).toContain("starting");
+  });
+});

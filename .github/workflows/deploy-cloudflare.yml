@@ -153,9 +153,24 @@ jobs:
             sleep 15
           done
           echo "App is up."
-          curl -fsS -H "accept: text/html" "$SITECRAFT_URL/" | grep -q "<title>Sitecraft</title>" || { echo "::error::The editor page didn't load."; exit 1; }
-          curl -fsS -D - -o /dev/null -H "accept: text/html" "$SITECRAFT_URL/" | grep -qi "^content-security-policy:.*frame-ancestors 'none'" || { echo "::error::The editor is missing its security headers."; exit 1; }
-          curl -fsS -H "authorization: Bearer $ADMIN_TOKEN" "$SITECRAFT_URL/api/me" | grep -q '"role":"admin"' || { echo "::error::The API rejected SITECRAFT_ADMIN_TOKEN."; exit 1; }
+          # Each app instance starts on its own, so a request can land on one that's
+          # still starting. Retry each check for a few minutes before calling it failed.
+          check() {
+            local what="$1"; shift
+            for i in $(seq 1 20); do
+              if out=$("$@" 2>&1); then echo "OK: $what"; return 0; fi
+              sleep 15
+            done
+            echo "::error::$what"
+            echo "Last response:"; echo "$out" | head -c 600; echo
+            return 1
+          }
+          page() { curl -sS -H "accept: text/html" "$SITECRAFT_URL/" | tee /dev/stderr | grep -q "<title>Sitecraft</title>"; }
+          headers() { curl -sS -D - -o /dev/null -H "accept: text/html" "$SITECRAFT_URL/" | tee /dev/stderr | grep -qi "^content-security-policy:.*frame-ancestors 'none'"; }
+          admin() { curl -sS -H "authorization: Bearer $ADMIN_TOKEN" "$SITECRAFT_URL/api/me" | tee /dev/stderr | grep -q '"role":"admin"'; }
+          check "The editor page didn't load." page
+          check "The editor is missing its security headers." headers
+          check "The API didn't accept SITECRAFT_ADMIN_TOKEN (check the secret has no spaces or line breaks)." admin
           for i in $(seq 1 20); do
             code=$(curl -s -o /tmp/mcp.json -w "%{http_code}" -X POST "$SITECRAFT_URL/mcp" \
               -H "authorization: Bearer $ADMIN_TOKEN" -H "content-type: application/json" -H "accept: application/json, text/event-stream" \
