@@ -4,7 +4,7 @@
 #   mcp — MCP server Claude Code connects to (port 4100)
 #   combined (default) — either one, picked by ROLE=app or ROLE=mcp
 
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm -r run build
 
-FROM node:22-alpine AS base
+FROM node:25-alpine AS base
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S sitecraft && adduser -S sitecraft -G sitecraft
