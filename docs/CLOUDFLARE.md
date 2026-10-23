@@ -157,6 +157,6 @@ Then update `SITECRAFT_URL` in the workflow. Universal SSL covers one level of s
 - **Logs:** Workers & Pages → sitecraft → Logs, or `npx wrangler tail` in `deploy/cloudflare`
 - **Containers:** `npx wrangler containers list`
 - **Scale:** raise `APP_INSTANCES` and `max_instances` in `wrangler.jsonc`; app instances are stateless
-- **Cold starts:** a cron trigger pings every instance every five minutes; instances sleep only after 30 idle minutes
+- **Cold starts:** a cron trigger pings every instance every minute (it also runs scheduled publishing); instances sleep only after 30 idle minutes
 - **Caching:** published pages are cached at the edge for 60 seconds, so a publish can take up to a minute to show everywhere; uploaded images are cached for a year (their URLs never change)
 - **Rollback:** site content from the editor (History → Published versions → Make live); the platform from Workers & Pages → sitecraft → Deployments
