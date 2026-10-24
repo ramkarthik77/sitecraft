@@ -8,6 +8,7 @@ const PATHS: Record<string, string> = {
   undo: "M5.5 4 2.5 7l3 3 M3 7h7a3.5 3.5 0 0 1 0 7H8",
   redo: "M10.5 4l3 3-3 3 M13 7H6a3.5 3.5 0 0 0 0 7h2",
   play: "M5 3.2v9.6L12.5 8Z",
+  home: "M2.5 7.5 8 3l5.5 4.5 M4 6.5v7h3v-4h2v4h3v-7",
   check: "M3 8.5 6.5 12 13 4.5",
   chevron: "M4.5 6 8 9.5 11.5 6",
   back: "M10 3.5 5.5 8l4.5 4.5",

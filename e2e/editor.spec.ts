@@ -33,10 +33,13 @@ test("sign in and create a site", async ({ page }) => {
   await expect(page.locator(".err")).toContainText("wasn't accepted");
   await page.fill("#token", EDITOR);
   await page.click("form.login button.primary");
-  await expect(page.getByRole("heading", { name: "Sites", exact: true })).toBeVisible();
+  // Home greets a newcomer with what to do first.
+  await expect(page.getByRole("heading", { name: "Get started" })).toBeVisible();
+  await expect(page.getByText("Create your first site")).toBeVisible();
 
+  await page.getByRole("button", { name: "New site" }).first().click();
   await page.getByLabel("Site name").fill("Northstar Coffee");
-  await page.getByLabel("Template").selectOption("saas");
+  await page.getByRole("radio", { name: /Product site/ }).check();
   await page.getByRole("button", { name: "Create site" }).click();
   await expect(page).toHaveURL(/\/sites\//);
   siteId = page.url().split("/sites/")[1]!.split("?")[0]!;
@@ -179,7 +182,8 @@ test("CMS: make a blog, write a post, list it on the home page and publish", asy
   await expect(page.getByLabel("Text", { exact: true })).toHaveValue("title");
 
   // A list of posts on the home page.
-  await page.getByRole("combobox", { name: "Page", exact: true }).selectOption({ label: "Home" });
+  await page.getByRole("button", { name: "Page", exact: true }).click();
+  await page.getByRole("option", { name: /^Home/ }).click();
   await page.getByRole("tab", { name: "Insert" }).click();
   await page.locator(".block-card", { hasText: "Blog list" }).click();
   await expect(canvas(page).getByText("Seasonal menu")).toBeVisible();
@@ -266,4 +270,46 @@ test("scroll story: insert a story, set a scroll effect, and the pinned visual f
     for (const j of [0, 1, 2].filter((j) => j !== i)) await expect(frames.nth(j)).toHaveCSS("opacity", "0");
   }
   await page.screenshot({ path: "test-results/story-preview.png" });
+});
+
+
+test("finding your way: home, a site's overview, a page, and switching pages", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches/main/ops`, {
+    ops: [
+      { op: "add_page", path: "/about", title: "About us", blocks: ["navbar", "text-section", "footer"] },
+      { op: "add_page", path: "/about/team", title: "Our team", blocks: ["navbar", "text-section", "footer"] },
+    ],
+    message: "About pages",
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  // Home: the site is under Recent sites; its name opens the overview.
+  await expect(page.getByRole("heading", { name: "Recent sites" })).toBeVisible();
+  await page.locator(".site-card .meta a", { hasText: "Northstar Coffee" }).click();
+  await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
+  await expect(page.getByRole("heading", { name: /Northstar Coffee/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /\/s\/northstar-coffee/ })).toBeVisible();
+  await expect(page.locator(".page-row", { hasText: "Our team" })).toBeVisible();
+  await expect(page.locator(".page-row", { hasText: "Page for each Blog item" })).toBeVisible();
+
+  // Edit on a page opens the editor on that page, and the address keeps it.
+  await page.locator(".page-row", { hasText: "Our team" }).getByRole("link", { name: "Edit" }).click();
+  await expect(page).toHaveURL(/page=/);
+  await expect(page.getByRole("button", { name: "Page", exact: true })).toContainText("Our team");
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("button", { name: "Page", exact: true })).toContainText("Our team");
+
+  // The page switcher finds pages by name and opens them with Enter.
+  await page.getByRole("button", { name: "Page", exact: true }).click();
+  await page.getByLabel("Find a page").fill("about us");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Page", exact: true })).toContainText("About us");
+
+  // The breadcrumb leads back to the overview, and the logo to Home.
+  await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Northstar Coffee" }).click();
+  await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
+  await page.getByRole("link", { name: "Home" }).first().click();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 });

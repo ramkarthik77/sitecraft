@@ -8,6 +8,7 @@ import { BrandsPage, TemplatesPage } from "./components/Library";
 import { AssetsPage } from "./components/Assets";
 import { Icon, Logo } from "./components/Icon";
 import { LayerScene, useTiltCards } from "./components/Scene3D";
+import { HomePage, NewSiteDialog, SiteCard, SiteOverview, useSitesAndReviews } from "./components/Home";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
 import { ToastProvider, useToast } from "./Toasts";
@@ -40,6 +41,15 @@ function Root() {
   if (checking) return null;
   if (!me) return <Login onDone={setMe} />;
 
+  const ov = /^\/sites\/([^/]+)\/overview\/?$/.exec(loc.path);
+  if (ov) {
+    return (
+      <DashShell me={me} active="sites">
+        <SiteOverview key={ov[1]} siteId={ov[1]!} me={me} />
+      </DashShell>
+    );
+  }
+  if (loc.path === "/sites" || loc.path === "/sites/") return <SitesList me={me} />;
   const m = /^\/sites\/([^/]+)/.exec(loc.path);
   if (m) {
     const q = new URLSearchParams(loc.search);
@@ -73,7 +83,11 @@ function Root() {
       </DashShell>
     );
   }
-  return <Home me={me} />;
+  return (
+    <DashShell me={me} active="home">
+      <HomePage me={me} connectCommand={connectCommand(me)} />
+    </DashShell>
+  );
 }
 
 function Login({ onDone }: { onDone: (m: Me) => void }) {
@@ -165,9 +179,10 @@ function connectCommand(me: Me): string {
 }
 
 
-type NavKey = "sites" | "templates" | "brands" | "assets" | "access";
+type NavKey = "home" | "sites" | "templates" | "brands" | "assets" | "access";
 const NAV: { key: NavKey; label: string; href: string; icon: string; admin?: boolean }[] = [
-  { key: "sites", label: "Sites", href: "/", icon: "grid" },
+  { key: "home", label: "Home", href: "/", icon: "home" },
+  { key: "sites", label: "Sites", href: "/sites", icon: "grid" },
   { key: "templates", label: "Templates", href: "/templates", icon: "pages" },
   { key: "brands", label: "Brands", href: "/brands", icon: "spark" },
   { key: "assets", label: "Assets", href: "/assets", icon: "image" },
@@ -237,66 +252,21 @@ export function DashShell({ me, active, reviews = 0, children }: { me: Me; activ
   );
 }
 
-function Home({ me }: { me: Me }) {
-  const [sites, setSites] = useState<SiteSummary[] | null>(null);
-  const [reviews, setReviews] = useState<PendingReview[]>([]);
-  const [name, setName] = useState("");
-  const [template, setTemplate] = useState("landing");
-  const [saved, setSaved] = useState<SavedTemplate[]>([]);
-  useEffect(() => {
-    Templates.list().then(setSaved).catch(() => {});
-  }, []);
-  const [busy, setBusy] = useState(false);
+function SitesList({ me }: { me: Me }) {
+  const { sites, reviews } = useSitesAndReviews();
   const [creating, setCreating] = useState(false);
   const [query, setQueryText] = useState("");
   const [show, setShow] = useState<"all" | "live" | "drafts">("all");
-  const toast = useToast();
-
-  useEffect(() => {
-    Sites.list()
-      .then(async (list) => {
-        setSites(list);
-        // Branches waiting for review, across every site.
-        const all = await Promise.all(
-          list.map((s) =>
-            Sites.branches(s.id)
-              .then((bs) => bs.filter((b) => b.name !== "main" && b.hasChanges).map((b) => ({ site: s, branch: b })))
-              .catch(() => [] as PendingReview[]),
-          ),
-        );
-        setReviews(all.flat().sort((a, b) => b.branch.updatedAt.localeCompare(a.branch.updatedAt)));
-      })
-      .catch((e) => toast({ text: e.message, tone: "error" }));
-  }, [toast]);
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const s = template.startsWith("t:") ? await Sites.create(name.trim(), "", template.slice(2)) : await Sites.create(name.trim(), template);
-      navigate(`/sites/${s.id}`);
-    } catch (err) {
-      toast({ text: (err as Error).message, tone: "error" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const preview = async (r: PendingReview) => {
-    const w = window.open("", "_blank");
-    const { url } = await Sites.previewUrl(r.site.id, r.branch.name);
-    if (w) w.location.href = url;
-  };
-
-  const inReview = new Set(reviews.map((r) => r.site.id));
-  const visible = (sites ?? []).filter((s) => {
-    if (query && !`${s.name} ${s.slug} ${s.domain ?? ""}`.toLowerCase().includes(query.toLowerCase())) return false;
-    if (show === "live") return !!s.liveUrl;
-    if (show === "drafts") return !s.liveUrl;
-    return true;
-  });
-  const showCreate = creating || (sites !== null && sites.length === 0);
   const grid = useTiltCards<HTMLDivElement>();
+  const inReview = new Set(reviews.map((r) => r.site.id));
+  const visible = (sites ?? [])
+    .filter((s) => {
+      if (query && !`${s.name} ${s.slug} ${s.domain ?? ""}`.toLowerCase().includes(query.toLowerCase())) return false;
+      if (show === "live") return !!s.liveUrl;
+      if (show === "drafts") return !s.liveUrl;
+      return true;
+    })
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 
   return (
     <DashShell me={me} active="sites" reviews={reviews.length}>
@@ -311,73 +281,11 @@ function Home({ me }: { me: Me }) {
             <input placeholder="Search sites" value={query} onChange={(e) => setQueryText(e.target.value)} />
           </label>
           {me.role !== "agent" && (
-            <button className="btn primary" style={{ height: 36 }} onClick={() => setCreating((c) => !c)} aria-expanded={showCreate}>
+            <button className="btn primary" style={{ height: 36 }} onClick={() => setCreating(true)}>
               <Icon name="plus" size={14} /> New site
             </button>
           )}
         </div>
-
-        {showCreate && (
-          <form className="create-panel" onSubmit={create}>
-            <input className="input" aria-label="Site name" placeholder="Name your site, e.g. Northstar Coffee" value={name} onChange={(e) => setName(e.target.value)} autoFocus={creating} />
-            <select className="select" aria-label="Template" value={template} onChange={(e) => setTemplate(e.target.value)}>
-              <optgroup label="Built in">
-                <option value="landing">Landing page</option>
-                <option value="saas">Product site</option>
-                <option value="blog">Blog</option>
-                <option value="blank">Blank</option>
-              </optgroup>
-              {saved.length > 0 && (
-                <optgroup label="Your templates">
-                  {saved.map((t) => (
-                    <option key={t.id} value={`t:${t.id}`}>
-                      {t.name}
-                      {t.brandName ? ` (${t.brandName})` : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <button className="btn light" disabled={!name.trim() || busy}>
-              Create site
-            </button>
-          </form>
-        )}
-
-        {reviews.length > 0 && (
-          <section id="reviews" aria-labelledby="reviews-title">
-            <h2 id="reviews-title">
-              Waiting for your review <span className="muted">{reviews.length === 1 ? "1 branch" : `${reviews.length} branches`}</span>
-            </h2>
-            <div className="review-grid">
-              {reviews.map((r) => (
-                <article key={`${r.site.id}:${r.branch.name}`} className="review-card">
-                  <div className="top">
-                    <span className="branch">{r.branch.name}</span>
-                    <span className="on">on</span>
-                    <span className="site">{r.site.name}</span>
-                    <span className="when">{ago(r.branch.updatedAt)}</span>
-                  </div>
-                  <p>
-                    {/claude|agent/i.test(r.branch.lastChangeBy) ? "Claude" : r.branch.lastChangeBy}: {r.branch.lastMessage || "Changes ready"}
-                  </p>
-                  <div className="actions">
-                    <a
-                      className="btn agent"
-                      href={`/sites/${r.site.id}?branch=${encodeURIComponent(r.branch.name)}&review=1`}
-                      onClick={(e) => (e.preventDefault(), navigate(`/sites/${r.site.id}?branch=${encodeURIComponent(r.branch.name)}&review=1`))}
-                    >
-                      Review
-                    </a>
-                    <button className="btn agent-outline" onClick={() => void preview(r)}>
-                      Preview
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        )}
 
         <section aria-labelledby="all-title">
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -390,32 +298,25 @@ function Home({ me }: { me: Me }) {
               ))}
             </div>
           </div>
-          {sites && sites.length === 0 && <div className="empty">No sites yet. Name your first one above, or ask Claude Code to create one.</div>}
+          {sites && sites.length === 0 && (
+            <div className="empty-state">
+              <strong>No sites yet</strong>
+              <span>Create one from a template, or ask Claude Code to build one for you.</span>
+              {me.role !== "agent" && (
+                <button className="btn primary" onClick={() => setCreating(true)}>
+                  <Icon name="plus" size={14} /> New site
+                </button>
+              )}
+            </div>
+          )}
           {sites && sites.length > 0 && visible.length === 0 && <div className="empty">No sites match. Clear the search or pick another filter.</div>}
           <div className="site-grid" ref={grid}>
             {visible.map((s, i) => (
-              <a key={s.id} className="site-card tilt" style={{ ["--i" as string]: Math.min(i, 12) }} href={`/sites/${s.id}`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${s.id}`))}>
-                <Thumb siteId={s.id} />
-                <div className="meta">
-                  <strong>
-                    {s.name}
-                    {inReview.has(s.id) ? (
-                      <span className="status review">In review</span>
-                    ) : s.liveUrl ? (
-                      <span className="status live">Live</span>
-                    ) : (
-                      <span className="status draft">Draft</span>
-                    )}
-                  </strong>
-                  <span className="sub">
-                    {s.liveUrl ? s.liveUrl.replace(/^https?:\/\//, "") : "Not published"}
-                    {s.updatedAt ? ` · edited ${ago(s.updatedAt)}` : ""}
-                  </span>
-                </div>
-              </a>
+              <SiteCard key={s.id} site={s} inReview={inReview.has(s.id)} index={i} />
             ))}
           </div>
         </section>
+        {creating && <NewSiteDialog onClose={() => setCreating(false)} />}
       </main>
     </DashShell>
   );

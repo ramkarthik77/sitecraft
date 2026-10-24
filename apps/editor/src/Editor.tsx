@@ -6,6 +6,7 @@ import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspecto
 import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
 import { Icon, Logo } from "./components/Icon";
 import { ELEMENTS, Insert } from "./components/Insert";
+import { orderedPages, PageSwitcher, templatePages } from "./components/PageSwitcher";
 import { Layers } from "./components/Layers";
 import { NodeInspector, PageInspector } from "./components/Inspector";
 import { navigate, setQuery } from "./router";
@@ -46,14 +47,18 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const ed = useEditor(siteId, branch, (m) => toast(m, "error"));
   const [site, setSite] = useState<SiteSummary | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [pageId, setPageId] = useState<string | null>(null);
+  // Links from Home and the site overview open a page, a tab, a CMS collection or a drawer.
+  const initial = useMemo(() => new URLSearchParams(location.search), []);
+  const [pageId, setPageId] = useState<string | null>(initial.get("page"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [bp, setBp] = useState<Breakpoint>("base");
-  const [tab, setTab] = useState<Tab>("layers");
+  const [tab, setTab] = useState<Tab>(() => (["layers", "insert", "pages", "cms"].includes(initial.get("tab") ?? "") ? (initial.get("tab") as Tab) : "layers"));
   const [filter, setFilter] = useState("");
-  const [drawer, setDrawer] = useState<DrawerKind>(props.review && branch !== "main" ? "review" : null);
+  const [drawer, setDrawer] = useState<DrawerKind>(
+    props.review && branch !== "main" ? "review" : initial.get("open") === "settings" ? "settings" : initial.get("open") === "history" ? "history" : null,
+  );
   const [newBranch, setNewBranch] = useState<string | null>(null);
-  const [newPage, setNewPage] = useState<{ path: string; title: string } | null>(null);
+  const [newPage, setNewPage] = useState<{ path: string; title: string } | null>(initial.get("new") === "page" ? { path: "", title: "" } : null);
   const [scrollTick, setScrollTick] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [work, setWork] = useState<BranchWork>(NO_WORK);
@@ -66,13 +71,23 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const loadComments = useCallback(() => Comments.list(siteId, branch).then(setComments).catch(() => {}), [siteId, branch]);
   const [scheduling, setScheduling] = useState(false);
   const loadSchedules = useCallback(() => Schedules.list(siteId).then(setSchedules).catch(() => {}), [siteId]);
-  const [cmsId, setCmsId] = useState<string | null>(null);
+  const [cmsId, setCmsId] = useState<string | null>(initial.get("cms"));
   const [cmsItemId, setCmsItemId] = useState<string | null>(null);
   /** On a template page, the item the canvas shows. */
   const [templateItem, setTemplateItem] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
 
   const doc = ed.doc;
+
+  // Keep the open page in the address bar, so a link or a reload lands on it.
+  useEffect(() => {
+    if (!doc || !pageId || !doc.pages.some((p) => p.id === pageId)) return;
+    const q = new URLSearchParams(location.search);
+    if (q.get("page") === pageId) return;
+    q.set("page", pageId);
+    for (const k of ["tab", "new", "open", "cms"]) q.delete(k);
+    history.replaceState(null, "", `${location.pathname}?${q}`);
+  }, [doc, pageId]);
   const page = doc?.pages.find((p) => p.id === pageId) ?? doc?.pages[0] ?? null;
   const selected = useMemo(() => (doc && selectedId ? findNodeInDocument(doc, selectedId)?.node ?? null : null), [doc, selectedId]);
   const cmsCollection = doc && tab === "cms" && cmsId ? findCollection(doc, cmsId) ?? null : null;
@@ -389,17 +404,17 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   return (
     <div className="shell">
       <header className="topbar">
-        <a href="/" onClick={(e) => (e.preventDefault(), navigate("/"))} aria-label="All sites" style={{ display: "flex" }}>
+        <a href="/" onClick={(e) => (e.preventDefault(), navigate("/"))} aria-label="Home" style={{ display: "flex" }}>
           <Logo size={26} />
         </a>
         <nav className="crumbs hide-narrow" aria-label="Breadcrumb">
-          <a href="/" onClick={(e) => (e.preventDefault(), navigate("/"))}>
+          <a href="/sites" onClick={(e) => (e.preventDefault(), navigate("/sites"))}>
             Sites
           </a>
           <span aria-hidden="true">/</span>
-          <span className="current" title={site?.name}>
+          <a className="current" href={`/sites/${siteId}/overview`} title={`${site?.name ?? ""}: overview`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${siteId}/overview`))}>
             {site?.name}
-          </span>
+          </a>
         </nav>
 
         {newBranch === null ? (
@@ -435,16 +450,13 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           </form>
         )}
 
-        <span className="picker hide-narrow">
-          <select aria-label="Page" value={page.id} onChange={(e) => (setPageId(e.target.value), setSelectedId(null))}>
-            {doc.pages.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.path === "/" ? "Home" : p.path}
-              </option>
-            ))}
-          </select>
-          <Icon name="chevron" size={14} style={{ position: "absolute", right: 9, pointerEvents: "none", color: "var(--ink-3)" }} />
-        </span>
+        <PageSwitcher
+          doc={doc}
+          page={page}
+          onOpen={(id) => (setPageId(id), setSelectedId(null))}
+          onNewPage={() => (setTab("pages"), setNewPage({ path: "", title: "" }))}
+          onAllPages={() => navigate(`/sites/${siteId}/overview`)}
+        />
         {locales.length > 0 && (
           <span className={`picker hide-narrow ${activeLocale ? "lang-on" : ""}`} title="Language to view and translate">
             <select aria-label="Language" value={activeLocale ?? ""} onChange={(e) => (setLocale(e.target.value || null), setSelectedId(null))}>
@@ -629,13 +641,22 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             )}
             {tab === "pages" && (
               <div style={{ paddingTop: 8 }}>
-                {doc.pages.map((p) => (
-                  <div key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} onClick={() => (setPageId(p.id), setSelectedId(null))}>
-                    <Icon name={p.collectionId ? "database" : "pages"} size={14} style={p.collectionId ? { color: "var(--cms)" } : undefined} />
-                    <span className="grow">{p.title}</span>
+                {orderedPages(doc).map(({ page: p, depth, label }) => (
+                  <button key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} style={{ paddingLeft: 12 + depth * 16 }} aria-current={p.id === page.id ? "page" : undefined} onClick={() => (setPageId(p.id), setSelectedId(null))}>
+                    <Icon name={p.path === "/" ? "home" : "pages"} size={14} />
+                    <span className="grow">{label}</span>
                     {p.unpublished && <span className="type-chip hidden-chip">Hidden</span>}
                     <span className="mono muted">{p.path}</span>
-                  </div>
+                  </button>
+                ))}
+                {templatePages(doc).length > 0 && <div className="section-title">CMS item pages</div>}
+                {templatePages(doc).map(({ page: p, label, items }) => (
+                  <button key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} aria-current={p.id === page.id ? "page" : undefined} onClick={() => (setPageId(p.id), setSelectedId(null))}>
+                    <Icon name="database" size={14} style={{ color: "var(--cms)" }} />
+                    <span className="grow">{label}</span>
+                    <span className="muted small">{items} {items === 1 ? "item" : "items"}</span>
+                    <span className="mono muted">{p.path}</span>
+                  </button>
                 ))}
                 {newPage ? (
                   <form
