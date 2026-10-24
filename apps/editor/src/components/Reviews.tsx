@@ -21,6 +21,9 @@ const STATUS: Record<Review["status"], { label: string; tone: "human" | "ok" | "
   withdrawn: { label: "Withdrawn", tone: "muted" },
 };
 
+/** With no sign-off required, an "approved" review is simply ready to merge. */
+const statusOf = (r: Review) => (r.status === "approved" && !r.approvals?.required ? { label: "Ready to merge", tone: "ok" as const } : STATUS[r.status]);
+
 /** Who did it, in words: Claude, or the person. */
 const who = (name: string, role: string) => (role === "agent" ? "Claude" : name);
 
@@ -305,7 +308,7 @@ export function BranchSignOff({ siteId, branch, me, refreshKey, onChanged }: { s
             {info.approvals.length} of {info.required}
           </span>
         )}
-        {review && <Pill tone={STATUS[review.status].tone}>{STATUS[review.status].label}</Pill>}
+        {review && <Pill tone={statusOf(review).tone}>{statusOf(review).label}</Pill>}
       </h3>
       <SignOff info={info} compact />
       {info.changesRequested && <div className="callout danger small">A reviewer asked for changes. Make them, then send the branch for review again.</div>}
@@ -372,7 +375,7 @@ function DisciplineDots({ r }: { r: Review }) {
 }
 
 function ReviewRow({ r, showSite = true }: { r: Review; showSite?: boolean }) {
-  const st = STATUS[r.status];
+  const st = statusOf(r);
   const href = `/reviews/${r.id}`;
   return (
     <li className="rv-row">
@@ -525,7 +528,7 @@ export function ReviewDetailPage({ me, id }: { me: Me; id: string }) {
   useEffect(load, [load]);
   if (!r) return <main className="page"><div className="tm-loading" /></main>;
 
-  const st = STATUS[r.status];
+  const st = statusOf(r);
   const active = r.status === "open" || r.status === "changes_requested" || r.status === "approved";
   const isAuthor = r.authors.includes(me.name) || r.requestedBy === me.name;
   const person = me.role !== "agent";
@@ -667,7 +670,7 @@ export function ReviewDetailPage({ me, id }: { me: Me; id: string }) {
               {info && !info.canApprove && info.reason && r.status === "open" && <p className="muted small">{info.reason}</p>}
               {r.authors.length > 0 && (
                 <p className="muted small" style={{ marginBottom: 0 }}>
-                  Changed by {r.authors.map((a) => (/claude|agent/i.test(a) ? `${a} (Claude)` : a)).join(", ")}. They can't sign off their own work.
+                  Changed by {r.authors.map((a) => (/agent/i.test(a) && !/claude/i.test(a) ? `${a} (Claude)` : a)).join(", ")}. They can't sign off their own work.
                 </p>
               )}
             </div>

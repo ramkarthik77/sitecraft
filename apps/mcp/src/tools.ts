@@ -32,7 +32,8 @@ const OPS_HELP = `Each operation is an object with an "op" field:
 - update_node {nodeId, props?, style?, breakpoint?: base|tablet|mobile, name?, animation?:{preset,trigger,durationMs?,delayMs?,easing?,staggerMs?}|null, hover?:{preset?,style?}|null, parallax?: -0.5..0.5|null, hidden?} (set_motion is easier for motion)
   (props/style merge; set a key to null to remove it)
 - remove_node {nodeId} · move_node {nodeId, parentId, index?} · duplicate_node {nodeId}
-- add_page {path, title, description?, blocks?[]} · update_page {pageId, title?, description?, ogImage?} · remove_page {pageId}
+- add_page {path, title, description?, blocks?[]} · update_page {pageId, title?, description?, ogImage?, jobCode?} · remove_page {pageId}
+  jobCode is the page's approval code (e.g. US-CAL-2400123), shown at the foot of the published page; some sites need one on every page before publishing
 - move_page {pageId, path} moves a page and the pages under it (/about → /company moves /about/team too), updates links, and redirects the old addresses. Nest a page by giving it a path under another (/about/history).
 - set_redirects {redirects:[{from:"/old", to:"/new"}]} replaces the site's redirect list (from may end in /:slug)
 - set_theme {colors?:{primary,on-primary,background,surface,text,muted,border}, fonts?:{heading,body}, radius?}
@@ -525,7 +526,7 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
     {
       title: "Search the image library",
       description:
-        "Find approved images in the company library by words (title, alt text, credit, tags) or a tag. Use these URLs for image src and CMS image fields, with their alt text, instead of images from elsewhere. Set objectPosition from focalX/focalY (e.g. \"30% 60%\") when cropping.",
+        "Find approved images in the company library by words (title, alt text, credit, tags) or a tag. Only approved images with current usage rights are listed; respect 'cleared for' markets. Use these URLs for image src and CMS image fields, with their alt text, instead of images from elsewhere. Set objectPosition from focalX/focalY (e.g. \"30% 60%\") when cropping.",
       inputSchema: { query: z.string().optional(), tag: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
       annotations: { readOnlyHint: true },
     },
@@ -535,13 +536,15 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
         if (query) q.set("q", query);
         if (tag) q.set("tag", tag);
         q.set("limit", String(limit ?? 20));
-        const list = await client.get<{ url: string; title: string; alt: string; tags: string[]; width: number | null; height: number | null; focalX: number; focalY: number; expired: boolean; credit: string }[]>(`/assets?${q}`);
+        q.set("status", "approved");
+        const list = await client.get<{ url: string; title: string; alt: string; tags: string[]; width: number | null; height: number | null; focalX: number; focalY: number; expired: boolean; credit: string; jobCode: string | null; markets: string[] }[]>(`/assets?${q}`);
+        // Only approved images with current rights; others would stop the site from publishing.
         const usable = list.filter((a) => !a.expired);
         if (!usable.length) return "No matching images in the library. Ask the person to add one in Assets, or leave the image for them to choose.";
         return (
           UNTRUSTED +
           usable
-            .map((a) => `- ${a.title || "(untitled)"} — ${a.url}\n  alt: ${a.alt || "(none: write one)"} · ${a.width ?? "?"}×${a.height ?? "?"} · focal ${Math.round(a.focalX * 100)}% ${Math.round(a.focalY * 100)}%${a.tags.length ? ` · tags: ${a.tags.join(", ")}` : ""}${a.credit ? ` · ${a.credit}` : ""}`)
+            .map((a) => `- ${a.title || "(untitled)"} — ${a.url}\n  alt: ${a.alt || "(none: write one)"} · ${a.width ?? "?"}×${a.height ?? "?"} · focal ${Math.round(a.focalX * 100)}% ${Math.round(a.focalY * 100)}%${a.tags.length ? ` · tags: ${a.tags.join(", ")}` : ""}${a.credit ? ` · ${a.credit}` : ""}${a.jobCode ? ` · ${a.jobCode}` : ""}${a.markets?.length ? ` · cleared for ${a.markets.join(", ")} only` : ""}`)
             .join("\n")
         );
       }),
@@ -679,19 +682,98 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
     "request_review",
     {
       title: "Request review",
-      description: "Finish your task: returns the change summary and the review link to give the person, who merges and publishes.",
-      inputSchema: { site, branch, summary: z.string().describe("What you changed and why, in a few sentences") },
-      annotations: { readOnlyHint: true },
+      description:
+        "Finish your task: sends the branch for review in Sitecraft (medical, legal and regulatory sign-off where the site needs it) and returns the change summary and review link to give the person. You can't approve or sign; reviewers do.",
+      inputSchema: {
+        site,
+        branch,
+        summary: z.string().describe("What you changed and why, in a few sentences; sources for any claims"),
+        title: z.string().max(160).optional().describe("Short name for the review, e.g. 'Updated efficacy claims'. Defaults to the first sentence of the summary."),
+        jobCode: z.string().max(40).optional().describe("Job code for this material; defaults to the site's"),
+        dueAt: z.string().optional().describe("When review is needed by, ISO date and time"),
+      },
     },
-    ({ site: s, branch: b, summary }) =>
+    ({ site: s, branch: b, summary, title, jobCode, dueAt }) =>
       run(async () => {
         const id = await resolveId(s);
         const [d, links] = await Promise.all([
           client.get<{ summary: string[]; brandIssues?: string[] }>(`/sites/${id}/branches/${enc(b)}/diff`),
           client.get<{ url: string; editorUrl: string }>(`/sites/${id}/branches/${enc(b)}/preview-url`),
         ]);
+        const name = (title?.trim() || summary.split(/(?<=[.!?])\s/)[0] || `Review ${b}`).slice(0, 160);
+        let review = "";
+        try {
+          const r = await client.post<{ id: string; approvals: { required: number; missing: string[] } | null; jobCode: string | null }>(`/sites/${id}/branches/${enc(b)}/reviews`, { title: name, note: summary, jobCode, dueAt });
+          const need = r.approvals?.missing.length ? `It needs sign-off from: ${r.approvals.missing.join(", ")}.` : r.approvals?.required ? `It needs ${r.approvals.required} approvals.` : "No sign-off is required on this site; a person still merges it.";
+          review = `Sent "${name}" for review${r.jobCode ? ` (${r.jobCode})` : ""}. ${need} Reviewers see it in My work.`;
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409) review = "This branch already has a review in progress; reviewers will see the latest version.";
+          else throw e;
+        }
         const brand = d.brandIssues?.length ? `\n\nOff-brand (fix these before asking for review if you can):\n${d.brandIssues.map((x) => `- ${x}`).join("\n")}` : "";
-        return `Ready for review.\n\n${summary}\n\nChanges:\n${d.summary.join("\n") || "(none)"}${brand}\n\nPreview: ${links.url}\nReview and merge: ${links.editorUrl}&review=1`;
+        return `${review}\n\n${summary}\n\nChanges:\n${d.summary.join("\n") || "(none)"}${brand}\n\nPreview: ${links.url}\nReview and merge: ${links.editorUrl}&review=1`;
+      }),
+  );
+
+  server.registerTool(
+    "list_reviews",
+    {
+      title: "List reviews",
+      description: "Open MLR reviews, optionally for one site: their status, which disciplines have signed, and reasons given for changes. Use it to see what reviewers asked you to fix.",
+      inputSchema: { site: site.optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s }) =>
+      run(async () => {
+        const id = s ? await resolveId(s) : undefined;
+        const list = await client.get<{ id: string; siteName: string; branch: string; title: string; status: string; jobCode: string | null; dueAt: string | null; approvals: { have: number; required: number; missing: string[] } | null }[]>(
+          `/reviews${id ? `?siteId=${enc(id)}` : ""}`,
+        );
+        if (!list.length) return "No open reviews.";
+        const lines = await Promise.all(
+          list.map(async (r) => {
+            let reasons = "";
+            if (r.status === "changes_requested") {
+              const d = await client.get<{ events: { action: string; actor: string; discipline: string | null; reason: string }[] }>(`/reviews/${r.id}`);
+              const asks = d.events.filter((e) => e.action === "request_changes").slice(-3);
+              reasons = asks.map((e) => `\n    ${e.actor}${e.discipline ? ` (${e.discipline})` : ""} asked: ${e.reason}`).join("");
+            }
+            const sign = r.approvals ? (r.approvals.missing.length ? `waiting on ${r.approvals.missing.join(", ")}` : r.approvals.required ? `${r.approvals.have} of ${r.approvals.required} approvals` : "no sign-off needed") : "";
+            const status = r.status === "approved" ? (r.approvals?.required ? "signed off" : "ready to merge") : r.status.replace("_", " ");
+            return `- ${r.title} · ${r.siteName} · ${r.branch} · ${status}${sign ? ` · ${sign}` : ""}${r.jobCode ? ` · ${r.jobCode}` : ""}${r.dueAt ? ` · due ${r.dueAt}` : ""}${reasons}`;
+          }),
+        );
+        return UNTRUSTED + lines.join("\n") + "\n\nAfter making the changes on the branch, call resubmit_review.";
+      }),
+  );
+
+  server.registerTool(
+    "resubmit_review",
+    {
+      title: "Send for review again",
+      description: "After making the changes reviewers asked for on the branch, send its review back to them.",
+      inputSchema: { reviewId: z.string().describe("The review's id, from list_reviews or request_review"), note: z.string().max(2000).optional().describe("What you changed") },
+    },
+    ({ reviewId, note }) =>
+      run(async () => {
+        await client.post(`/reviews/${enc(reviewId)}/resubmit`, { note });
+        return "Sent for review again. Earlier sign-offs don't carry over to the changed version; reviewers sign again.";
+      }),
+  );
+
+  server.registerTool(
+    "check_publish_readiness",
+    {
+      title: "Check what blocks publishing",
+      description: "List what stops a site's main version from being published: pages without job codes (when required) and library images that are expired, unapproved, or not cleared for the site's market.",
+      inputSchema: { site },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s }) =>
+      run(async () => {
+        const id = await resolveId(s);
+        const r = await client.get<{ ready: boolean; blockers: { message: string }[] }>(`/sites/${id}/readiness`);
+        return r.ready ? "Nothing blocks publishing." : `Blocking publish:\n${r.blockers.map((b) => `- ${b.message}`).join("\n")}`;
       }),
   );
 
