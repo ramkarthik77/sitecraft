@@ -552,7 +552,8 @@ export function SiteActivity({ siteId, me }: { siteId: string; me: Me }) {
 export function SiteHistory({ siteId, me }: { siteId: string; me: Me }) {
   const { site } = useSite(siteId);
   const [warp, setWarp] = useState("");
-  const [tm, setTm] = useState<number | null>(() => Number(new URLSearchParams(location.search).get("version")) || 0);
+  // Opens on a version when linked to one (?version=…); otherwise on request.
+  const [tm, setTm] = useState<number | null>(() => Number(new URLSearchParams(location.search).get("version")) || null);
   const toast = useToast();
   return (
     <main className="page">

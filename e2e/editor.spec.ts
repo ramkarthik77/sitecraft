@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const EDITOR = process.env.E2E_EDITOR_TOKEN ?? "e2e-editor";
 const AGENT = process.env.E2E_AGENT_TOKEN ?? "e2e-agent";
+const ADMIN = process.env.E2E_ADMIN_TOKEN ?? "e2e-admin";
 
 async function apiCall(page: Page, token: string, method: string, path: string, data?: unknown) {
   const res = await page.request.fetch(`/api${path}`, { method, headers: { authorization: `Bearer ${token}` }, data });
@@ -40,7 +41,7 @@ test("sign in and create a site", async ({ page }) => {
   await page.getByRole("button", { name: "New site" }).first().click();
   await page.getByLabel("Site name").fill("Northstar Coffee");
   await page.getByRole("radio", { name: /Product site/ }).check();
-  await page.getByRole("button", { name: "Create site" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Create site" }).click();
   await expect(page).toHaveURL(/\/sites\//);
   siteId = page.url().split("/sites/")[1]!.split("?")[0]!;
   await expect(canvas(page).locator("h1")).toContainText("Build beautiful sites");
@@ -291,9 +292,9 @@ test("finding your way: home, a site's overview, a page, and switching pages", a
   });
   await page.reload({ waitUntil: "domcontentloaded" });
 
-  // Home: the site is under Recent sites; its name opens the overview.
+  // Home: the site is under Recent sites; it opens the site's overview.
   await expect(page.getByRole("heading", { name: "Recent sites" })).toBeVisible();
-  await page.locator(".site-card .meta a", { hasText: "Northstar Coffee" }).click();
+  await page.locator(".tile", { hasText: "Northstar Coffee" }).click();
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
   await expect(page.getByRole("heading", { name: /Northstar Coffee/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /\/s\/northstar-coffee/ })).toBeVisible();
@@ -313,10 +314,15 @@ test("finding your way: home, a site's overview, a page, and switching pages", a
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Page", exact: true })).toContainText("About us");
 
-  // The breadcrumb leads back to the overview, and the logo to Home.
+  // The breadcrumb leads back to the overview; inside a site the sidebar is the site's.
   await page.getByRole("navigation", { name: "Breadcrumb" }).getByRole("link", { name: "Northstar Coffee" }).click();
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
-  await page.getByRole("link", { name: "Home" }).first().click();
+  const siteNav = page.getByRole("navigation", { name: "Site" });
+  await siteNav.getByRole("link", { name: "Branches" }).click();
+  await expect(page.getByRole("heading", { name: "Branches" })).toBeVisible();
+  await siteNav.getByRole("link", { name: "All sites" }).click();
+  await expect(page.getByRole("heading", { name: "All sites" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Home" }).click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
 });
 
@@ -374,6 +380,7 @@ test("quick find: jump to a site, a page or an action from anywhere", async ({ p
   await page.keyboard.press("ControlOrMeta+k");
   const cp = page.getByRole("dialog", { name: "Quick find" });
   await cp.getByLabel("Find a site, page or action").fill("northstar");
+  await expect(cp.getByRole("option").first()).toContainText("Northstar Coffee");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
 
@@ -426,22 +433,112 @@ test("calendar, activity and who has access", async ({ page }) => {
   await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Releases" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator(".cal-day.today .cal-chip").first()).toContainText("Northstar Coffee");
   await expect(page.locator(".cal-side")).toContainText("Published");
   await page.getByLabel("Time zone").selectOption("Asia/Tokyo");
 
-  await page.goto(`/sites/${siteId}/overview`, { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await page.goto(`/sites/${siteId}/activity`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
   await expect(page.locator(".act-row").first()).toBeVisible();
   await page.getByRole("group", { name: "Kind of activity" }).getByRole("button", { name: "Publishing" }).click();
   await expect(page.locator(".act-row", { hasText: "published version" }).first()).toBeVisible();
   await expect(page.locator(".access-list li", { hasText: "e2e-editor" }).or(page.locator(".access-list li").first())).toBeVisible();
 
   // The live site as it was a moment ago opens history on that version.
+  await page.goto(`/sites/${siteId}/history`, { waitUntil: "domcontentloaded" });
   const at = new Date(Date.now() + 60_000);
   const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   await page.getByLabel("See the live site as it was on").fill(local);
   await page.locator(".ov-warp").getByRole("button", { name: "Show" }).click();
   await expect(page.getByRole("dialog", { name: "History" })).toBeVisible();
   await expect(page.locator(".tm-detail")).toContainText(/Live now|Published/);
+});
+
+test("MLR review: ask for review, sign off by discipline, send back, merge", async ({ page }) => {
+  // Two reviewers, and a site that needs medical and legal sign-off.
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const doctor = (await apiCall(page, ADMIN, "POST", "/tokens", { name: "Dr Lee", role: "editor", disciplines: ["medical"] })).token;
+  const lawyer = (await apiCall(page, ADMIN, "POST", "/tokens", { name: "Ana Legal", role: "editor", disciplines: ["legal"] })).token;
+  await apiCall(page, EDITOR, "PUT", `/sites/${siteId}/profile`, { therapyArea: "Immunology", market: "US", audience: "hcp", jobCode: "US-NSC-2400001" });
+  await apiCall(page, ADMIN, "PUT", `/sites/${siteId}/policy`, { reviewDisciplines: ["medical", "legal"] });
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches`, { name: "claims" });
+  const doc = (await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/claims`)).document;
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches/claims/ops`, { ops: [{ op: "add_block", parentId: doc.pages[0].root.id, block: "text-section" }], message: "Add efficacy claims" });
+
+  // The editor asks for review from the site's Branches.
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.goto(`/sites/${siteId}/branches`, { waitUntil: "domcontentloaded" });
+  await page.locator(".wq-row", { hasText: "claims" }).getByRole("button", { name: "Request review" }).click();
+  const ask = page.getByRole("dialog", { name: "Request MLR review" });
+  await ask.getByPlaceholder("e.g. Updated efficacy claims").fill("Efficacy claims");
+  await expect(ask.getByPlaceholder("US-CAL-2400123")).toHaveValue("US-NSC-2400001");
+  await ask.getByRole("button", { name: "Send for review" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Sent for review");
+
+  // The doctor finds it in My work and signs.
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), doctor);
+  await page.goto("/work", { waitUntil: "domcontentloaded" });
+  await page.locator(".wq-row", { hasText: "Efficacy claims" }).getByRole("link", { name: "Review" }).click();
+  await expect(page.getByRole("heading", { name: /Efficacy claims/ })).toBeVisible();
+  await page.getByRole("button", { name: "Approve and sign" }).click();
+  const sign = page.getByRole("dialog", { name: "Approve and sign" });
+  await expect(sign).toContainText("Approved in medical review");
+  await sign.getByLabel("Your full name").fill("Dr Lee");
+  await sign.getByLabel("Sign-in token").fill(doctor);
+  await sign.getByRole("checkbox").check();
+  await sign.getByRole("button", { name: "Sign" }).click();
+  await expect(page.locator(".signoff li.done")).toContainText("Dr Lee");
+
+  // Legal sends it back; the editor fixes it and sends it again.
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), lawyer);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Ask for changes" }).click();
+  await page.getByRole("dialog", { name: "Ask for changes" }).getByRole("textbox").fill("Add the fair balance statement");
+  await page.getByRole("button", { name: "Send back" }).click();
+  await expect(page.getByRole("heading", { name: /Efficacy claims/ })).toContainText("Changes requested");
+  await expect(page.locator(".trail")).toContainText("Add the fair balance statement");
+
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Send for review again" }).click();
+  await expect(page.getByRole("heading", { name: /Efficacy claims/ })).toContainText("Waiting for review");
+
+  // Both sign this version, and it can be merged.
+  for (const [token, name] of [
+    [doctor, "Dr Lee"],
+    [lawyer, "Ana Legal"],
+  ]) {
+    await apiCall(page, token, "POST", `/sites/${siteId}/branches/claims/approvals`, { discipline: name === "Dr Lee" ? "medical" : "legal", signature: { name, token } });
+  }
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /Efficacy claims/ })).toContainText("Approved");
+  await page.getByRole("button", { name: "Merge into main" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Merged claims into main");
+  await expect(page.getByRole("heading", { name: /Efficacy claims/ })).toContainText("Merged");
+  await apiCall(page, ADMIN, "PUT", `/sites/${siteId}/policy`, { reviewDisciplines: [] });
+});
+
+test("the workspace: directory filters, asset rights, audit integrity and settings", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), ADMIN);
+  await page.goto("/sites", { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Market").selectOption("US");
+  await expect(page.locator(".dtable tbody tr", { hasText: "Northstar Coffee" })).toContainText("Immunology");
+  await page.getByRole("button", { name: "By brand" }).click();
+  await expect(page.getByRole("heading", { name: /Immunology/ })).toBeVisible();
+
+  await page.goto("/audit", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".integrity")).toContainText("Integrity verified");
+  await page.getByLabel("Kind of event").selectOption("review.");
+  await expect(page.locator(".audit-row").first()).toContainText(/review|changes/i);
+
+  await page.goto("/settings", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Built-in rules" })).toBeVisible();
+  await page.getByLabel("Dr Lee reviews for regulatory").check();
+  await expect(page.locator(".toast").first()).toContainText("Dr Lee now reviews for regulatory");
+
+  // A notification for what others did.
+  await page.getByRole("button", { name: /Notifications/ }).click();
+  await expect(page.getByRole("dialog", { name: "Notifications" })).toContainText(/asked for review|merged/);
 });

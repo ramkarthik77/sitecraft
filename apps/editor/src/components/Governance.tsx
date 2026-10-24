@@ -384,12 +384,14 @@ export function SettingsPage({ me }: { me: Me }) {
                           type="checkbox"
                           aria-label={`${t.name} reviews for ${d}`}
                           checked={on}
-                          onChange={() =>
-                            void Tokens.update(t.id, { disciplines: on ? (t.disciplines ?? []).filter((x) => x !== d) : [...(t.disciplines ?? []), d] }).then(
-                              () => (toast({ text: `${t.name} ${on ? "no longer reviews" : "now reviews"} for ${d}` }), loadTokens()),
-                              (e) => toast({ text: e.message, tone: "error" }),
-                            )
-                          }
+                          onChange={() => {
+                            const next = on ? (t.disciplines ?? []).filter((x) => x !== d) : [...(t.disciplines ?? []), d];
+                            setTokens((list) => list?.map((x) => (x.id === t.id ? { ...x, disciplines: next } : x)) ?? list);
+                            void Tokens.update(t.id, { disciplines: next }).then(
+                              () => toast({ text: `${t.name} ${on ? "no longer reviews" : "now reviews"} for ${d}` }),
+                              (e) => (toast({ text: e.message, tone: "error" }), loadTokens()),
+                            );
+                          }}
                         />
                       </td>
                     );

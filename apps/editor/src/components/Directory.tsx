@@ -209,10 +209,12 @@ export function SitesDirectory({ me }: { me: Me }) {
                       )}
                     </td>
                     <td className="muted">{s.pageCount ?? "–"}</td>
-                    <td className="dt-work">
-                      {!!s.openReviews && <Pill tone="human">{s.openReviews} in review</Pill>}
-                      {!!s.claudeBranches && <Pill tone="agent">{s.claudeBranches} from Claude</Pill>}
-                      {!s.openReviews && !s.claudeBranches && <span className="muted small">–</span>}
+                    <td>
+                      <span className="dt-work">
+                        {!!s.openReviews && <Pill tone="human">{s.openReviews} in review</Pill>}
+                        {!!s.claudeBranches && <Pill tone="agent">{s.claudeBranches} from Claude</Pill>}
+                        {!s.openReviews && !s.claudeBranches && <span className="muted small">–</span>}
+                      </span>
                     </td>
                     <td>
                       <Pill tone={st.tone}>{st.label}</Pill>

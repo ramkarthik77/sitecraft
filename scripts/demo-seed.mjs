@@ -118,23 +118,60 @@ await call("POST", `/sites/${ids["Calvexa UK HCP"]}/schedules`, { branch: "main"
 await call("POST", `/sites/${ids["Calvexa US HCP"]}/schedules`, { branch: "efficacy-update", runAt: due(96), note: "Week 52 data launch" }, editor);
 
 // Library assets with job codes, markets and rights.
-const png = (w, h) => {
-  const b = Buffer.alloc(33);
-  Buffer.from("89504e470d0a1a0a0000000d49484452", "hex").copy(b, 0);
-  b.writeUInt32BE(w, 16);
-  b.writeUInt32BE(h, 20);
-  b[24] = 8;
-  b[25] = 6;
-  return b;
+// A real PNG: a soft two-colour gradient, so the library has something to show.
+const crcTable = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+const crc = (buf) => {
+  let c = 0xffffffff;
+  for (const x of buf) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 };
-for (const [title, code, markets, status, days, b] of [
+const chunk = (type, data) => {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from(type), data]);
+  const c = Buffer.alloc(4);
+  c.writeUInt32BE(crc(td));
+  return Buffer.concat([len, td, c]);
+};
+const { deflateSync } = await import("node:zlib");
+const png = (w, h, [r1, g1, b1], [r2, g2, b2]) => {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 3 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      const t = (x / w) * 0.6 + (y / h) * 0.4;
+      const glow = Math.max(0, 1 - Math.hypot(x / w - 0.7, y / h - 0.35) * 2.2) * 60;
+      const o = y * (w * 3 + 1) + 1 + x * 3;
+      raw[o] = Math.min(255, r1 + (r2 - r1) * t + glow);
+      raw[o + 1] = Math.min(255, g1 + (g2 - g1) * t + glow);
+      raw[o + 2] = Math.min(255, b1 + (b2 - b1) * t + glow);
+    }
+  }
+  return Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+};
+const COLORS = [
+  [[30, 64, 175], [56, 189, 248]],
+  [[15, 118, 110], [253, 224, 171]],
+  [[91, 33, 182], [244, 114, 182]],
+  [[51, 65, 85], [203, 213, 225]],
+];
+for (const [i, [title, code, markets, status, days, b]] of [
   ["Calvexa hero, clinic", "GLB-CAL-2600018", [], "approved", 400, "Calvexa"],
   ["Calvexa patient lifestyle", "US-CAL-2400148", ["US"], "approved", 5, "Calvexa"],
   ["Neurivo mechanism of action", "GB-NEU-2500219", ["GB", "DE"], "in_review", null, "Neurivo"],
   ["Corporate campus", "GLB-COR-2600002", [], "approved", null, null],
-]) {
-  const a = await call("POST", `/assets?filename=${encodeURIComponent(title.toLowerCase().replace(/\W+/g, "-"))}.png&title=${encodeURIComponent(title)}`, undefined, admin, { type: "image/png", data: png(1600, 900) });
-  await call("PATCH", `/assets/${a.id}`, { jobCode: code, markets, status, expiresAt: days ? new Date(Date.now() + days * 864e5).toISOString().slice(0, 10) : null, brandId: b ? brand[b] : null });
+].entries()) {
+  const a = await call("POST", `/assets?filename=${encodeURIComponent(title.toLowerCase().replace(/\W+/g, "-"))}.png&title=${encodeURIComponent(title)}`, undefined, admin, { type: "image/png", data: png(480, 300, ...COLORS[i]) });
+  await call("PATCH", `/assets/${a.id}`, { alt: title, jobCode: code, markets, status, expiresAt: days ? new Date(Date.now() + days * 864e5).toISOString().slice(0, 10) : null, brandId: b ? brand[b] : null });
 }
 
 console.log(`\nDone. Open ${base} to see the demo portfolio.`);

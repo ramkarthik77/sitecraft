@@ -309,7 +309,7 @@ a.stat:hover { border-color: color-mix(in srgb, var(--tone) 45%, var(--line-2));
 .audit-list { list-style: none; margin: 0; padding: 0; }
 .audit-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-top: 1px solid var(--line); }
 .audit-row .grow { display: flex; flex-direction: column; gap: 2px; }
-.audit-time { width: 72px; flex: none; color: var(--ink-3); font-size: 11.5px; }
+.audit-time { width: 96px; white-space: nowrap; flex: none; color: var(--ink-3); font-size: 11.5px; }
 .audit-ref { color: var(--ink-3); font-size: 11px; flex: none; }
 .audit-row.t-danger strong { color: var(--danger); }
 

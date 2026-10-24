@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Sites, type Me, type SiteSummary } from "../api";
 import { navigate } from "../router";
+import { useShared } from "../store";
 import { Icon } from "./Icon";
 
 /**
@@ -60,7 +61,10 @@ export function CommandPalette({ me }: { me: Me }) {
   const { open, scope } = useStore();
   const cmds = useScreen();
   const [q, setQ] = useState("");
-  const [sites, setSites] = useState<SiteSummary[]>([]);
+  const shared = useShared();
+  const [fresh, setSites] = useState<SiteSummary[] | null>(null);
+  // Sites already loaded for the sidebar show at once; a fresh list replaces them.
+  const sites = fresh ?? shared.sites ?? [];
   const [active, setActive] = useState(0);
   const list = useRef<HTMLDivElement>(null);
 
