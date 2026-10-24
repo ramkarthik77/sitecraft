@@ -21,6 +21,7 @@ import { toCsv } from "../security.js";
 import { scheduleRoutes } from "../schedules.js";
 import { assertApproved, reviewRoutes } from "../reviews.js";
 import { assetRoutes, checkImage } from "./assets.js";
+import { historyRoutes } from "./history.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import type { AppContext } from "../server.js";
 
@@ -262,28 +263,6 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     return { versionId: Number(r.versionId), created: r.created };
   });
 
-  app.get<{ Params: Params; Querystring: { limit?: string } }>("/sites/:siteId/branches/:branch/versions", async (req) => {
-    const site = await repo.getSite(req.params.siteId);
-    return (await repo.listVersions(site.id, req.params.branch, Number(req.query.limit ?? 50))).map((v) => ({
-      id: Number(v.id),
-      parentId: v.parent_id === null ? null : Number(v.parent_id),
-      message: v.message,
-      actor: v.actor,
-      actorRole: v.actor_role,
-      createdAt: v.created_at,
-    }));
-  });
-
-  app.post<{ Params: Params }>("/sites/:siteId/branches/:branch/restore", async (req) => {
-    const site = await repo.getSite(req.params.siteId);
-    assertCanWrite(req.actor, req.params.branch);
-    const { versionId } = body<{ versionId?: number }>(req);
-    if (!versionId) throw new HttpError(400, "Pass the versionId to restore.");
-    const v = await repo.getVersion(site.id, versionId);
-    const r = await repo.commit(req.actor, site.id, req.params.branch, () => ({ document: v.document, message: `Restore version ${versionId}` }));
-    return { versionId: Number(r.versionId) };
-  });
-
   app.get<{ Params: Params; Querystring: { against?: string } }>("/sites/:siteId/branches/:branch/diff", async (req) => {
     const site = await repo.getSite(req.params.siteId);
     const target = await repo.getHead(site.id, req.params.branch);
@@ -456,4 +435,5 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   await assetRoutes(app, ctx);
   await reviewRoutes(app, ctx);
   await scheduleRoutes(app, ctx, assertCanShip);
+  await historyRoutes(app, ctx, assertCanWrite);
 }

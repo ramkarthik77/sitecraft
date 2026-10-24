@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createStarterDocument, findCollection, languageName, type SiteDocument } from "@sitecraft/schema";
-import { Brands, Sites, Templates, Tokens, type Branch, type Deployment, type Me, type SavedTemplate, type SiteSummary } from "../api";
+import { Brands, History, Sites, Templates, Tokens, type Branch, type Deployment, type Me, type SavedTemplate, type SiteSummary } from "../api";
+import { ActivityLog, AccessList } from "./Activity";
+import { TimeMachine } from "./TimeMachine";
 import { ago } from "../format";
 import { navigate } from "../router";
 import { useToast } from "../Toasts";
@@ -452,6 +454,9 @@ export function SiteOverview({ siteId, me }: { siteId: string; me: Me }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [deploys, setDeploys] = useState<Deployment[]>([]);
   const [copied, setCopied] = useState(false);
+  const [warp, setWarp] = useState("");
+  /** The time machine, open on a version (0 = the latest), or closed. */
+  const [tm, setTm] = useState<number | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -535,6 +540,20 @@ export function SiteOverview({ siteId, me }: { siteId: string; me: Me }) {
         </div>
       </header>
 
+      {tm !== null && site && (
+        <TimeMachine
+          siteId={siteId}
+          siteName={site.name}
+          branch="main"
+          canWrite={me.role !== "agent"}
+          canShip={me.role !== "agent"}
+          canName={me.role !== "agent"}
+          initialVersion={tm || undefined}
+          toast={(text, tone) => toast({ text, tone })}
+          onClose={() => setTm(null)}
+          onRestored={() => void Sites.head(siteId, "main").then((h) => setDoc(h.document))}
+        />
+      )}
       <div className="ov-cols">
         <div className="ov-main">
           {pending.length > 0 && (
@@ -607,7 +626,7 @@ export function SiteOverview({ siteId, me }: { siteId: string; me: Me }) {
           </section>
 
           {(doc?.collections?.length ?? 0) > 0 && (
-            <section aria-labelledby="ov-cms">
+            <section aria-labelledby="ov-cms" key="cms">
               <h2 id="ov-cms">CMS content</h2>
               <div className="cms-cards">
                 {doc!.collections!.map((c) => {
@@ -627,9 +646,11 @@ export function SiteOverview({ siteId, me }: { siteId: string; me: Me }) {
               </div>
             </section>
           )}
+          {me.role !== "agent" && site && <ActivityLog siteId={siteId} slug={site.slug} onOpenVersion={(v) => setTm(v)} />}
         </div>
 
-        <aside className="ov-facts" aria-label="About this site">
+        <aside className="ov-side">
+        <div className="ov-facts" aria-label="About this site">
           <dl>
             <dt>Last published</dt>
             <dd>{lastLive ? `${ago(lastLive.createdAt)} by ${lastLive.actor}` : "Never"}</dd>
@@ -642,9 +663,32 @@ export function SiteOverview({ siteId, me }: { siteId: string; me: Me }) {
             <dt>Address</dt>
             <dd className="mono">{site?.domain ?? site?.slug ?? "…"}</dd>
           </dl>
-          <a className="btn ghost sm" href={editorUrl(siteId, { open: "history" })} onClick={go(editorUrl(siteId, { open: "history" }))}>
+          <button className="btn ghost sm" onClick={() => setTm(0)}>
             <Icon name="history" size={13} /> History and published versions
-          </a>
+          </button>
+          <form
+            className="ov-warp"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!warp) return;
+              const r = await History.liveAt(siteId, new Date(warp).toISOString()).catch((err) => (toast({ text: err.message, tone: "error" }), null));
+              if (!r) return;
+              if (!r.live) toast({ text: `Nothing was live on ${new Date(warp).toLocaleString()}.` });
+              else setTm(r.live.versionId);
+            }}
+          >
+            <label className="small muted" htmlFor="ov-warp">
+              See the live site as it was on
+            </label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input id="ov-warp" type="datetime-local" className="input" value={warp} onChange={(e) => setWarp(e.target.value)} />
+              <button className="btn sm" disabled={!warp}>
+                Show
+              </button>
+            </div>
+          </form>
+        </div>
+        {me.role !== "agent" && <AccessList siteId={siteId} me={me} />}
         </aside>
       </div>
     </main>

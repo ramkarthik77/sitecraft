@@ -32,7 +32,9 @@ const OPS_HELP = `Each operation is an object with an "op" field:
 - update_node {nodeId, props?, style?, breakpoint?: base|tablet|mobile, name?, animation?:{preset,trigger,durationMs?,delayMs?,easing?,staggerMs?}|null, hover?:{preset?,style?}|null, parallax?: -0.5..0.5|null, hidden?} (set_motion is easier for motion)
   (props/style merge; set a key to null to remove it)
 - remove_node {nodeId} · move_node {nodeId, parentId, index?} · duplicate_node {nodeId}
-- add_page {path, title, description?, blocks?[]} · update_page {pageId, path?, title?, description?, ogImage?} · remove_page {pageId}
+- add_page {path, title, description?, blocks?[]} · update_page {pageId, title?, description?, ogImage?} · remove_page {pageId}
+- move_page {pageId, path} moves a page and the pages under it (/about → /company moves /about/team too), updates links, and redirects the old addresses. Nest a page by giving it a path under another (/about/history).
+- set_redirects {redirects:[{from:"/old", to:"/new"}]} replaces the site's redirect list (from may end in /:slug)
 - set_theme {colors?:{primary,on-primary,background,surface,text,muted,border}, fonts?:{heading,body}, radius?}
 - create_component {nodeId, name}
 - CMS: add_collection {name, preset?, fields?[{name,type}], sampleItems?, pages?} · update_collection {collectionId, name?, slug?} · remove_collection {collectionId}
@@ -352,23 +354,47 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
 
   server.registerTool(
     "list_versions",
-    { title: "Version history", description: "List recent saved versions of a branch.", inputSchema: { site, branch: branch.default("main") }, annotations: { readOnlyHint: true } },
-    ({ site: s, branch: b }) =>
+    {
+      title: "Version history",
+      description: "List saved versions of a branch, newest first: who, when, what changed on which pages, and which were published, live or named. Filter to one page, or to named or published versions.",
+      inputSchema: { site, branch: branch.default("main"), page: z.string().optional().describe("Page id: only versions that changed it"), only: z.enum(["named", "published"]).optional(), limit: z.number().int().min(1).max(100).optional() },
+      annotations: { readOnlyHint: true },
+    },
+    ({ site: s, branch: b, page, only, limit }) =>
       run(async () => {
         const id = await resolveId(s);
-        const v = await client.get<{ id: number; message: string; actor: string; createdAt: string }[]>(`/sites/${id}/branches/${enc(b)}/versions?limit=20`);
-        return UNTRUSTED + v.map((x) => `- v${x.id} ${x.createdAt} ${x.actor}: ${x.message}`).join("\n");
+        const q = new URLSearchParams({ limit: String(limit ?? 20), ...(page ? { page } : {}), ...(only ? { only } : {}) });
+        const v = await client.get<
+          { id: number; message: string; actor: string; createdAt: string; label: string | null; kind: string; published: boolean; live: boolean; changes: { pages: { path: string; added: number; changed: number; removed: number; status?: string }[]; theme: boolean } | null }[]
+        >(`/sites/${id}/branches/${enc(b)}/versions?${q}`);
+        if (!v.length) return "No versions match.";
+        return (
+          UNTRUSTED +
+          v
+            .map((x) => {
+              const tags = [x.live ? "LIVE" : x.published ? "published" : "", x.kind !== "edit" ? x.kind : "", x.label ? `named "${x.label}"` : ""].filter(Boolean).join(", ");
+              const where = x.changes?.pages.map((p) => `${p.path}${p.status ? ` (${p.status})` : ` (+${p.added} ~${p.changed} -${p.removed})`}`).join(", ");
+              return `- v${x.id} ${x.createdAt} ${x.actor}: ${x.message}${tags ? ` [${tags}]` : ""}${where ? `\n    pages: ${where}` : ""}${x.changes?.theme ? " · theme" : ""}`;
+            })
+            .join("\n")
+        );
       }),
   );
 
   server.registerTool(
     "restore_version",
-    { title: "Restore version", description: "Restore a branch to an earlier version (saved as a new version, nothing is lost).", inputSchema: { site, branch, versionId: z.number().int() } },
-    ({ site: s, branch: b, versionId }) =>
+    {
+      title: "Restore version",
+      description:
+        "Bring back an earlier version on a branch: the whole site, just one page (pageId), or just one element and everything inside it (nodeId). Saved as a new version, so nothing is lost. Prefer the smallest restore that does the job.",
+      inputSchema: { site, branch, versionId: z.number().int(), pageId: z.string().optional(), nodeId: z.string().optional() },
+    },
+    ({ site: s, branch: b, versionId, pageId, nodeId }) =>
       run(async () => {
+        if (pageId && nodeId) throw new Error("Pass pageId or nodeId, not both.");
         const id = await resolveId(s);
-        const r = await client.post<{ versionId: number }>(`/sites/${id}/branches/${enc(b)}/restore`, { versionId });
-        return `Restored. New version ${r.versionId}.`;
+        const r = await client.post<{ versionId: number }>(`/sites/${id}/branches/${enc(b)}/restore`, { versionId, pageId, nodeId });
+        return `Restored ${pageId ? "the page" : nodeId ? "the element" : "the site"} from v${versionId}. New version ${r.versionId}.\nPreview: ${await previewUrl(id, b)}`;
       }),
   );
 

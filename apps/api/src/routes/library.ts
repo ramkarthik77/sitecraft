@@ -48,12 +48,12 @@ export function libraryHelpers(ctx: AppContext) {
     const head = await repo.getHead(site.id, "main");
     if (brand) {
       if (head.document.brand?.id === brand.id && head.document.brand.version === brand.version) return false;
-      await repo.commit(actor, site.id, "main", (cur) => ({ document: applyBrand(cur, kitOf(brand)), message: why ?? `Apply the ${brand.name} brand (v${brand.version})` }));
+      await repo.commit(actor, site.id, "main", (cur) => ({ document: applyBrand(cur, kitOf(brand)), message: why ?? `Apply the ${brand.name} brand (v${brand.version})`, kind: "brand" }));
       return true;
     }
     if (!head.document.brand) return false;
     const name = head.document.brand.name;
-    await repo.commit(actor, site.id, "main", (cur) => ({ document: detachBrand(cur), message: why ?? `Stop following the ${name} brand` }));
+    await repo.commit(actor, site.id, "main", (cur) => ({ document: detachBrand(cur), message: why ?? `Stop following the ${name} brand`, kind: "brand" }));
     return true;
   };
   return { getBrand, syncBrand };

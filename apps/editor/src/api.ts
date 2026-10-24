@@ -122,12 +122,30 @@ export interface Branch {
   lastMessage: string;
   updatedAt: string;
 }
+export interface VersionChanges {
+  pages: { id: string; path: string; title: string; added: number; changed: number; removed: number; status?: "added" | "removed" }[];
+  pageIds: string[];
+  added: number;
+  changed: number;
+  removed: number;
+  theme: boolean;
+  components: boolean;
+  content: string[];
+  settings: boolean;
+}
+export type VersionKind = "edit" | "merge" | "restore" | "create" | "brand";
 export interface Version {
   id: number;
+  parentId: number | null;
   message: string;
   actor: string;
   actorRole: string;
   createdAt: string;
+  label: string | null;
+  kind: VersionKind;
+  changes: VersionChanges | null;
+  published: boolean;
+  live: boolean;
 }
 export interface Diff {
   summary: string[];
@@ -160,8 +178,12 @@ export const Sites = {
   head: (id: string, b: string) => api<{ versionId: number; document: SiteDocument }>("GET", `/sites/${id}/branches/${enc(b)}`),
   save: (id: string, b: string, document: SiteDocument, baseVersion: number, message?: string) =>
     api<{ versionId: number }>("PUT", `/sites/${id}/branches/${enc(b)}/document`, { document, baseVersion, message }),
-  versions: (id: string, b: string) => api<Version[]>("GET", `/sites/${id}/branches/${enc(b)}/versions`),
-  restore: (id: string, b: string, versionId: number) => api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/restore`, { versionId }),
+  versions: (id: string, b: string, q: { before?: number; page?: string; only?: "named" | "published"; limit?: number } = {}) => {
+    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]));
+    return api<Version[]>("GET", `/sites/${id}/branches/${enc(b)}/versions${p.size ? `?${p}` : ""}`);
+  },
+  restore: (id: string, b: string, versionId: number, part: { pageId?: string; nodeId?: string } = {}) =>
+    api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/restore`, { versionId, ...part }),
   diff: (id: string, b: string) => api<Diff>("GET", `/sites/${id}/branches/${enc(b)}/diff`),
   merge: (id: string, b: string, force = false, override = false) => api<{ versionId: number }>("POST", `/sites/${id}/branches/${enc(b)}/merge`, { force, override }),
   previewUrl: (id: string, b: string) => api<{ url: string }>("GET", `/sites/${id}/branches/${enc(b)}/preview-url`),
@@ -310,4 +332,56 @@ export const Approvals = {
   get: (siteId: string, branch: string) => api<ApprovalInfo>("GET", `/sites/${siteId}/branches/${enc(branch)}/approvals`),
   approve: (siteId: string, branch: string, note?: string) => api("POST", `/sites/${siteId}/branches/${enc(branch)}/approvals`, { note }),
   withdraw: (siteId: string, branch: string) => api("DELETE", `/sites/${siteId}/branches/${enc(branch)}/approvals`),
+};
+
+export interface ActivityItem {
+  id: string;
+  at: string;
+  actor: string;
+  role: string;
+  action: string;
+  detail: Record<string, unknown> & { pages?: VersionChanges["pages"]; message?: string; branch?: string; versionId?: number; label?: string | null };
+}
+export interface SiteAccess {
+  id?: string;
+  name: string;
+  role: "admin" | "editor" | "agent";
+  scope: string;
+  createdAt: string | null;
+  createdBy: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+export interface CalendarEvent {
+  id: string;
+  kind: "release" | "published" | "rollback";
+  siteId: string;
+  siteName: string;
+  at: string;
+  branch: string;
+  note: string;
+  status: string;
+  by: string;
+  result?: string | null;
+  versionId?: number;
+}
+
+export const History = {
+  version: (siteId: string, v: number) =>
+    api<{ id: number; branch: string; message: string; actor: string; createdAt: string; label: string | null; kind: VersionKind; document: SiteDocument }>("GET", `/sites/${siteId}/versions/${v}`),
+  compare: (siteId: string, v: number, withVersion: number | "current" = "current") =>
+    api<{ added: string[]; removed: string[]; changed: string[]; pagesAdded: string[]; pagesRemoved: string[]; pagesChanged: string[]; themeChanged: boolean; content: string[]; summary: string[] }>(
+      "GET",
+      `/sites/${siteId}/versions/${v}/compare?with=${withVersion}`,
+    ),
+  name: (siteId: string, v: number, label: string | null) => api("PATCH", `/sites/${siteId}/versions/${v}`, { label }),
+  liveAt: (siteId: string, at: string) =>
+    api<{ live: { deploymentId: string; versionId: number; since: string; by: string; reason: string } | null }>("GET", `/sites/${siteId}/live-at?at=${enc(at)}`),
+  activity: (siteId: string, q: { before?: string; actor?: string; kind?: string } = {}) => {
+    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]);
+    return api<{ items: ActivityItem[]; people: { name: string; count: number }[] }>("GET", `/sites/${siteId}/activity${p.size ? `?${p}` : ""}`);
+  },
+  activityCsv: (siteId: string, slug: string) => download(`/sites/${siteId}/activity.csv`, `${slug}-activity.csv`),
+  access: (siteId: string) => api<SiteAccess[]>("GET", `/sites/${siteId}/access`),
+  calendar: (from: string, to: string) => api<CalendarEvent[]>("GET", `/calendar?from=${enc(from)}&to=${enc(to)}`),
 };

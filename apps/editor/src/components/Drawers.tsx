@@ -337,6 +337,7 @@ export function SettingsDrawer(props: {
         </button>
       </section>
       {props.doc && props.apply && props.canEdit && <LanguagesSetting doc={props.doc} apply={props.apply} />}
+      {props.doc && props.apply && props.canEdit && <RedirectsSetting doc={props.doc} apply={props.apply} />}
       {props.isAdmin && <ApprovalsSetting site={props.site} toast={props.toast} onSaved={(n) => props.onSaved({ ...props.site, requiredApprovals: n })} />}
       <BrandSection site={props.site} isAdmin={!!props.isAdmin} toast={props.toast} onChanged={(brandId) => (props.onSaved({ ...props.site, brandId }), props.onBrandChanged?.())} />
       {props.canEdit && <SaveAsTemplate site={props.site} toast={props.toast} />}
@@ -636,6 +637,52 @@ function LanguagesSetting({ doc, apply }: { doc: SiteDocument; apply: (ops: Oper
       <span className="muted small">
         Each language is published at /code/… with links between the versions for search engines. Switch language in the top bar to translate, add a Languages element for a switcher, or ask Claude to translate the site.
       </span>
+    </section>
+  );
+}
+
+/** Old addresses that send visitors on. Moving a page adds one; add your own for links printed elsewhere. */
+function RedirectsSetting({ doc, apply }: { doc: SiteDocument; apply: (ops: Operation[]) => unknown }) {
+  const list = doc.settings.redirects ?? [];
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const save = (next: { from: string; to: string }[]) => apply([{ op: "set_redirects", redirects: next }]);
+  const pages = new Set(doc.pages.map((p) => p.path));
+  const clean = (v: string) => "/" + v.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+  const fromPath = from.trim() ? clean(from) : "";
+  const problem = !fromPath ? "" : pages.has(fromPath) ? "A page already lives at that address." : list.some((r) => r.from === fromPath) ? "That address already redirects." : "";
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Redirects</h3>
+      <span className="muted small">Old addresses that send visitors (and search engines) on to new ones. Moving a page adds one automatically.</span>
+      {list.length === 0 && <span className="muted small">None yet.</span>}
+      {list.map((r) => (
+        <div key={r.from} className="redirect-row">
+          <span className="mono small">{r.from}</span>
+          <Icon name="back" size={12} style={{ transform: "rotate(180deg)", color: "var(--ink-3)" }} />
+          <span className="mono small grow">{r.to}</span>
+          <button className="btn ghost icon sm" aria-label={`Remove the redirect from ${r.from}`} onClick={() => save(list.filter((x) => x.from !== r.from))}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      ))}
+      <form
+        className="redirect-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!fromPath || !to.trim() || problem) return;
+          save([...list, { from: fromPath, to: to.trim() }]);
+          setFrom("");
+          setTo("");
+        }}
+      >
+        <input className="input mono" aria-label="Redirect from" placeholder="/old-address" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input className="input mono" aria-label="Redirect to" placeholder="/new-address or https://…" value={to} onChange={(e) => setTo(e.target.value)} />
+        <button className="btn sm" disabled={!fromPath || !to.trim() || !!problem}>
+          Add
+        </button>
+      </form>
+      {problem && <span className="small" style={{ color: "var(--danger)" }}>{problem}</span>}
     </section>
   );
 }

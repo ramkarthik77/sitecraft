@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CONTAINER_TYPES, findCollection, findInTree, findNodeInDocument, itemTitle, languageName, TRANSLATABLE, translationStatus, type Breakpoint, type Operation, type SiteNode } from "@sitecraft/schema";
-import { Comments, Schedules, Sites, type Branch, type Comment, type Me, type Schedule, type SiteSummary, type Version } from "./api";
+import { Comments, History, Schedules, Sites, type Branch, type Comment, type Me, type Schedule, type SiteSummary, type Version } from "./api";
 import { Canvas, type CanvasEvent } from "./components/Canvas";
 import { bindingCollection, CmsRail, CmsTable, CollectionInspector, ItemInspector } from "./components/Cms";
-import { HistoryDrawer, ReviewDrawer, SettingsDrawer } from "./components/Drawers";
+import { ReviewDrawer, SettingsDrawer } from "./components/Drawers";
+import { TimeMachine } from "./components/TimeMachine";
 import { Icon, Logo } from "./components/Icon";
 import { ELEMENTS, Insert } from "./components/Insert";
 import { orderedPages, PageSwitcher, templatePages } from "./components/PageSwitcher";
+import { isMac, openPalette, paletteKey, setScreenCommands, type Command } from "./components/CommandPalette";
 import { Layers } from "./components/Layers";
 import { NodeInspector, PageInspector } from "./components/Inspector";
 import { navigate, setQuery } from "./router";
@@ -60,6 +62,11 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const [newBranch, setNewBranch] = useState<string | null>(null);
   const [newPage, setNewPage] = useState<{ path: string; title: string } | null>(initial.get("new") === "page" ? { path: "", title: "" } : null);
   const [scrollTick, setScrollTick] = useState(0);
+  /** A page being dragged in the Pages panel, and the page it's over. */
+  const [dragPage, setDragPage] = useState<string | null>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  /** The name being typed for the current version (⌘⇧S), or null. */
+  const [naming, setNaming] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [work, setWork] = useState<BranchWork>(NO_WORK);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -308,6 +315,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const onKey = (key: string, meta: boolean, shift: boolean) => {
     if (meta && key === "z") return shift ? ed.redo() : ed.undo();
     if (meta && key === "y") return ed.redo();
+    if (meta && shift && key.toLowerCase() === "s") return me.role !== "agent" && setNaming("");
     if (key === "Escape") return setSelectedId(null);
     if (cmsCollection) return; // the canvas is hidden; don't delete what's selected on it
     if (!selectedId || !page || selectedId === page.root.id) return;
@@ -323,7 +331,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, select, [contenteditable]")) return;
       const meta = e.metaKey || e.ctrlKey;
-      if (["Delete", "Backspace", "Escape"].includes(e.key) || (meta && ["z", "y", "d"].includes(e.key))) {
+      if (["Delete", "Backspace", "Escape"].includes(e.key) || (meta && ["z", "y", "d"].includes(e.key)) || (meta && e.shiftKey && e.key.toLowerCase() === "s")) {
         e.preventDefault();
         onKey(e.key, meta, e.shiftKey);
       }
@@ -386,6 +394,47 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
   const agentLive = !!lastAgent && now - new Date(lastAgent.createdAt).getTime() < 3 * 60_000;
   const isAgentBranch = work.onlyAgent || branch.startsWith("agent/") || (currentBranch?.lastChangeBy ?? "").toLowerCase().includes("claude");
 
+  const canEditHere = me.role !== "agent" || branch !== "main";
+  /** Put a page (and the pages under it) under another page, or at the top level. Old addresses redirect. */
+  const movePageUnder = (id: string, parent: string) => {
+    const p = doc?.pages.find((x) => x.id === id);
+    if (!p) return;
+    const leaf = p.path.split("/").filter(Boolean).pop()!;
+    const to = parent === "/" ? `/${leaf}` : `${parent}/${leaf}`;
+    if (to === p.path) return;
+    if (apply([{ op: "move_page", pageId: id, path: to }])) toast(`Moved ${p.title} to ${to}. The old address redirects there.`);
+  };
+
+  // Quick find (⌘K) knows this site's pages, collections and actions.
+  const canShip = me.role !== "agent";
+  useEffect(() => {
+    if (!doc) return;
+    const cmds: Command[] = [
+      ...orderedPages(doc).map(({ page: p, label }) => ({
+        id: `page:${p.id}`,
+        group: "Pages",
+        label,
+        hint: p.path,
+        icon: p.path === "/" ? "home" : "pages",
+        keywords: `page ${p.title}`,
+        run: () => (setTab("layers"), setPageId(p.id), setSelectedId(null)),
+      })),
+      ...templatePages(doc).map(({ page: p, label }) => ({ id: `page:${p.id}`, group: "Pages", label, hint: p.path, icon: "database", keywords: "template item page", run: () => (setTab("layers"), setPageId(p.id), setSelectedId(null)) })),
+      ...(doc.collections ?? []).map((c) => ({ id: `cms:${c.id}`, group: "CMS", label: c.name, hint: `${c.items.length} items`, icon: "database", keywords: "collection content items", run: () => (setTab("cms"), setCmsId(c.id), setCmsItemId(null)) })),
+      { id: "do:history", group: "This site", label: "Open history", hint: "Look at, compare and restore versions", icon: "history", keywords: "versions restore timeline undo", run: () => setDrawer("history") },
+      { id: "do:preview", group: "This site", label: "Preview", hint: "Open a shareable preview", icon: "eye", run: () => void openPreview() },
+      ...(canShip && branch === "main" ? [{ id: "do:publish", group: "This site", label: "Publish", hint: "Put main live", icon: "external", keywords: "go live deploy", run: () => void publish() }] : []),
+      ...(canShip ? [{ id: "do:name", group: "This site", label: "Name this version", hint: isMac ? "⌘⇧S" : "Ctrl Shift S", icon: "check", keywords: "checkpoint save label", run: () => setNaming("") }] : []),
+      { id: "do:newpage", group: "This site", label: "New page", icon: "plus", keywords: "add page", run: () => (setTab("pages"), setNewPage({ path: "", title: "" })) },
+      { id: "do:settings", group: "This site", label: "Site settings", icon: "settings", keywords: "languages brand domain approvals redirects", run: () => setDrawer("settings") },
+      { id: "do:overview", group: "This site", label: "Site overview", hint: "Pages, status, activity and access", icon: "grid", keywords: "activity audit access people", run: () => navigate(`/sites/${siteId}/overview`) },
+      ...(["base", "tablet", "mobile"] as Breakpoint[]).map((b) => ({ id: `bp:${b}`, group: "View", label: b === "base" ? "Desktop view" : b === "tablet" ? "Tablet view" : "Phone view", icon: b === "base" ? "desktop" : b === "tablet" ? "tablet" : "phone", run: () => setBp(b) })),
+    ];
+    setScreenCommands(cmds);
+    return () => setScreenCommands([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, branch, canShip, siteId]);
+
   if (!doc || !page) {
     return (
       <div className="shell">
@@ -415,6 +464,9 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
           <a className="current" href={`/sites/${siteId}/overview`} title={`${site?.name ?? ""}: overview`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${siteId}/overview`))}>
             {site?.name}
           </a>
+          <button className="btn ghost icon sm crumb-switch" aria-label="Switch site" title={`Switch site (${paletteKey})`} onClick={() => openPalette("sites")}>
+            <Icon name="chevron" size={13} />
+          </button>
         </nav>
 
         {newBranch === null ? (
@@ -641,14 +693,51 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
             )}
             {tab === "pages" && (
               <div style={{ paddingTop: 8 }}>
-                {orderedPages(doc).map(({ page: p, depth, label }) => (
-                  <button key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} style={{ paddingLeft: 12 + depth * 16 }} aria-current={p.id === page.id ? "page" : undefined} onClick={() => (setPageId(p.id), setSelectedId(null))}>
-                    <Icon name={p.path === "/" ? "home" : "pages"} size={14} />
-                    <span className="grow">{label}</span>
-                    {p.unpublished && <span className="type-chip hidden-chip">Hidden</span>}
-                    <span className="mono muted">{p.path}</span>
-                  </button>
-                ))}
+                {orderedPages(doc).map(({ page: p, depth, label }) => {
+                  const canDrag = p.path !== "/" && canEditHere;
+                  const canDrop = !!dragPage && dragPage !== p.id && !p.path.startsWith((doc.pages.find((x) => x.id === dragPage)?.path ?? "~") + "/") && p.path !== "/";
+                  return (
+                    <button
+                      key={p.id}
+                      className={`list-row ${p.id === page.id ? "active" : ""} ${dropOn === p.id ? "drop-on" : ""} ${dragPage === p.id ? "dragging" : ""}`}
+                      style={{ paddingLeft: 12 + depth * 16 }}
+                      aria-current={p.id === page.id ? "page" : undefined}
+                      draggable={canDrag}
+                      title={canDrag ? "Drag onto another page to put it under that page" : undefined}
+                      onDragStart={(e) => (e.dataTransfer.setData("text/plain", `page:${p.id}`), (e.dataTransfer.effectAllowed = "move"), setDragPage(p.id))}
+                      onDragEnd={() => (setDragPage(null), setDropOn(null))}
+                      onDragOver={(e) => canDrop && (e.preventDefault(), setDropOn(p.id))}
+                      onDragLeave={() => setDropOn((d) => (d === p.id ? null : d))}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (canDrop && dragPage) movePageUnder(dragPage, p.path);
+                        setDragPage(null);
+                        setDropOn(null);
+                      }}
+                      onClick={() => (setPageId(p.id), setSelectedId(null))}
+                    >
+                      <Icon name={p.path === "/" ? "home" : "pages"} size={14} />
+                      <span className="grow">{label}</span>
+                      {p.unpublished && <span className="type-chip hidden-chip">Hidden</span>}
+                      <span className="mono muted">{p.path}</span>
+                    </button>
+                  );
+                })}
+                {dragPage && (
+                  <div
+                    className={`page-drop-top ${dropOn === "/" ? "drop-on" : ""}`}
+                    onDragOver={(e) => (e.preventDefault(), setDropOn("/"))}
+                    onDragLeave={() => setDropOn(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      movePageUnder(dragPage, "/");
+                      setDragPage(null);
+                      setDropOn(null);
+                    }}
+                  >
+                    Drop here to make it a top-level page
+                  </div>
+                )}
                 {templatePages(doc).length > 0 && <div className="section-title">CMS item pages</div>}
                 {templatePages(doc).map(({ page: p, label, items }) => (
                   <button key={p.id} className={`list-row ${p.id === page.id ? "active" : ""}`} aria-current={p.id === page.id ? "page" : undefined} onClick={() => (setPageId(p.id), setSelectedId(null))}>
@@ -836,7 +925,52 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         </Drawer>
       )}
       {drawer === "history" && (
-        <HistoryDrawer siteId={siteId} branch={branch} toast={toast} canShip={me.role !== "agent"} onClose={() => (setDrawer(null), void loadSchedules())} onRestored={() => void ed.reload()} />
+        <TimeMachine
+          siteId={siteId}
+          siteName={site?.name ?? ""}
+          branch={branch}
+          pageId={page?.id}
+          canWrite={me.role !== "agent" || branch !== "main"}
+          canShip={me.role !== "agent"}
+          canName={me.role !== "agent"}
+          initialVersion={initial.get("version") ? Number(initial.get("version")) : undefined}
+          toast={toast}
+          onClose={() => (setDrawer(null), void loadSchedules())}
+          onRestored={() => void ed.reload()}
+        />
+      )}
+      {naming !== null && (
+        <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setNaming(null)}>
+          <form
+            className="modal name-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="name-title"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              await ed.flush();
+              try {
+                await History.name(siteId, ed.versionId, naming.trim());
+                toast(`Saved this version as "${naming.trim()}"`);
+                setNaming(null);
+              } catch (err) {
+                toast((err as Error).message, "error");
+              }
+            }}
+          >
+            <h2 id="name-title">Name this version</h2>
+            <p className="muted small">A checkpoint you can find and come back to in History. Named versions are always kept.</p>
+            <input className="input" autoFocus aria-label="Version name" placeholder="e.g. Before the rebrand" value={naming} maxLength={80} onChange={(e) => setNaming(e.target.value)} />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn ghost" onClick={() => setNaming(null)}>
+                Cancel
+              </button>
+              <button className="btn primary" disabled={!naming.trim()}>
+                Save name
+              </button>
+            </div>
+          </form>
+        </div>
       )}
       {drawer === "settings" && site && (
         <SettingsDrawer

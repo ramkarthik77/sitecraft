@@ -55,7 +55,13 @@ The browser tests fail on any CSP violation, so a change that would weaken this 
 - Site settings → Form submissions: **Download CSV** (cells are escaped so spreadsheets don't run them as formulas) and **Delete** by a value, such as an email address, for data deletion requests.
 
 ### Audit
-Every create, merge, publish, rollback, token change, form export and deletion is recorded with who did it. **Access → Download audit log** exports it all as CSV for a review or a security tool.
+Every save (with the pages it touched), create, merge, approval, publish, rollback, schedule, setting change, token change, form export and deletion is recorded with who did it and when.
+
+- **Append-only:** a database trigger rejects any change to or deletion of an audit entry, from any code path, including Sitecraft's own.
+- **Outlives edit history:** old full copies of a site are condensed after `HISTORY_DAYS`, but the audit entry for every save stays.
+- **Per site:** the site's overview shows the activity as readable sentences, filterable by person and kind, with a CSV download; it also lists **who has access** to the site (role, all sites or only this one, last used, expiry), and admins can revoke from there.
+- **Everything:** **Access → Download audit log** exports all of it as CSV for a review or a security tool.
+- **As of a date:** every change to what's live (publish or rollback) is recorded, so "what did the live site say on March 3 at 2 pm?" has an exact answer (History → Live site on).
 
 ### Supply chain
 - Dependabot opens weekly updates for npm packages, GitHub Actions and the Docker base image.
@@ -68,6 +74,7 @@ Every create, merge, publish, rollback, token change, form export and deletion i
 | `SECRET` | — | Signs preview links and live-update tickets. 32+ characters in production |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET` | off | Bot check on forms |
 | `FORM_RETENTION_DAYS` | `365` | `0` keeps submissions |
+| `HISTORY_DAYS` | `90` | Edits kept in full; older ones are condensed to the last of each day. Named, published, merged and branch versions are always kept, and the audit trail is never condensed. `0` keeps everything |
 | `RATE_LIMIT_PER_MINUTE` | `600` | API requests per IP per minute, per server |
 | `AGENT_CAN_EDIT_MAIN`, `AGENT_CAN_PUBLISH` | `false` | Loosen Claude's limits |
 

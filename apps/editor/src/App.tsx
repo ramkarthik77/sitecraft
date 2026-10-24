@@ -9,6 +9,8 @@ import { AssetsPage } from "./components/Assets";
 import { Icon, Logo } from "./components/Icon";
 import { LayerScene, useTiltCards } from "./components/Scene3D";
 import { HomePage, NewSiteDialog, SiteCard, SiteOverview, useSitesAndReviews } from "./components/Home";
+import { CommandPalette, openPalette, paletteKey } from "./components/CommandPalette";
+import { CalendarPage } from "./components/Calendar";
 import { ago, initials } from "./format";
 import { navigate, useLocation } from "./router";
 import { ToastProvider, useToast } from "./Toasts";
@@ -40,6 +42,15 @@ function Root() {
 
   if (checking) return null;
   if (!me) return <Login onDone={setMe} />;
+  return (
+    <>
+      <Screen me={me} loc={loc} />
+      <CommandPalette me={me} />
+    </>
+  );
+}
+
+function Screen({ me, loc }: { me: Me; loc: { path: string; search: string } }) {
 
   const ov = /^\/sites\/([^/]+)\/overview\/?$/.exec(loc.path);
   if (ov) {
@@ -54,6 +65,13 @@ function Root() {
   if (m) {
     const q = new URLSearchParams(loc.search);
     return <Editor key={m[1]} siteId={m[1]!} me={me} branch={q.get("branch") ?? "main"} review={q.get("review") === "1"} />;
+  }
+  if (loc.path === "/calendar") {
+    return (
+      <DashShell me={me} active="calendar">
+        <CalendarPage me={me} />
+      </DashShell>
+    );
   }
   if (loc.path === "/templates") {
     return (
@@ -179,10 +197,11 @@ function connectCommand(me: Me): string {
 }
 
 
-type NavKey = "home" | "sites" | "templates" | "brands" | "assets" | "access";
+type NavKey = "home" | "sites" | "calendar" | "templates" | "brands" | "assets" | "access";
 const NAV: { key: NavKey; label: string; href: string; icon: string; admin?: boolean }[] = [
   { key: "home", label: "Home", href: "/", icon: "home" },
   { key: "sites", label: "Sites", href: "/sites", icon: "grid" },
+  { key: "calendar", label: "Calendar", href: "/calendar", icon: "clock" },
   { key: "templates", label: "Templates", href: "/templates", icon: "pages" },
   { key: "brands", label: "Brands", href: "/brands", icon: "spark" },
   { key: "assets", label: "Assets", href: "/assets", icon: "image" },
@@ -198,6 +217,11 @@ export function DashShell({ me, active, reviews = 0, children }: { me: Me; activ
         <span className="brand">
           <Logo size={26} /> Sitecraft
         </span>
+        <button className="nav-search" onClick={() => openPalette()} aria-label="Quick find">
+          <Icon name="search" size={14} />
+          <span className="grow">Find anything</span>
+          <kbd>{paletteKey}</kbd>
+        </button>
         {NAV.filter((n) => !n.admin || me.role === "admin").map((n) => (
           <a key={n.key} className="nav-link" href={n.href} aria-current={active === n.key ? "page" : undefined} onClick={(e) => (e.preventDefault(), navigate(n.href))}>
             <Icon name={n.icon} size={15} /> {n.label}
@@ -254,7 +278,7 @@ export function DashShell({ me, active, reviews = 0, children }: { me: Me; activ
 
 function SitesList({ me }: { me: Me }) {
   const { sites, reviews } = useSitesAndReviews();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(() => new URLSearchParams(location.search).get("new") === "1");
   const [query, setQueryText] = useState("");
   const [show, setShow] = useState<"all" | "live" | "drafts">("all");
   const grid = useTiltCards<HTMLDivElement>();

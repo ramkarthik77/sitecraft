@@ -301,5 +301,15 @@ export interface SiteDocument {
     /** More languages, published at /<code>/… (e.g. ["fr", "de"]). */
     locales?: string[];
     favicon?: string;
+    /**
+     * Old addresses that send visitors on to new ones, added when a page
+     * moves. "from" may end in /:slug for CMS item pages.
+     */
+    redirects?: Redirect[];
   };
+}
+
+export interface Redirect {
+  from: string;
+  to: string;
 }

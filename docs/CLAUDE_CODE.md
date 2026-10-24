@@ -148,8 +148,8 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `remove_item` | Delete an item |
 | `add_collection_list` | Show a collection's items on a page, sorted and limited |
 | `get_diff` | What a branch changes compared to `main` |
-| `list_versions` | Recent saved versions of a branch |
-| `restore_version` | Go back to an earlier version (saved as a new one) |
+| `list_versions` | Saved versions of a branch: who, when, which pages changed, published, live or named; filter by page, named or published |
+| `restore_version` | Bring back the whole site, one page, or one element from an earlier version (saved as a new one) |
 | `get_preview_url` | Shareable preview link and editor link for a branch |
 | `request_review` | Summary and review link for the person |
 | `merge_branch` | Merge into `main` (people only, unless an admin allows agents) |

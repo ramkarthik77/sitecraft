@@ -290,6 +290,17 @@ export const documentSchema = z
         lang: z.string().regex(/^[a-zA-Z-]{2,10}$/),
         locales: z.array(z.string().regex(LOCALE, "Language codes look like fr, de or pt-BR")).max(20).optional(),
         favicon: z.string().refine(isSafeSrc, "Unsafe favicon").optional(),
+        redirects: z
+          .array(
+            z
+              .object({
+                from: z.string().regex(/^\/[a-z0-9\-_.~/]*(\/:slug)?$/, "Redirects start from an address like /old-page"),
+                to: z.string().max(500).refine((v) => isSafeHref(v) && !v.startsWith("#"), "Unsafe redirect target"),
+              })
+              .strict(),
+          )
+          .max(500)
+          .optional(),
       })
       .strict(),
   })

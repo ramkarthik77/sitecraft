@@ -1,4 +1,4 @@
-# Templates, brands, languages, assets, reviews and releases
+# Templates, brands, languages, assets, history, reviews and releases
 
 How teams keep many sites consistent and launch on time: **templates** decide how a new site starts, **brands** keep the look and voice the same across sites afterwards.
 
@@ -152,3 +152,31 @@ And one element: **Progress bar**, a thin bar along the top of the window that f
 **How it runs.** Chrome, Edge and Safari drive scroll effects natively, smoothly and off the main thread. Other browsers get the same result from a small part of the site's own script. Nothing is loaded from elsewhere, so the site's security policy is unchanged, and visitors who ask for reduced motion see the finished page.
 
 With Claude Code: "Add a story explaining our three-step onboarding, with the screenshot for each step, and reveal the big headings as they scroll in" uses `add_block` (story, statement) and `set_motion`.
+
+## Finding your way
+
+- **Home** is where you start: what to do next, recent sites, and anything waiting for your review.
+- **A site's overview** (click a site) shows its pages with their status, the live link, changes waiting, CMS content, activity and who has access. **Open editor** goes in.
+- **Quick find:** press **⌘K** (Ctrl K on Windows) anywhere to jump to a site, a page, a CMS collection, a screen, or an action such as Publish, Open history or New page. The arrow next to the site name in the editor switches sites.
+- **Calendar** shows what goes live when across every site: scheduled releases, publishes and rollbacks, in the time zone you pick.
+
+## History: the time machine
+
+**History** in the editor (or the overview) opens every version of the site.
+
+| | |
+|---|---|
+| Timeline | Grouped by day and by session: one person's edits close together read as one entry ("You edited · 4 saves · Home, About"); expand it to see each save. Merges, publishes, restores and named versions stand out as milestones. Releases that are scheduled appear at the top |
+| Show | Everything, **This page** (only versions that changed the page you're on), Published, or Named |
+| Look | The stage draws the version you pick. **Show what's different now** outlines what changed since in amber and what's no longer there in red |
+| Restore | **Restore this page only**, **Bring this section into today's version** (click a section on the stage first), or **Restore the whole site**. Each restore is saved as a new version, so you can undo it |
+| Name | Name a version ("Before the rebrand") in the panel, or press **⌘⇧S** in the editor. Named versions are always kept |
+| Live site on | Pick a date and time to see exactly what was live then, including after rollbacks. A published version can be made live again from here |
+
+Old edits are condensed after 90 days to the last one of each day; everything named, published or merged stays, and the activity log keeps every save.
+
+## Moving pages
+
+Drag a page onto another in the **Pages** panel to put it under that page (`/careers` becomes `/about/careers`), or onto **Drop here to make it a top-level page**. The page's **Parent** picker and its **Path** field do the same from the keyboard.
+
+Pages under it move too, links inside the site follow, and **the old addresses redirect** to the new ones, on previews and published sites. See and edit the list in **Site settings → Redirects**, and add your own for addresses printed elsewhere.

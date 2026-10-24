@@ -161,3 +161,21 @@ describe("scroll stories", () => {
     expect(() => applyOperations(doc, [{ op: "update_node", nodeId: root, scroll: { effect: "spin", range: "in" } }])).toThrow();
   });
 });
+
+describe("redirects", () => {
+  it("publishes a page at each old address that sends people on", () => {
+    const doc = createStarterDocument({ template: "landing" });
+    const moved = applyOperations(doc, [
+      { op: "add_page", path: "/about", title: "About", blocks: ["text-section"] },
+      { op: "set_locales", locales: ["fr"] },
+    ]).document;
+    const about = moved.pages.find((p) => p.path === "/about")!;
+    const after = applyOperations(moved, [{ op: "move_page", pageId: about.id, path: "/company" }]).document;
+    const files = renderSite(after, { basePath: "/s/acme" });
+    expect(files.get("about/index.html")).toContain('content="0; url=/s/acme/company"');
+    expect(files.get("about/index.html")).toContain('rel="canonical" href="/s/acme/company"');
+    expect(files.get("fr/about/index.html")).toContain("/s/acme/fr/company");
+    expect(files.get("company/index.html")).toContain("<!doctype html>");
+    expect(files.get("about/index.html")).not.toContain("<script");
+  });
+});

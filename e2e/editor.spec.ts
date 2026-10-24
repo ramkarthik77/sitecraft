@@ -147,11 +147,17 @@ test("restore an earlier version from history", async ({ page }) => {
   await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "History" }).click();
-  const rows = page.locator(".drawer table").first().locator("tbody tr");
-  await expect(rows.first()).toContainText("Merge branch agent/menu");
-  await rows.last().getByRole("button", { name: "Restore" }).click();
-  await expect(page.locator(".toast").first()).toContainText("Restored version");
+  const tm = page.getByRole("dialog", { name: "History" });
+  await expect(tm.locator(".tm-item").first()).toContainText("Merge branch agent/menu");
+  await expect(tm.locator(".tm-item").first()).toContainText(/Live now|Merged/);
+  // Look at the very first version, then put the whole site back to it.
+  await tm.locator(".tm-pick", { hasText: "Create site" }).click();
+  await expect(tm.frameLocator(".tm-frame iframe").locator("h1")).toContainText("Build beautiful sites");
+  await tm.getByRole("button", { name: "Restore the whole site…" }).click();
+  await tm.getByRole("button", { name: "Restore everything" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Restored the whole site");
   await page.keyboard.press("Escape");
+  await expect(tm).toHaveCount(0);
   await expect(canvas(page).locator("h1")).toContainText("Build beautiful sites");
 });
 
@@ -312,4 +318,130 @@ test("finding your way: home, a site's overview, a page, and switching pages", a
   await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
   await page.getByRole("link", { name: "Home" }).first().click();
   await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+});
+
+
+test("time machine: compare, restore one page, bring back a section, name a version", async ({ page }) => {
+  const doc = (await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main`)).document;
+  const about = doc.pages.find((p: { path: string }) => p.path === "/about");
+  const heading = about.root.children[1].children[0].children[0];
+  await page.goto(`/sites/${siteId}?page=${about.id}`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  // Name the current version with the keyboard.
+  await saved(page);
+  await page.keyboard.press("ControlOrMeta+Shift+S");
+  await page.getByLabel("Version name").fill("Before the about rewrite");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Before the about rewrite");
+
+  // Change the about heading, then delete it.
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches/main/ops`, { ops: [{ op: "update_node", nodeId: heading.id, props: { text: "Rewritten about" } }], message: "Rewrite about" });
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches/main/ops`, { ops: [{ op: "remove_node", nodeId: heading.id }], message: "Remove the about heading" });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(canvas(page).getByText("Rewritten about")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "History" }).click();
+  const tm = page.getByRole("dialog", { name: "History" });
+  // "This page" shows only versions that changed About; "Named" shows the checkpoint.
+  await tm.getByRole("button", { name: "This page" }).click();
+  // Both edits came within a minute, so they read as one session; expand it to see each save.
+  await expect(tm.locator(".tm-item").first()).toContainText("2 saves");
+  await tm.getByRole("button", { name: "Show the saves in this session" }).first().click();
+  await expect(tm.locator(".tm-save").first()).toContainText("Remove the about heading");
+  await expect(tm.locator(".tm-hint")).toContainText(/same as the site today|current version/);
+  await tm.getByRole("button", { name: "Named" }).click();
+  await tm.locator(".tm-pick", { hasText: "Before the about rewrite" }).click();
+  const stage = tm.frameLocator(".tm-frame iframe");
+  await expect(stage.locator(`[data-node-id="${heading.id}"]`)).toBeVisible();
+  await expect(tm.locator(".tm-legend")).toContainText("no longer there");
+
+  // Bring just that heading back.
+  await stage.locator(`[data-node-id="${heading.id}"]`).click();
+  await tm.getByRole("button", { name: "Bring this section into today's version" }).click();
+  await expect(page.locator(".toast").first()).toContainText("Brought that section back");
+  await page.keyboard.press("Escape");
+  await expect(canvas(page).locator(`[data-node-id="${heading.id}"]`)).toBeVisible();
+  const now = (await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main/versions`))[0];
+  expect(now).toMatchObject({ kind: "restore" });
+});
+
+test("quick find: jump to a site, a page or an action from anywhere", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  const cp = page.getByRole("dialog", { name: "Quick find" });
+  await cp.getByLabel("Find a site, page or action").fill("northstar");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(new RegExp(`/sites/${siteId}/overview$`));
+
+  await page.goto(`/sites/${siteId}`, { waitUntil: "domcontentloaded" });
+  await expect(canvas(page).locator("body")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Page", exact: true })).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await cp.getByLabel("Find a site, page or action").fill("our team");
+  await expect(cp.getByRole("option").first()).toContainText("Our team");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Page", exact: true })).toContainText("Our team");
+  await page.keyboard.press("ControlOrMeta+k");
+  await cp.getByLabel("Find a site, page or action").fill("history");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "History" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  // The site switcher next to the breadcrumb lists sites.
+  await page.getByRole("button", { name: "Switch site" }).click();
+  await expect(cp.getByRole("option", { name: /Northstar Coffee/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
+test("moving pages: drag under another page, keep old addresses working", async ({ page }) => {
+  await apiCall(page, EDITOR, "POST", `/sites/${siteId}/branches/main/ops`, { ops: [{ op: "add_page", path: "/careers", title: "Careers", blocks: ["text-section"] }], message: "Add careers" });
+  await page.goto(`/sites/${siteId}?tab=pages`, { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(".list-row", { hasText: "Careers" }).dragTo(page.locator(".list-row", { hasText: "About us" }));
+  await expect(page.locator(".toast").first()).toContainText("Moved Careers to /about/careers");
+  await expect(page.locator(".list-row", { hasText: "Careers" })).toContainText("/about/careers");
+  await saved(page);
+
+  // The same with the Parent picker: back to the top level.
+  await page.locator(".list-row", { hasText: "Careers" }).click();
+  await page.getByLabel("Parent page").selectOption("/");
+  await expect(page.locator(".list-row", { hasText: "Careers" })).toContainText("/careers");
+  await saved(page);
+
+  // Redirects are listed in Site settings, and previews send old addresses on.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.locator(".redirect-row", { hasText: "/about/careers" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  const { url } = await apiCall(page, EDITOR, "GET", `/sites/${siteId}/branches/main/preview-url`);
+  await page.goto(url + "about/careers", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/careers$/);
+});
+
+test("calendar, activity and who has access", async ({ page }) => {
+  await page.goto("/calendar", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), EDITOR);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
+  await expect(page.locator(".cal-day.today .cal-chip").first()).toContainText("Northstar Coffee");
+  await expect(page.locator(".cal-side")).toContainText("Published");
+  await page.getByLabel("Time zone").selectOption("Asia/Tokyo");
+
+  await page.goto(`/sites/${siteId}/overview`, { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("heading", { name: "Activity" })).toBeVisible();
+  await expect(page.locator(".act-row").first()).toBeVisible();
+  await page.getByRole("group", { name: "Kind of activity" }).getByRole("button", { name: "Publishing" }).click();
+  await expect(page.locator(".act-row", { hasText: "published version" }).first()).toBeVisible();
+  await expect(page.locator(".access-list li", { hasText: "e2e-editor" }).or(page.locator(".access-list li").first())).toBeVisible();
+
+  // The live site as it was a moment ago opens history on that version.
+  const at = new Date(Date.now() + 60_000);
+  const local = new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  await page.getByLabel("See the live site as it was on").fill(local);
+  await page.locator(".ov-warp").getByRole("button", { name: "Show" }).click();
+  await expect(page.getByRole("dialog", { name: "History" })).toBeVisible();
+  await expect(page.locator(".tm-detail")).toContainText(/Live now|Published/);
 });

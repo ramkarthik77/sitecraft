@@ -28,6 +28,8 @@ export interface Config {
   turnstileSecret?: string;
   /** Form submissions older than this are deleted. 0 keeps them forever. */
   formRetentionDays: number;
+  /** Days of edit history kept in full (0 keeps everything). */
+  historyDays: number;
   /** API requests allowed per IP per minute, per server. */
   rateLimitPerMinute: number;
 }
@@ -79,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     turnstileSiteKey: env.TURNSTILE_SITE_KEY || undefined,
     turnstileSecret: env.TURNSTILE_SECRET || undefined,
     formRetentionDays: Number(env.FORM_RETENTION_DAYS ?? 365) || 0,
+    historyDays: env.HISTORY_DAYS === "0" ? 0 : Number(env.HISTORY_DAYS ?? 90) || 90,
     rateLimitPerMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 600) || 600,
   };
 }

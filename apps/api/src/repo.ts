@@ -1,4 +1,4 @@
-import { applyOperations, OperationError, validateDocument, type Operation, type SiteDocument } from "@sitecraft/schema";
+import { applyOperations, OperationError, summarizeChanges, validateDocument, type Operation, type SiteDocument, type VersionChanges } from "@sitecraft/schema";
 import type { Actor } from "./auth.js";
 import { tx, type Db, type Queryable } from "./db.js";
 import { HttpError } from "./errors.js";
@@ -33,7 +33,16 @@ export interface VersionMeta {
   actor: string;
   actor_role: string;
   created_at: string;
+  label?: string | null;
+  kind?: VersionKind;
+  changes?: VersionChanges | null;
 }
+
+/** What a save was: an edit, a merge of a branch, a restore, the site's creation or a brand update. */
+export type VersionKind = "edit" | "merge" | "restore" | "create" | "brand";
+
+/** Days of edit history kept in full; older edits are condensed to the last one each day. */
+export const HISTORY_DAYS = 90;
 
 const BRANCH_RE = /^[a-z0-9][a-z0-9._/-]{0,62}$/;
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
@@ -94,7 +103,7 @@ export class Repo {
       });
       const site = ins.rows[0]!;
       const ver = await c.query<{ id: number }>(
-        "INSERT INTO versions (site_id, branch, document, message, actor, actor_role) VALUES ($1, 'main', $2, 'Create site', $3, $4) RETURNING id",
+        "INSERT INTO versions (site_id, branch, document, message, actor, actor_role, kind) VALUES ($1, 'main', $2, 'Create site', $3, $4, 'create') RETURNING id",
         [site.id, v.document, actor.name, actor.role],
       );
       await c.query("INSERT INTO branches (site_id, name, head_version_id, created_by) VALUES ($1, 'main', $2, $3)", [site.id, ver.rows[0]!.id, actor.name]);
@@ -180,12 +189,90 @@ export class Repo {
     return { versionId: v.id, document: v.document, branch: b };
   }
 
-  async listVersions(siteId: string, branch: string, limit = 50): Promise<VersionMeta[]> {
-    const { rows } = await this.db.query<VersionMeta>(
-      "SELECT id, branch, parent_id, message, actor, actor_role, created_at FROM versions WHERE site_id = $1 AND branch = $2 ORDER BY id DESC LIMIT $3",
-      [siteId, branch, Math.min(limit, 200)],
+  async listVersions(
+    siteId: string,
+    branch: string,
+    limit = 50,
+    opts: { before?: number; pageId?: string; only?: "named" | "published" } = {},
+  ): Promise<(VersionMeta & { published: boolean; live: boolean })[]> {
+    const args: unknown[] = [siteId, branch];
+    const where = ["v.site_id = $1", "v.branch = $2"];
+    if (opts.before) where.push(`v.id < $${args.push(opts.before)}`);
+    if (opts.pageId) where.push(`(v.changes->'pageIds') ? $${args.push(opts.pageId)}`);
+    if (opts.only === "named") where.push("v.label IS NOT NULL");
+    if (opts.only === "published") where.push("EXISTS (SELECT 1 FROM deployments d WHERE d.version_id = v.id)");
+    const { rows } = await this.db.query<VersionMeta & { published: boolean; live: boolean }>(
+      `SELECT v.id, v.branch, v.parent_id, v.message, v.actor, v.actor_role, v.created_at, v.label, v.kind, v.changes,
+         EXISTS (SELECT 1 FROM deployments d WHERE d.version_id = v.id) AS published,
+         EXISTS (SELECT 1 FROM sites s JOIN deployments d ON d.id = s.current_deployment_id WHERE s.id = v.site_id AND d.version_id = v.id) AS live
+       FROM versions v WHERE ${where.join(" AND ")} ORDER BY v.id DESC LIMIT $${args.push(Math.min(limit, 200))}`,
+      args,
     );
+    // Versions saved before change summaries existed get one now.
+    for (const r of rows) {
+      if (r.changes || r.kind === "create" || r.parent_id === null) continue;
+      const pair = await this.db.query<{ before: SiteDocument; after: SiteDocument }>(
+        "SELECT p.document AS before, v.document AS after FROM versions v JOIN versions p ON p.id = v.parent_id WHERE v.id = $1",
+        [r.id],
+      );
+      if (!pair.rows[0]) continue;
+      r.changes = summarizeChanges(pair.rows[0].before, pair.rows[0].after);
+      await this.db.query("UPDATE versions SET changes = $2::text::jsonb WHERE id = $1", [r.id, JSON.stringify(r.changes)]);
+    }
     return rows;
+  }
+
+  /** Name a version ("Before the rebrand"), or clear its name. Named versions are kept forever. */
+  async labelVersion(actor: Actor, siteId: string, versionId: number, label: string | null) {
+    const clean = label?.trim().slice(0, 80) || null;
+    const r = await this.db.query("UPDATE versions SET label = $3 WHERE site_id = $1 AND id = $2", [siteId, versionId, clean]);
+    if (!r.rowCount) throw new HttpError(404, `Version ${versionId} not found.`);
+    await audit(this.db, siteId, actor, clean ? "version.name" : "version.unname", { versionId, label: clean });
+  }
+
+  /** The deployment that was live at a moment, or null if nothing was published yet. */
+  async liveAt(siteId: string, at: Date) {
+    const { rows } = await this.db.query<{ deployment_id: string; version_id: number; at: string; actor: string; reason: string }>(
+      `SELECT h.deployment_id, d.version_id, h.at, h.actor, h.reason FROM live_history h JOIN deployments d ON d.id = h.deployment_id
+       WHERE h.site_id = $1 AND h.at <= $2 ORDER BY h.at DESC, h.id DESC LIMIT 1`,
+      [siteId, at.toISOString()],
+    );
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Condense old edit history: keep every named, published, merged and branch
+   * version, all edits from the last `days` days, and the last edit of each
+   * older day. Versions whose parent goes are linked to the nearest kept one,
+   * and their change summary is worked out again against it.
+   */
+  async pruneHistory(siteId: string, days = HISTORY_DAYS): Promise<number> {
+    const { rows } = await this.db.query<{ id: number; parent_id: number | null; branch: string; day: string; old: boolean; pinned: boolean }>(
+      `SELECT v.id, v.parent_id, v.branch, to_char(v.created_at, 'YYYY-MM-DD') AS day,
+         v.created_at < now() - make_interval(days => $2) AS old,
+         (v.label IS NOT NULL OR v.kind IN ('merge', 'create')
+           OR EXISTS (SELECT 1 FROM branches b WHERE b.site_id = v.site_id AND (b.head_version_id = v.id OR b.base_version_id = v.id))
+           OR EXISTS (SELECT 1 FROM deployments d WHERE d.version_id = v.id)
+           OR EXISTS (SELECT 1 FROM approvals a WHERE a.version_id = v.id)) AS pinned
+       FROM versions v WHERE v.site_id = $1 ORDER BY v.id`,
+      [siteId, days],
+    );
+    const lastOfDay = new Map<string, number>();
+    for (const r of rows) lastOfDay.set(`${r.branch}|${r.day}`, r.id);
+    const drop = new Set(rows.filter((r) => r.old && !r.pinned && lastOfDay.get(`${r.branch}|${r.day}`) !== r.id).map((r) => r.id));
+    if (!drop.size) return 0;
+    const parent = new Map(rows.map((r) => [r.id, r.parent_id]));
+    return tx(this.db, async (c) => {
+      for (const r of rows) {
+        if (drop.has(r.id) || r.parent_id === null || !drop.has(r.parent_id)) continue;
+        let p: number | null = r.parent_id;
+        while (p !== null && drop.has(p)) p = parent.get(p) ?? null;
+        await c.query("UPDATE versions SET parent_id = $2, changes = NULL WHERE id = $1", [r.id, p]);
+      }
+      const ids = [...drop];
+      for (let i = 0; i < ids.length; i += 500) await c.query("DELETE FROM versions WHERE id = ANY($1::bigint[])", [ids.slice(i, i + 500)]);
+      return drop.size;
+    });
   }
 
   /**
@@ -196,7 +283,7 @@ export class Repo {
     actor: Actor,
     siteId: string,
     branchName: string,
-    next: (current: SiteDocument, headId: number) => { document: SiteDocument; message: string },
+    next: (current: SiteDocument, headId: number) => { document: SiteDocument; message: string; kind?: VersionKind },
     baseVersion?: number,
   ): Promise<{ versionId: number; document: SiteDocument }> {
     return tx(this.db, async (c) => {
@@ -205,21 +292,24 @@ export class Repo {
         throw new HttpError(409, "This branch changed since you loaded it. Reload to get the latest version.", { headVersionId: b.head_version_id });
       }
       const cur = await c.query<{ document: SiteDocument }>("SELECT document FROM versions WHERE id = $1", [b.head_version_id]);
-      const { document, message } = next(cur.rows[0]!.document, b.head_version_id);
+      const { document, message, kind = "edit" } = next(cur.rows[0]!.document, b.head_version_id);
       const v = validateDocument(document);
       if (!v.ok) throw new HttpError(400, "Invalid site document", { errors: v.errors });
+      const changes = summarizeChanges(cur.rows[0]!.document, v.document);
       const ins = await c.query<{ id: number }>(
-        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-        [siteId, branchName, b.head_version_id, v.document, message.slice(0, 500), actor.name, actor.role],
+        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role, kind, changes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb) RETURNING id",
+        [siteId, branchName, b.head_version_id, v.document, message.slice(0, 500), actor.name, actor.role, kind, JSON.stringify(changes)],
       );
       const id = ins.rows[0]!.id;
       await c.query("UPDATE branches SET head_version_id = $3 WHERE site_id = $1 AND name = $2", [siteId, branchName, id]);
+      // Every save goes in the audit trail too, which outlives condensed edit history.
+      await audit(c, siteId, actor, `version.${kind}`, { branch: branchName, versionId: Number(id), message: message.slice(0, 500), pages: changes.pages, theme: changes.theme });
       await EventBus.publish(c, { type: "version", siteId, branch: branchName, versionId: id, actor: actor.name, actorRole: actor.role, message });
       return { versionId: id, document: v.document };
     });
   }
 
-  async applyOps(actor: Actor, siteId: string, branch: string, ops: Operation[], message: string | undefined, baseVersion?: number) {
+  async applyOps(actor: Actor, siteId: string, branch: string, ops: Operation[], message: string | undefined, baseVersion?: number, kind?: VersionKind) {
     let created: (string | null)[] = [];
     const r = await this.commit(
       actor,
@@ -229,7 +319,7 @@ export class Repo {
         try {
           const res = applyOperations(cur, ops);
           created = res.created;
-          return { document: res.document, message: message || summarizeOps(ops) };
+          return { document: res.document, message: message || summarizeOps(ops), kind };
         } catch (e) {
           if (e instanceof OperationError) throw new HttpError(400, e.message);
           throw e;
@@ -254,9 +344,11 @@ export class Repo {
         });
       }
       const doc = await c.query<{ document: SiteDocument }>("SELECT document FROM versions WHERE id = $1", [b.head_version_id]);
+      const mainDoc = await c.query<{ document: SiteDocument }>("SELECT document FROM versions WHERE id = $1", [main.head_version_id]);
+      const changes = summarizeChanges(mainDoc.rows[0]!.document, doc.rows[0]!.document);
       const ins = await c.query<{ id: number }>(
-        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role) VALUES ($1, 'main', $2, $3, $4, $5, $6) RETURNING id",
-        [siteId, main.head_version_id, doc.rows[0]!.document, `Merge branch ${branchName}`, actor.name, actor.role],
+        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role, kind, changes) VALUES ($1, 'main', $2, $3, $4, $5, $6, 'merge', $7::text::jsonb) RETURNING id",
+        [siteId, main.head_version_id, doc.rows[0]!.document, `Merge branch ${branchName}`, actor.name, actor.role, JSON.stringify(changes)],
       );
       const id = ins.rows[0]!.id;
       await c.query("UPDATE branches SET head_version_id = $2 WHERE site_id = $1 AND name = 'main'", [siteId, id]);
@@ -279,6 +371,7 @@ export class Repo {
         actor.name,
       ]);
       await c.query("UPDATE sites SET current_deployment_id = $2 WHERE id = $1", [siteId, deploymentId]);
+      await c.query("INSERT INTO live_history (site_id, deployment_id, actor, reason) VALUES ($1, $2, $3, 'publish')", [siteId, deploymentId, actor.name]);
       await audit(c, siteId, actor, "site.publish", { versionId, deploymentId });
       await EventBus.publish(c, { type: "deploy", siteId, versionId, actor: actor.name, actorRole: actor.role, message: `Published to ${url}` });
     });
@@ -292,6 +385,7 @@ export class Repo {
   async rollback(actor: Actor, siteId: string, deploymentId: string) {
     const r = await this.db.query("UPDATE sites SET current_deployment_id = $2 WHERE id = $1 AND EXISTS (SELECT 1 FROM deployments WHERE id = $2 AND site_id = $1)", [siteId, deploymentId]);
     if (!r.rowCount) throw new HttpError(404, "Deployment not found.");
+    await this.db.query("INSERT INTO live_history (site_id, deployment_id, actor, reason) VALUES ($1, $2, $3, 'rollback')", [siteId, deploymentId, actor.name]);
     await audit(this.db, siteId, actor, "site.rollback", { deploymentId });
   }
 

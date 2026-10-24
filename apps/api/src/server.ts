@@ -114,6 +114,13 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
     if (cfg.formRetentionDays > 0) {
       await db.query("DELETE FROM form_submissions WHERE created_at < now() - make_interval(days => $1)", [cfg.formRetentionDays]).catch((e) => app.log.error(e));
     }
+    // Condense edit history older than the retention window, one site at a time.
+    if (cfg.historyDays > 0) {
+      for (const s of await ctx.repo.listSites().catch(() => [])) {
+        const n = await ctx.repo.pruneHistory(s.id, cfg.historyDays).catch((e) => (app.log.error(e), 0));
+        if (n) app.log.info(`Condensed ${n} old versions of ${s.slug}`);
+      }
+    }
   };
   void purge();
   const purgeTimer = setInterval(() => void purge(), 3_600_000);
