@@ -87,19 +87,25 @@ export function CommandPalette({ me }: { me: Me }) {
   const all = useMemo<Command[]>(() => {
     const go = (href: string) => () => navigate(href);
     const nav: Command[] = [
-      { id: "go:home", group: "Go to", label: "Home", icon: "home", run: go("/") },
-      { id: "go:sites", group: "Go to", label: "All sites", icon: "grid", run: go("/sites") },
-      { id: "go:calendar", group: "Go to", label: "Calendar", hint: "What goes live when", icon: "clock", keywords: "schedule releases", run: go("/calendar") },
-      { id: "go:templates", group: "Go to", label: "Templates", icon: "pages", run: go("/templates") },
+      { id: "go:home", group: "Go to", label: "Home", hint: "Command center", icon: "home", run: go("/") },
+      ...(me.role !== "agent" ? [{ id: "go:work", group: "Go to", label: "My work", hint: "Everything waiting for you", icon: "inbox", keywords: "queue inbox tasks todo", run: go("/work") }] : []),
+      { id: "go:sites", group: "Go to", label: "All sites", hint: "By therapy area, brand and market", icon: "globe", keywords: "directory portfolio", run: go("/sites") },
+      { id: "go:reviews", group: "Go to", label: "Reviews", hint: "MLR sign-off", icon: "shield", keywords: "mlr medical legal regulatory approvals sign", run: go("/reviews") },
+      { id: "go:claude", group: "Go to", label: "Claude's drafts", hint: "Branches Claude made", icon: "sparkle", keywords: "agent ai", run: go("/reviews?show=claude") },
+      { id: "go:releases", group: "Go to", label: "Releases", hint: "What goes live when", icon: "calendar", keywords: "schedule calendar publish", run: go("/releases") },
+      { id: "go:assets", group: "Go to", label: "Asset library", hint: "Approved images, job codes, rights", icon: "image", keywords: "images photos dam expiry", run: go("/assets") },
       { id: "go:brands", group: "Go to", label: "Brands", icon: "spark", run: go("/brands") },
-      { id: "go:assets", group: "Go to", label: "Assets", hint: "Image library", icon: "image", keywords: "images photos", run: go("/assets") },
-      ...(me.role === "admin" ? [{ id: "go:access", group: "Go to", label: "Access", hint: "People and tokens", icon: "lock", keywords: "users tokens invite", run: go("/access") }] : []),
+      { id: "go:templates", group: "Go to", label: "Templates", icon: "pages", run: go("/templates") },
+      { id: "go:components", group: "Go to", label: "Components", icon: "components", keywords: "isi safety blocks", run: go("/components") },
+      ...(me.role !== "agent" ? [{ id: "go:audit", group: "Go to", label: "Audit log", hint: "Who did what, verified", icon: "audit", keywords: "history compliance trail", run: go("/audit") }] : []),
+      ...(me.role !== "agent" ? [{ id: "go:settings", group: "Go to", label: "Settings", hint: "Rules and reviewers", icon: "settings", keywords: "policy disciplines job codes", run: go("/settings") }] : []),
+      ...(me.role === "admin" ? [{ id: "go:access", group: "Go to", label: "Access", hint: "People and tokens", icon: "users", keywords: "users tokens invite", run: go("/access") }] : []),
       ...(me.role !== "agent" ? [{ id: "do:newsite", group: "Actions", label: "New site", icon: "plus", keywords: "create", run: go("/sites?new=1") }] : []),
     ];
     const siteCmds: Command[] = [...sites]
       .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
       .flatMap((s) => [
-        { id: `site:${s.id}`, group: "Sites", label: s.name, hint: s.liveUrl ? "Live" : "Draft", icon: "grid", keywords: `${s.slug} ${s.domain ?? ""} overview`, run: go(`/sites/${s.id}/overview`) },
+        { id: `site:${s.id}`, group: "Sites", label: s.name, hint: [s.market, s.liveUrl ? "Live" : "Draft"].filter(Boolean).join(" · "), icon: "globe", keywords: `${s.slug} ${s.domain ?? ""} ${s.therapyArea ?? ""} ${s.brandName ?? ""} ${s.market ?? ""} ${s.audience ?? ""} ${s.jobCode ?? ""} overview`, run: go(`/sites/${s.id}/overview`) },
         { id: `edit:${s.id}`, group: "Sites", label: `Edit ${s.name}`, hint: "Open the editor", icon: "pages", keywords: `${s.slug} editor`, run: go(`/sites/${s.id}`) },
       ]);
     return scope === "sites" ? siteCmds.filter((c) => c.id.startsWith("site:")) : [...cmds, ...siteCmds, ...nav];

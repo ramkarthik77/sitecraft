@@ -14,7 +14,7 @@ import {
   type SiteDocument,
   type TemplateName,
 } from "@sitecraft/schema";
-import { authenticate, canAccessSite, clearTokenCache, createToken, requireRole, signPreview, signTicket, verifyTicket, type Actor, type Role } from "../auth.js";
+import { authenticate, canAccessSite, clearTokenCache, createToken, parseTextArray, requireRole, signPreview, signTicket, verifyTicket, type Actor, type Role } from "../auth.js";
 import { HttpError } from "../errors.js";
 import { exportSite, publishVersion, siteLocation } from "../publish.js";
 import { toCsv } from "../security.js";
@@ -23,6 +23,7 @@ import { assertApproved, reviewRoutes } from "../reviews.js";
 import { assetRoutes, checkImage } from "./assets.js";
 import { historyRoutes } from "./history.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
+import { assertReadyToPublish, DISCIPLINES, pharmaRoutes, siteProfile } from "./pharma.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -62,6 +63,14 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     }
   });
 
+  const checkDisciplines = (v: unknown): string[] => {
+    if (v === undefined || v === null) return [];
+    if (!Array.isArray(v)) throw new HttpError(400, "disciplines is a list.");
+    const d = [...new Set(v.map((x) => String(x).toLowerCase()))];
+    if (d.some((x) => !(DISCIPLINES as readonly string[]).includes(x))) throw new HttpError(400, `Review disciplines are ${DISCIPLINES.join(", ")}.`);
+    return DISCIPLINES.filter((x) => d.includes(x));
+  };
+
   const reviewUrl = (siteId: string, branch: string) => `${cfg.editorUrl}/sites/${siteId}?branch=${encodeURIComponent(branch)}&review=1`;
 
   /** Agents work on branches; people decide what reaches main and the live site. */
@@ -86,11 +95,23 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     liveUrl: s.current_deployment_id ? siteLocation(cfg, s).url : null,
     publishUrl: siteLocation(cfg, s).url,
     brandId: s.brand_id ?? null,
-    requiredApprovals: Number((s as { required_approvals?: number }).required_approvals ?? 0),
+    requiredApprovals: Number(s.required_approvals ?? 0),
+    ...siteProfile(s),
   });
   const { getBrand, syncBrand } = libraryHelpers(ctx);
 
-  app.get("/me", async (req) => ({ name: req.actor.name, role: req.actor.role, agentCanPublish: cfg.agentCanPublish, local: !!req.actor.local }));
+  app.get("/me", async (req) => ({
+    name: req.actor.name,
+    role: req.actor.role,
+    agentCanPublish: cfg.agentCanPublish,
+    agentCanEditMain: cfg.agentCanEditMain,
+    local: !!req.actor.local,
+    disciplines: req.actor.local ? [...DISCIPLINES] : (req.actor.disciplines ?? []),
+    onBehalfOf: req.actor.onBehalfOf ?? null,
+    limitedToSites: req.actor.siteIds?.length ?? null,
+    publicUrl: cfg.publicUrl,
+    orgName: cfg.orgName,
+  }));
 
   app.get("/blocks", async () => BLOCK_NAMES.map((name) => ({ name, description: BLOCK_DESCRIPTIONS[name] ?? "" })));
   app.get("/templates", async () => TEMPLATES);
@@ -98,7 +119,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   // People and Claude Code sign in with tokens. Admins create, list and revoke them.
   app.post("/tokens", async (req) => {
     requireRole(req.actor, "admin");
-    const { name, role, expiresInDays, sites } = body<{ name?: string; role?: Role; expiresInDays?: number | null; sites?: string[] }>(req);
+    const { name, role, expiresInDays, sites, onBehalfOf, disciplines } = body<{ name?: string; role?: Role; expiresInDays?: number | null; sites?: string[]; onBehalfOf?: string; disciplines?: string[] }>(req);
     if (!name || typeof name !== "string" || name.length > 120 || !role || !["admin", "editor", "agent"].includes(role)) throw new HttpError(400, "Provide name and role (admin, editor or agent).");
     if (expiresInDays !== undefined && expiresInDays !== null && !(Number.isInteger(expiresInDays) && expiresInDays >= 1 && expiresInDays <= 3650)) {
       throw new HttpError(400, "expiresInDays must be a whole number of days from 1 to 3650, or null for no expiry.");
@@ -110,15 +131,21 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     // New tokens expire after 90 days unless asked otherwise.
     const days = expiresInDays === null ? undefined : expiresInDays ?? 90;
-    const t = await createToken(ctx.db, name, role, undefined, { expiresInDays: days, siteIds, createdBy: req.actor.name });
-    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'token.create', $3)", [req.actor.name, req.actor.role, { id: t.id, name, role, expiresAt: t.expiresAt, siteIds }]);
-    return { id: t.id, name, role, token: t.token, expiresAt: t.expiresAt, siteIds: siteIds ?? null };
+    const who = role === "agent" ? (onBehalfOf?.trim() || req.actor.name).slice(0, 120) : undefined;
+    const disc = role === "agent" ? [] : checkDisciplines(disciplines);
+    const t = await createToken(ctx.db, name, role, undefined, { expiresInDays: days, siteIds, createdBy: req.actor.name, onBehalfOf: who, disciplines: disc });
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'token.create', $3)", [
+      req.actor.name,
+      req.actor.role,
+      { id: t.id, name, role, expiresAt: t.expiresAt, siteIds, onBehalfOf: who, disciplines: disc.length ? disc : undefined },
+    ]);
+    return { id: t.id, name, role, token: t.token, expiresAt: t.expiresAt, siteIds: siteIds ?? null, onBehalfOf: who ?? null, disciplines: disc };
   });
 
   app.get("/tokens", async (req) => {
     requireRole(req.actor, "admin");
     const { rows } = await ctx.db.query<Record<string, unknown>>(
-      "SELECT id, name, role, created_at, created_by, last_used_at, expires_at, revoked_at, site_ids FROM api_tokens ORDER BY revoked_at NULLS FIRST, created_at DESC",
+      "SELECT id, name, role, created_at, created_by, last_used_at, expires_at, revoked_at, site_ids, on_behalf_of, disciplines FROM api_tokens ORDER BY revoked_at NULLS FIRST, created_at DESC",
     );
     const iso = (v: unknown) => (v ? new Date(String(v)).toISOString() : null);
     return rows.map((r) => ({
@@ -131,7 +158,35 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
       expiresAt: iso(r.expires_at),
       revokedAt: iso(r.revoked_at),
       siteIds: Array.isArray(r.site_ids) ? r.site_ids : r.site_ids ? String(r.site_ids).replace(/^{|}$/g, "").split(",").filter(Boolean) : null,
+      onBehalfOf: r.role === "agent" ? ((r.on_behalf_of as string | null) ?? (r.created_by as string | null) ?? null) : null,
+      disciplines: parseTextArray(r.disciplines),
     }));
+  });
+
+  // Make someone a reviewer for a discipline, or change who a Claude token works for.
+  app.patch<{ Params: Params }>("/tokens/:id", async (req) => {
+    requireRole(req.actor, "admin");
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw new HttpError(404, "No such token.");
+    const b = body<{ disciplines?: string[]; onBehalfOf?: string | null }>(req);
+    const { rows } = await ctx.db.query<{ name: string; role: Role }>("SELECT name, role FROM api_tokens WHERE id = $1 AND revoked_at IS NULL", [req.params.id]);
+    const t = rows[0];
+    if (!t) throw new HttpError(404, "No such token, or it's revoked.");
+    const detail: Record<string, unknown> = { id: req.params.id, name: t.name };
+    if (b.disciplines !== undefined) {
+      if (t.role === "agent") throw new HttpError(400, "Claude can't be a reviewer.");
+      const d = checkDisciplines(b.disciplines);
+      await ctx.db.query("UPDATE api_tokens SET disciplines = $2 WHERE id = $1", [req.params.id, d]);
+      detail.disciplines = d;
+    }
+    if (b.onBehalfOf !== undefined) {
+      if (t.role !== "agent") throw new HttpError(400, "Only Claude tokens work for someone.");
+      const who = b.onBehalfOf?.trim().slice(0, 120) || null;
+      await ctx.db.query("UPDATE api_tokens SET on_behalf_of = $2 WHERE id = $1", [req.params.id, who]);
+      detail.onBehalfOf = who;
+    }
+    clearTokenCache();
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'token.update', $3)", [req.actor.name, req.actor.role, detail]);
+    return { ok: true };
   });
 
   app.delete<{ Params: Params }>("/tokens/:id", async (req, reply) => {
@@ -145,11 +200,40 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   // Sites
-  app.get("/sites", async (req) =>
-    Promise.all(
-      (await repo.listSites()).filter((s) => canAccessSite(req.actor, s.id)).map(async (s) => ({ ...(await siteOut(s)), updatedAt: s.updated_at })),
-    ),
-  );
+  app.get("/sites", async (req) => {
+    const sites = (await repo.listSites()).filter((s) => canAccessSite(req.actor, s.id));
+    // What's going on with each site, in a few grouped queries.
+    const [brands, reviews, branches, releases, pages] = await Promise.all([
+      ctx.db.query<{ id: string; name: string }>("SELECT id, name FROM brands"),
+      ctx.db.query<{ site_id: string; n: number }>("SELECT site_id, count(*)::int AS n FROM review_requests WHERE status IN ('open', 'changes_requested') GROUP BY site_id"),
+      ctx.db.query<{ site_id: string; n: number; claude: number }>(
+        `SELECT b.site_id, count(*)::int AS n, count(*) FILTER (WHERE v.actor_role = 'agent')::int AS claude FROM branches b JOIN versions v ON v.id = b.head_version_id
+         WHERE b.name <> 'main' AND b.head_version_id <> COALESCE(b.base_version_id, -1) GROUP BY b.site_id`,
+      ),
+      ctx.db.query<{ site_id: string; at: string }>("SELECT site_id, min(run_at) AS at FROM schedules WHERE status = 'pending' GROUP BY site_id"),
+      ctx.db.query<{ site_id: string; n: number }>(
+        "SELECT b.site_id, jsonb_array_length(v.document->'pages')::int AS n FROM branches b JOIN versions v ON v.id = b.head_version_id WHERE b.name = 'main'",
+      ),
+    ]);
+    const by = <T extends { site_id: string }>(rows: T[]) => new Map(rows.map((r) => [r.site_id, r]));
+    const brand = new Map(brands.rows.map((b) => [b.id, b.name]));
+    const rv = by(reviews.rows);
+    const br = by(branches.rows);
+    const rl = by(releases.rows);
+    const pg = by(pages.rows);
+    return Promise.all(
+      sites.map(async (s) => ({
+        ...(await siteOut(s)),
+        updatedAt: s.updated_at,
+        brandName: s.brand_id ? (brand.get(s.brand_id) ?? null) : null,
+        pageCount: Number(pg.get(s.id)?.n ?? 0),
+        openReviews: Number(rv.get(s.id)?.n ?? 0),
+        openBranches: Number(br.get(s.id)?.n ?? 0),
+        claudeBranches: Number(br.get(s.id)?.claude ?? 0),
+        nextRelease: rl.get(s.id)?.at ? new Date(rl.get(s.id)!.at).toISOString() : null,
+      })),
+    );
+  });
 
   app.post("/sites", async (req, reply) => {
     if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
@@ -329,6 +413,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     const { branch = "main" } = body<{ branch?: string }>(req);
     if (branch !== "main") throw new HttpError(400, "Only main is published. Merge the branch first.");
     assertCanShip(req.actor, site.id, branch, "publish the live site");
+    await assertReadyToPublish(ctx, site, (await repo.getHead(site.id, "main")).document);
     return publishVersion(cfg, repo, ctx.storage, req.actor, site, branch);
   });
 
@@ -436,4 +521,5 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   await reviewRoutes(app, ctx);
   await scheduleRoutes(app, ctx, assertCanShip);
   await historyRoutes(app, ctx, assertCanWrite);
+  await pharmaRoutes(app, ctx);
 }

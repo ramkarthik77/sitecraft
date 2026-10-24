@@ -375,9 +375,11 @@ export function renderPage(doc: SiteDocument, page: Page, opts: RenderOptions): 
   const ctx: Ctx = { doc, opts, css: newCollector(), seen: new Set(), componentStack: [], item };
   const meta = pageMeta(page, item, ctx);
   ctx.routePath = meta.path;
-  const body = renderNode(page.root, ctx);
+  // Regulated pages carry their approval code at the foot of the page.
+  const jobCode = page.jobCode && opts.mode !== "editor" ? `\n<p class="sc-job-code">${escapeHtml(page.jobCode)}</p>` : "";
+  const body = renderNode(page.root, ctx) + jobCode;
   const withAnim = opts.mode !== "editor";
-  const css = assembleCss(doc, ctx.css, withAnim);
+  const css = assembleCss(doc, ctx.css, withAnim) + (jobCode ? ".sc-job-code{margin:0;padding:12px 24px;font-size:12px;opacity:.7;text-align:center}" : "");
   const lang = altLocale(ctx) ?? doc.settings.lang;
   const site = opts.siteUrl?.replace(/\/$/, "");
   const here = localePath(meta.path, lang, doc);

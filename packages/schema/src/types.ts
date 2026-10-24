@@ -210,6 +210,11 @@ export interface Page {
   description?: string;
   /** Social share image URL. */
   ogImage?: string;
+  /**
+   * The approval code for this page's content (for example US-CAL-2400123),
+   * shown at the foot of the published page as regulated material requires.
+   */
+  jobCode?: string;
   root: SiteNode;
 }
 

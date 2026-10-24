@@ -14,6 +14,10 @@ export interface Actor {
   siteIds?: string[];
   /** The token's id, for audit and revocation. */
   tokenId?: string;
+  /** For Claude: the person it works for, who then can't approve what it changed. */
+  onBehalfOf?: string;
+  /** Review disciplines this person signs off for (medical, legal, regulatory). */
+  disciplines?: string[];
 }
 
 export const LOCAL_OWNER: Actor = { name: "You", role: "admin", local: true };
@@ -58,15 +62,19 @@ export interface TokenOptions {
   /** Limit the token to these site ids. */
   siteIds?: string[];
   createdBy?: string;
+  /** For agent tokens: the person the agent works for. */
+  onBehalfOf?: string;
+  /** Review disciplines the holder signs off for. */
+  disciplines?: string[];
 }
 
 export async function createToken(db: Db, name: string, role: Role, token = generateToken(), opts: TokenOptions = {}): Promise<{ token: string; id: string; expiresAt: string | null }> {
   const expires = opts.expiresInDays ? new Date(Date.now() + opts.expiresInDays * 86_400_000).toISOString() : null;
   const { rows } = await db.query<{ id: string; expires_at: string | null }>(
-    `INSERT INTO api_tokens (token_hash, name, role, expires_at, site_ids, created_by) VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (token_hash) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, revoked_at = NULL
+    `INSERT INTO api_tokens (token_hash, name, role, expires_at, site_ids, created_by, on_behalf_of, disciplines) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (token_hash) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, revoked_at = NULL, on_behalf_of = EXCLUDED.on_behalf_of, disciplines = EXCLUDED.disciplines
      RETURNING id, expires_at`,
-    [hashToken(token), name, role, expires, opts.siteIds?.length ? opts.siteIds : null, opts.createdBy ?? null],
+    [hashToken(token), name, role, expires, opts.siteIds?.length ? opts.siteIds : null, opts.createdBy ?? null, role === "agent" ? (opts.onBehalfOf ?? null) : null, role === "agent" ? [] : (opts.disciplines ?? [])],
   );
   const exp = rows[0]?.expires_at;
   return { token, id: rows[0]!.id, expiresAt: exp ? new Date(exp).toISOString() : null };
@@ -100,8 +108,8 @@ export async function actorForToken(db: Db, token: string): Promise<Actor> {
   const key = hashToken(token);
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.actor;
-  const { rows } = await db.query<{ id: string; name: string; role: Role; site_ids: string[] | null; expires_at: string | null; revoked_at: string | null }>(
-    "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1 RETURNING id, name, role, site_ids, expires_at, revoked_at",
+  const { rows } = await db.query<{ id: string; name: string; role: Role; site_ids: string[] | null; expires_at: string | null; revoked_at: string | null; on_behalf_of: string | null; created_by: string | null; disciplines: unknown }>(
+    "UPDATE api_tokens SET last_used_at = now() WHERE token_hash = $1 RETURNING id, name, role, site_ids, expires_at, revoked_at, on_behalf_of, created_by, disciplines",
     [key],
   );
   const row = rows[0];
@@ -110,6 +118,13 @@ export async function actorForToken(db: Db, token: string): Promise<Actor> {
   if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) throw new HttpError(401, "This token has expired. Ask an admin for a new one.");
   const actor: Actor = { name: row.name, role: row.role, tokenId: row.id };
   if (row.site_ids?.length) actor.siteIds = parseUuidArray(row.site_ids);
+  // Claude works for whoever it was set up for (or whoever created its token).
+  if (row.role === "agent") {
+    const who = row.on_behalf_of ?? row.created_by;
+    if (who) actor.onBehalfOf = who;
+  }
+  const disciplines = parseTextArray(row.disciplines);
+  if (disciplines.length) actor.disciplines = disciplines;
   cache.set(key, { actor, at: Date.now() });
   return actor;
 }
@@ -118,6 +133,12 @@ export async function actorForToken(db: Db, token: string): Promise<Actor> {
 function parseUuidArray(v: unknown): string[] {
   if (Array.isArray(v)) return v.map(String);
   return String(v).replace(/^{|}$/g, "").split(",").filter(Boolean);
+}
+
+export function parseTextArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map(String);
+  if (v === null || v === undefined) return [];
+  return String(v).replace(/^{|}$/g, "").split(",").map((x) => x.replace(/^"|"$/g, "")).filter(Boolean);
 }
 
 /** Can this actor touch this site? */

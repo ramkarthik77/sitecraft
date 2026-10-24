@@ -13,7 +13,9 @@ export interface Config {
     | { driver: "fs"; dir: string }
     | { driver: "s3"; bucket: string; region: string; endpoint?: string; accessKeyId?: string; secretAccessKey?: string; forcePathStyle: boolean };
   /** Seed tokens created at startup (handy for local dev). */
-  seedTokens: { token: string; name: string; role: "admin" | "editor" | "agent" }[];
+  /** Shown in the workspace switcher and the breadcrumb, e.g. "Northstar Pharma". */
+  orgName: string;
+  seedTokens: { token: string; name: string; role: "admin" | "editor" | "agent"; onBehalfOf?: string }[];
   agentCanPublish: boolean;
   agentCanEditMain: boolean;
   editorDist?: string;
@@ -46,7 +48,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const seedTokens: Config["seedTokens"] = [];
   if (env.ADMIN_TOKEN) seedTokens.push({ token: env.ADMIN_TOKEN, name: "admin (seed)", role: "admin" });
   if (env.EDITOR_TOKEN) seedTokens.push({ token: env.EDITOR_TOKEN, name: "editor (seed)", role: "editor" });
-  if (env.AGENT_TOKEN) seedTokens.push({ token: env.AGENT_TOKEN, name: local ? "Claude Code" : "claude-code (seed)", role: "agent" });
+  // On this computer Claude works for you, the owner; in the cloud, set AGENT_FOR to the person it works for.
+  if (env.AGENT_TOKEN) seedTokens.push({ token: env.AGENT_TOKEN, name: local ? "Claude Code" : "claude-code (seed)", role: "agent", onBehalfOf: local ? "You" : env.AGENT_FOR || undefined });
   const secret = env.SECRET ?? "";
   if (env.NODE_ENV === "production" && secret.length < 32) {
     throw new Error("SECRET must be at least 32 characters in production");
@@ -73,6 +76,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
           }
         : { driver: "fs", dir: env.STORAGE_DIR ?? "./data/storage" },
     seedTokens,
+    orgName: (env.ORG_NAME ?? "").trim().slice(0, 60) || "Sitecraft",
     agentCanPublish: bool(env.AGENT_CAN_PUBLISH, false),
     agentCanEditMain: bool(env.AGENT_CAN_EDIT_MAIN, false),
     editorDist: env.EDITOR_DIST || undefined,

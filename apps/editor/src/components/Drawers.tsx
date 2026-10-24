@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
+import { BranchSignOff } from "./Reviews";
+import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Me, type Schedule, type SiteSummary, type Version } from "../api";
 import { LANGUAGES, languageName, translationStatus, type Operation, type SiteDocument } from "@sitecraft/schema";
 import { Icon } from "./Icon";
 import { ScheduleForm, ScheduleList } from "./Schedule";
@@ -36,7 +37,7 @@ export function Who({ name, role }: { name: string; role?: string }) {
 
 const when = (s: string) => new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean; isAdmin?: boolean; refreshKey?: number }) {
+export function ReviewDrawer(props: { siteId: string; branch: string; me?: Me; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean; isAdmin?: boolean; refreshKey?: number }) {
   const [diff, setDiff] = useState<Diff | null>(null);
   const [appr, setAppr] = useState<ApprovalInfo | null>(null);
   const loadApprovals = () => Approvals.get(props.siteId, props.branch).then(setAppr).catch(() => {});
@@ -93,36 +94,7 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
           ))}
         </div>
       </section>
-      {appr && appr.required > 0 && (
-        <section className={`approvals ${appr.met ? "met" : ""}`} aria-label="Approvals">
-          <h3 style={{ margin: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-            Approvals
-            <span className="badge">
-              {appr.approvals.length} of {appr.required}
-            </span>
-          </h3>
-          {appr.approvals.map((a) => (
-            <div key={a.approver} className="small">
-              <Icon name="check" size={12} style={{ color: "var(--ok)" }} /> {a.approver} approved {when(a.at)}
-              {a.note ? `: ${a.note}` : ""}
-            </div>
-          ))}
-          {!appr.met && <span className="muted small">Approvals count for this version of the branch; a new change needs them again.</span>}
-          <div style={{ display: "flex", gap: 6 }}>
-            {appr.canApprove && (
-              <button className="btn sm primary" onClick={async () => (await Approvals.approve(props.siteId, props.branch).catch((e) => props.toast(e.message, "error")), void loadApprovals())}>
-                <Icon name="check" size={13} /> Approve
-              </button>
-            )}
-            {appr.approvedByMe && (
-              <button className="btn sm ghost" onClick={async () => (await Approvals.withdraw(props.siteId, props.branch).catch(() => {}), void loadApprovals())}>
-                Withdraw my approval
-              </button>
-            )}
-            {!appr.canApprove && !appr.approvedByMe && appr.reason && <span className="muted small">{appr.reason}</span>}
-          </div>
-        </section>
-      )}
+      {props.me && props.branch !== "main" && <BranchSignOff siteId={props.siteId} branch={props.branch} me={props.me} refreshKey={props.refreshKey} onChanged={() => void loadApprovals()} />}
       {!!diff?.brandIssues?.length && (
         <section className="brand-check" aria-label="Brand check">
           <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>

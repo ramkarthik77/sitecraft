@@ -46,7 +46,7 @@ export function describe(i: ActivityItem): { text: string; tone: "edit" | "live"
     case "branch.delete":
       return { text: `deleted branch ${d.branch ?? d.name ?? ""}`, tone: "edit" };
     case "branch.approve":
-      return { text: `approved ${d.branch ?? "a branch"}${d.note ? `: “${d.note}”` : ""}`, tone: "review" };
+      return { text: `${d.signature ? "signed" : "approved"} ${d.branch ?? "a branch"}${d.discipline ? ` for ${d.discipline} review` : ""}${d.note ? `: “${d.note}”` : ""}`, tone: "review" };
     case "approval.override":
       return { text: `merged ${d.branch ?? "a branch"} with ${d.have ?? 0} of ${d.need ?? "?"} required approvals (admin override)`, tone: "danger" };
     case "site.approvals":
@@ -61,6 +61,33 @@ export function describe(i: ActivityItem): { text: string; tone: "edit" | "live"
       return { text: "changed the site's name or domain", tone: "settings" };
     case "site.brand":
       return { text: d.brand ? `switched the site to the ${d.brand} brand` : "stopped following a brand", tone: "settings" };
+    case "review.request":
+      return { text: `asked for review: “${d.title ?? d.branch ?? ""}”${d.jobCode ? ` (${d.jobCode})` : ""}`, tone: "review" };
+    case "review.changes":
+      return { text: `asked for changes to “${d.title ?? d.branch ?? ""}”${d.discipline ? ` in ${d.discipline} review` : ""}${d.reason ? `: ${d.reason}` : ""}`, tone: "review" };
+    case "review.resubmit":
+      return { text: `sent “${d.title ?? d.branch ?? ""}” for review again`, tone: "review" };
+    case "review.withdraw":
+      return { text: `withdrew the review of “${d.title ?? d.branch ?? ""}”`, tone: "review" };
+    case "branch.unapprove":
+      return { text: `withdrew their approval of ${d.branch ?? "a branch"}`, tone: "review" };
+    case "site.profile":
+      return { text: "changed where the site sits (therapy area, market, audience or job code)", tone: "settings" };
+    case "site.policy":
+      return {
+        text: `changed the site's review rules${Array.isArray(d.reviewDisciplines) ? `: ${(d.reviewDisciplines as string[]).length ? `${(d.reviewDisciplines as string[]).join(", ")} sign-off` : "no MLR sign-off"}` : ""}${d.requireJobCodes !== undefined ? `${d.requireJobCodes ? ", job codes required" : ", job codes optional"}` : ""}`,
+        tone: "review",
+      };
+    case "asset.update":
+      return { text: `updated asset “${d.name ?? ""}”${d.status ? ` to ${String(d.status).replace("_", " ")}` : ""}${d.expiresAt !== undefined ? (d.expiresAt ? `, rights until ${String(d.expiresAt).slice(0, 10)}` : ", no expiry") : ""}`, tone: "settings" };
+    case "asset.upload":
+      return { text: `uploaded asset “${d.name ?? ""}”`, tone: "settings" };
+    case "token.create":
+      return { text: `gave ${d.name ?? "someone"} ${d.role === "agent" ? "a Claude token" : `${d.role} access`}${d.onBehalfOf ? ` working for ${d.onBehalfOf}` : ""}`, tone: "settings" };
+    case "token.revoke":
+      return { text: `revoked ${d.name ?? "a"} sign-in`, tone: "danger" };
+    case "token.update":
+      return { text: `changed ${d.name ?? "a person"}'s ${Array.isArray(d.disciplines) ? `review disciplines to ${(d.disciplines as string[]).join(", ") || "none"}` : "Claude token"}`, tone: "settings" };
     case "forms.export":
       return { text: "downloaded form entries", tone: "settings" };
     case "forms.delete":

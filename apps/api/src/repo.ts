@@ -13,6 +13,13 @@ export interface SiteRow {
   created_at: string;
   current_deployment_id: string | null;
   brand_id?: string | null;
+  therapy_area?: string | null;
+  market?: string | null;
+  audience?: string | null;
+  job_code?: string | null;
+  review_disciplines?: string[] | string;
+  require_job_codes?: boolean;
+  required_approvals?: number;
 }
 
 export interface BranchRow {
@@ -297,13 +304,13 @@ export class Repo {
       if (!v.ok) throw new HttpError(400, "Invalid site document", { errors: v.errors });
       const changes = summarizeChanges(cur.rows[0]!.document, v.document);
       const ins = await c.query<{ id: number }>(
-        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role, kind, changes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb) RETURNING id",
-        [siteId, branchName, b.head_version_id, v.document, message.slice(0, 500), actor.name, actor.role, kind, JSON.stringify(changes)],
+        "INSERT INTO versions (site_id, branch, parent_id, document, message, actor, actor_role, kind, changes, on_behalf_of) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10) RETURNING id",
+        [siteId, branchName, b.head_version_id, v.document, message.slice(0, 500), actor.name, actor.role, kind, JSON.stringify(changes), actor.onBehalfOf ?? null],
       );
       const id = ins.rows[0]!.id;
       await c.query("UPDATE branches SET head_version_id = $3 WHERE site_id = $1 AND name = $2", [siteId, branchName, id]);
       // Every save goes in the audit trail too, which outlives condensed edit history.
-      await audit(c, siteId, actor, `version.${kind}`, { branch: branchName, versionId: Number(id), message: message.slice(0, 500), pages: changes.pages, theme: changes.theme });
+      await audit(c, siteId, actor, `version.${kind}`, { branch: branchName, versionId: Number(id), message: message.slice(0, 500), pages: changes.pages, theme: changes.theme, ...(actor.onBehalfOf ? { onBehalfOf: actor.onBehalfOf } : {}) });
       await EventBus.publish(c, { type: "version", siteId, branch: branchName, versionId: id, actor: actor.name, actorRole: actor.role, message });
       return { versionId: id, document: v.document };
     });
@@ -355,6 +362,12 @@ export class Repo {
       // Rebase the branch on the merge so it can keep being used.
       await c.query("UPDATE branches SET base_version_id = $3, head_version_id = $3, merged_at = now() WHERE site_id = $1 AND name = $2", [siteId, branchName, id]);
       await audit(c, siteId, actor, "branch.merge", { branch: branchName, versionId: id, force });
+      // Reviews of the branch are done once it's in main.
+      await c.query(
+        `WITH done AS (UPDATE review_requests SET status = 'merged', updated_at = now() WHERE site_id = $1 AND branch = $2 AND status IN ('open', 'changes_requested') RETURNING id)
+         INSERT INTO review_events (review_id, actor, actor_role, action, version_id) SELECT id, $3, $4, 'merge', $5 FROM done`,
+        [siteId, branchName, actor.name, actor.role, id],
+      );
       await EventBus.publish(c, { type: "version", siteId, branch: "main", versionId: id, actor: actor.name, actorRole: actor.role, message: `Merged ${branchName}` });
       return { versionId: id };
     });

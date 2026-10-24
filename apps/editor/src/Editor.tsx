@@ -891,6 +891,7 @@ export function Editor(props: { siteId: string; me: Me; branch: string; review: 
         <ReviewDrawer
           siteId={siteId}
           branch={branch}
+          me={me}
           toast={toast}
           canShip={me.role !== "agent"}
           isAdmin={me.role === "admin"}

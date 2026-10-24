@@ -255,9 +255,9 @@ a { color: var(--human-ink); }
 .search { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: var(--radius-m); background: var(--raised); border: 1px solid var(--line-2); color: var(--ink-3); flex: 0 1 260px; }
 .search input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; }
 .search input::placeholder { color: var(--ink-3); }
-.dash h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
-.dash h2 .muted { font-weight: 400; }
-.dash section { display: flex; flex-direction: column; gap: 12px; }
+.dash h2, .app-scroll .dash-main h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.dash h2 .muted, .app-scroll .dash-main h2 .muted { font-weight: 400; }
+.dash section, .app-scroll .dash-main section { display: flex; flex-direction: column; gap: 12px; }
 .create-panel { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px; border-radius: var(--radius-l); background: var(--raised); border: 1px solid var(--line-2); }
 .create-panel .input { flex: 1 1 220px; height: 36px; font-size: 14px; }
 .create-panel .select { width: auto; height: 36px; }

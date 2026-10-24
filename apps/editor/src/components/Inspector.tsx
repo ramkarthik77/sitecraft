@@ -592,6 +592,19 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
             <textarea className="textarea" aria-label="SEO description" value={page.description ?? ""} placeholder="Shown in search results" onChange={(e) => apply([{ op: "update_page", pageId: page.id, description: e.target.value }], `page:${page.id}:desc`)} />
           </Field>
         )}
+        {!props.locale && (
+          <Field label="Job code">
+            <input
+              key={`${page.id}:${page.jobCode ?? ""}`}
+              className="input mono"
+              aria-label="Job code"
+              defaultValue={page.jobCode ?? ""}
+              placeholder="e.g. US-CAL-2400123"
+              onBlur={(e) => e.target.value.trim() !== (page.jobCode ?? "") && apply([{ op: "update_page", pageId: page.id, jobCode: e.target.value.trim() }])}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          </Field>
+        )}
         <Field label="Share image">
           <TextInput label="Social share image" value={page.ogImage ?? ""} placeholder="https://…" onChange={(v) => apply([{ op: "update_page", pageId: page.id, ogImage: v }], `page:${page.id}:og`)} />
         </Field>

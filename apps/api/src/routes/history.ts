@@ -145,8 +145,8 @@ export async function historyRoutes(app: FastifyInstance, ctx: AppContext, asser
     if (q.actor) filters.push(`actor = $${args.push(q.actor)}`);
     if (q.kind === "edits") filters.push("action LIKE 'version.%' AND action NOT IN ('version.name', 'version.unname')");
     else if (q.kind === "publishing") filters.push("action IN ('site.publish', 'site.rollback', 'branch.merge', 'schedule.create', 'schedule.cancel', 'schedule.failed')");
-    else if (q.kind === "reviews") filters.push("action IN ('branch.approve', 'approval.override', 'site.approvals')");
-    else if (q.kind === "settings") filters.push("action NOT LIKE 'version.%' AND action NOT IN ('site.publish', 'site.rollback', 'branch.merge', 'branch.approve', 'approval.override', 'schedule.create', 'schedule.cancel', 'schedule.failed')");
+    else if (q.kind === "reviews") filters.push("(action IN ('branch.approve', 'branch.unapprove', 'approval.override', 'site.approvals', 'site.policy') OR action LIKE 'review.%')");
+    else if (q.kind === "settings") filters.push("action NOT LIKE 'version.%' AND action NOT LIKE 'review.%' AND action NOT IN ('site.publish', 'site.rollback', 'branch.merge', 'branch.approve', 'branch.unapprove', 'approval.override', 'site.policy', 'schedule.create', 'schedule.cancel', 'schedule.failed')");
     const limit = Math.min(500, Number(q.limit) || 100);
     const { rows } = await ctx.db.query<{ source: string; id: string; at: string; actor: string; actor_role: string; action: string; detail: Record<string, unknown> }>(
       `SELECT * FROM (

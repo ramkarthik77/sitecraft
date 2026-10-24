@@ -101,6 +101,8 @@ export const operationSchema = z.discriminatedUnion("op", [
     title: z.string().optional(),
     description: z.string().optional(),
     ogImage: z.string().optional(),
+    /** The page's approval code, like US-CAL-2400123; "" removes it. */
+    jobCode: z.string().max(40).optional(),
     /** Hide the page from the published site (true) or show it again (false). */
     unpublished: z.boolean().optional(),
   }),
@@ -412,6 +414,10 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       if (op.title !== undefined) page.title = op.title;
       if (op.description !== undefined) page.description = op.description;
       if (op.ogImage !== undefined) page.ogImage = op.ogImage;
+      if (op.jobCode !== undefined) {
+        if (op.jobCode.trim()) page.jobCode = op.jobCode.trim();
+        else delete page.jobCode;
+      }
       if (op.unpublished !== undefined) {
         if (op.unpublished) page.unpublished = true;
         else delete page.unpublished;

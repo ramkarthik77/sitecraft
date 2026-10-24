@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { requireRole, type Actor } from "./auth.js";
+import { createHash } from "node:crypto";
+import { actorForToken, parseTextArray, requireRole, type Actor } from "./auth.js";
 import { HttpError } from "./errors.js";
 import { EventBus } from "./events.js";
 import type { AppContext } from "./server.js";
@@ -46,27 +47,52 @@ const commentOut = (r: CommentRow) => ({
 export interface ApprovalStatus {
   required: number;
   versionId: number;
-  approvals: { approver: string; role: string; note: string; at: string }[];
-  /** People who changed this branch; they can't approve their own work. */
+  approvals: { approver: string; role: string; note: string; at: string; discipline: string; signed: boolean; meaning: string | null }[];
+  /** People who changed this branch, and the people Claude worked for on it; they can't approve it. */
   authors: string[];
+  /** True when Claude made any of the branch's changes. */
+  byClaude: boolean;
+  /** Disciplines that must each approve (MLR), and those still missing. */
+  disciplines: string[];
+  missing: string[];
+  /** A reviewer sent the branch back and it hasn't been sent for review again. */
+  changesRequested: boolean;
   met: boolean;
 }
 
 export async function approvalStatus(ctx: AppContext, siteId: string, branch: string): Promise<ApprovalStatus> {
   const site = await ctx.repo.getSite(siteId);
-  const required = Number((site as unknown as { required_approvals?: number }).required_approvals ?? 0);
+  const disciplines = parseTextArray(site.review_disciplines);
+  const required = Math.max(Number(site.required_approvals ?? 0), disciplines.length);
   const b = await ctx.repo.getBranch(site.id, branch);
   const versionId = Number(b.head_version_id);
-  const { rows } = await ctx.db.query<{ approver: string; approver_role: string; note: string; created_at: string }>(
-    "SELECT approver, approver_role, note, created_at FROM approvals WHERE site_id = $1 AND branch = $2 AND version_id = $3 ORDER BY created_at",
+  const { rows } = await ctx.db.query<{ approver: string; approver_role: string; note: string; created_at: string; discipline: string; signature: { meaning?: string } | null }>(
+    "SELECT approver, approver_role, note, created_at, discipline, signature FROM approvals WHERE site_id = $1 AND branch = $2 AND version_id = $3 ORDER BY created_at",
     [site.id, branch, versionId],
   );
-  const { rows: auth } = await ctx.db.query<{ actor: string }>(
-    "SELECT DISTINCT actor FROM versions WHERE site_id = $1 AND branch = $2 AND ($3::bigint IS NULL OR id > $3::bigint)",
+  const { rows: auth } = await ctx.db.query<{ actor: string; actor_role: string; on_behalf_of: string | null }>(
+    "SELECT DISTINCT actor, actor_role, on_behalf_of FROM versions WHERE site_id = $1 AND branch = $2 AND ($3::bigint IS NULL OR id > $3::bigint)",
     [site.id, branch, b.base_version_id],
   );
-  const approvals = rows.map((r) => ({ approver: r.approver, role: r.approver_role, note: r.note, at: new Date(r.created_at).toISOString() }));
-  return { required, versionId, approvals, authors: auth.map((a) => a.actor), met: approvals.length >= required };
+  const authors = [...new Set(auth.flatMap((a) => [a.actor, ...(a.on_behalf_of ? [a.on_behalf_of] : [])]))];
+  const approvals = rows
+    .filter((r) => !authors.includes(r.approver))
+    .map((r) => ({ approver: r.approver, role: r.approver_role, note: r.note, at: new Date(r.created_at).toISOString(), discipline: r.discipline ?? "", signed: !!r.signature, meaning: r.signature?.meaning ?? null }));
+  const covered = new Set(approvals.map((a) => a.discipline));
+  const missing = disciplines.filter((d) => !covered.has(d));
+  const { rows: sent } = await ctx.db.query<{ n: number }>("SELECT count(*)::int AS n FROM review_requests WHERE site_id = $1 AND branch = $2 AND status = 'changes_requested'", [site.id, branch]);
+  const changesRequested = Number(sent[0]?.n ?? 0) > 0;
+  return {
+    required,
+    versionId,
+    approvals,
+    authors,
+    byClaude: auth.some((a) => a.actor_role === "agent"),
+    disciplines,
+    missing,
+    changesRequested,
+    met: approvals.length >= required && missing.length === 0 && !changesRequested,
+  };
 }
 
 /** Stop a merge (or a scheduled release) that doesn't have its approvals. Admins may override. */
@@ -74,14 +100,25 @@ export async function assertApproved(ctx: AppContext, actor: Actor, siteId: stri
   const st = await approvalStatus(ctx, siteId, branch);
   if (st.met) return;
   if (override && actor.role === "admin") {
-    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'approval.override', $4)", [siteId, actor.name, actor.role, { branch, have: st.approvals.length, need: st.required }]);
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'approval.override', $4)", [
+      siteId,
+      actor.name,
+      actor.role,
+      { branch, have: st.approvals.length, need: st.required, missing: st.missing, changesRequested: st.changesRequested },
+    ]);
     return;
+  }
+  if (st.changesRequested) throw new HttpError(403, "A reviewer asked for changes to this branch. Make them and send it for review again.", { changesRequested: true });
+  if (st.missing.length) {
+    throw new HttpError(403, `This branch still needs sign-off from ${listText(st.missing)} review before it's merged.`, { missing: st.missing, approvals: st.approvals.length, required: st.required });
   }
   throw new HttpError(403, `This branch needs ${st.required} ${st.required === 1 ? "approval" : "approvals"} of its latest version before it's merged; it has ${st.approvals.length}.`, {
     approvals: st.approvals.length,
     required: st.required,
   });
 }
+
+export const listText = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 
 export async function reviewRoutes(app: FastifyInstance, ctx: AppContext) {
   const { db, repo } = ctx;
@@ -173,9 +210,12 @@ export async function reviewRoutes(app: FastifyInstance, ctx: AppContext) {
     let canApprove = !mine;
     let reason = "";
     if (req.actor.role === "agent") (canApprove = false), (reason = "Claude can't approve; a person reviews its work.");
-    else if (st.authors.includes(req.actor.name)) (canApprove = false), (reason = "You changed this branch, so someone else approves it.");
+    else if (st.authors.includes(req.actor.name)) (canApprove = false), (reason = "You changed this branch, or Claude did while working for you, so someone else approves it.");
     else if (req.params.branch === "main") (canApprove = false), (reason = "Approvals are for branches.");
-    return { ...st, approvedByMe: mine, canApprove, reason };
+    // With MLR on, you sign off for a discipline you review for.
+    const mayFor = st.disciplines.filter((d) => req.actor.local || (req.actor.disciplines ?? []).includes(d));
+    if (canApprove && st.disciplines.length && !mayFor.length) (canApprove = false), (reason = `This site needs ${listText(st.disciplines)} review. Ask an admin to make you a reviewer for one of them.`);
+    return { ...st, approvedByMe: mine, canApprove, reason, myDisciplines: mayFor, needsSignature: st.disciplines.length > 0, signInWithToken: !req.actor.local };
   });
 
   app.post<{ Params: { siteId: string; branch: string } }>("/sites/:siteId/branches/:branch/approvals", async (req) => {
@@ -183,25 +223,61 @@ export async function reviewRoutes(app: FastifyInstance, ctx: AppContext) {
     const site = await repo.getSite(req.params.siteId);
     if (req.params.branch === "main") throw new HttpError(400, "Approvals are for branches.");
     const st = await approvalStatus(ctx, site.id, req.params.branch);
-    if (st.authors.includes(req.actor.name)) throw new HttpError(403, "You changed this branch, so someone else needs to approve it.");
-    const { note } = body<{ note?: string }>(req);
-    await db.query("INSERT INTO approvals (site_id, branch, version_id, approver, approver_role, note) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING", [
+    if (st.authors.includes(req.actor.name)) throw new HttpError(403, "You changed this branch, or Claude did while working for you, so someone else needs to approve it.");
+    const b = body<{ note?: string; discipline?: string; signature?: { name?: string; token?: string }; reviewId?: string }>(req);
+    const discipline = (b.discipline ?? "").trim().toLowerCase();
+    if (st.disciplines.length) {
+      if (!discipline) throw new HttpError(400, `Say which review you're signing off: ${listText(st.disciplines)}.`);
+      if (!st.disciplines.includes(discipline)) throw new HttpError(400, `This site's reviews are ${listText(st.disciplines)}.`);
+    }
+    if (discipline && !req.actor.local && !(req.actor.disciplines ?? []).includes(discipline)) throw new HttpError(403, `You aren't a ${discipline} reviewer. Ask an admin to add you.`);
+    // MLR sign-off is an electronic signature: your name, and your sign-in again, bound to exactly what you saw.
+    let signature: Record<string, unknown> | null = null;
+    if (st.disciplines.length || b.signature) {
+      const typed = (b.signature?.name ?? "").trim();
+      if (!typed || typed.toLowerCase() !== req.actor.name.toLowerCase()) throw new HttpError(400, `Type your name exactly as it appears in Sitecraft (${req.actor.name}) to sign.`);
+      if (!req.actor.local) {
+        const again = b.signature?.token ? await actorForToken(db, b.signature.token).catch(() => null) : null;
+        if (!again || again.tokenId !== req.actor.tokenId) throw new HttpError(401, "Enter your Sitecraft sign-in token again to sign. It must be the one you're signed in with.");
+      }
+      const v = await repo.getVersion(site.id, st.versionId);
+      signature = {
+        name: typed,
+        meaning: discipline ? `Approved in ${discipline} review` : "Approved",
+        method: req.actor.local ? "local" : "token",
+        versionId: st.versionId,
+        documentSha256: createHash("sha256").update(JSON.stringify(v.document)).digest("hex"),
+        at: new Date().toISOString(),
+      };
+    }
+    const note = (b.note ?? "").slice(0, 500);
+    await db.query(
+      `INSERT INTO approvals (site_id, branch, version_id, approver, approver_role, note, discipline, signature) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (site_id, branch, version_id, approver) DO NOTHING`,
+      [site.id, req.params.branch, st.versionId, req.actor.name, req.actor.role, note, discipline, signature],
+    );
+    await db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'branch.approve', $4)", [
       site.id,
-      req.params.branch,
-      st.versionId,
       req.actor.name,
       req.actor.role,
-      (note ?? "").slice(0, 500),
+      { branch: req.params.branch, versionId: st.versionId, discipline: discipline || undefined, note: note || undefined, signature: signature ? { meaning: signature.meaning, method: signature.method, documentSha256: signature.documentSha256 } : undefined },
     ]);
-    await db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'branch.approve', $4)", [site.id, req.actor.name, req.actor.role, { branch: req.params.branch, versionId: st.versionId }]);
-    await notify(site.id, req.params.branch, "approval", req.actor, "approved this branch");
+    // Log it on any open review of this branch.
+    await db.query(
+      "INSERT INTO review_events (review_id, actor, actor_role, action, discipline, reason, version_id) SELECT id, $3, $4, 'approve', $5, $6, $7 FROM review_requests WHERE site_id = $1 AND branch = $2 AND status = 'open'",
+      [site.id, req.params.branch, req.actor.name, req.actor.role, discipline, note, st.versionId],
+    );
+    await notify(site.id, req.params.branch, "approval", req.actor, discipline ? `approved for ${discipline}` : "approved this branch");
     return approvalStatus(ctx, site.id, req.params.branch);
   });
 
   app.delete<{ Params: { siteId: string; branch: string } }>("/sites/:siteId/branches/:branch/approvals", async (req) => {
     const site = await repo.getSite(req.params.siteId);
-    await db.query("DELETE FROM approvals WHERE site_id = $1 AND branch = $2 AND approver = $3", [site.id, req.params.branch, req.actor.name]);
-    await notify(site.id, req.params.branch, "approval", req.actor, "withdrew their approval");
+    const r = await db.query("DELETE FROM approvals WHERE site_id = $1 AND branch = $2 AND approver = $3 RETURNING version_id", [site.id, req.params.branch, req.actor.name]);
+    if (r.rows.length) {
+      await db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'branch.unapprove', $4)", [site.id, req.actor.name, req.actor.role, { branch: req.params.branch }]);
+      await notify(site.id, req.params.branch, "approval", req.actor, "withdrew their approval");
+    }
     return approvalStatus(ctx, site.id, req.params.branch);
   });
 

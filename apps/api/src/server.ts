@@ -27,7 +27,7 @@ export interface AppContext {
 export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const db = await createDb(cfg.databaseUrl);
   await migrate(db);
-  for (const t of cfg.seedTokens) await createToken(db, t.name, t.role, t.token);
+  for (const t of cfg.seedTokens) await createToken(db, t.name, t.role, t.token, { onBehalfOf: t.onBehalfOf });
   const storage = createStorage(cfg.storage);
   await storage.init();
   const events = new EventBus(cfg.databaseUrl, db);
