@@ -162,6 +162,8 @@ const FIELD_KEY = /^[a-z][a-z0-9_]{0,39}$/;
 const PAGE_PATH = /^\/([a-z0-9-]+(\/[a-z0-9-]+)*)?$/;
 const TEMPLATE_PATH = /^(\/[a-z0-9-]+)+\/:slug$/;
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/** Approval codes for regulated content, like US-CAL-2400123. */
+export const JOB_CODE = /^[A-Za-z0-9][A-Za-z0-9._/-]{2,39}$/;
 
 export const pageSchema = z
   .object({
@@ -173,6 +175,7 @@ export const pageSchema = z
     title: z.string().min(1).max(200),
     description: z.string().max(500).optional(),
     ogImage: z.string().refine(isSafeSrc, "Unsafe og image").optional(),
+    jobCode: z.string().regex(JOB_CODE, "A job code uses letters, numbers, dots, dashes and slashes, like US-CAL-2400123").optional(),
     root: nodeSchema,
   })
   .strict()
@@ -290,6 +293,17 @@ export const documentSchema = z
         lang: z.string().regex(/^[a-zA-Z-]{2,10}$/),
         locales: z.array(z.string().regex(LOCALE, "Language codes look like fr, de or pt-BR")).max(20).optional(),
         favicon: z.string().refine(isSafeSrc, "Unsafe favicon").optional(),
+        redirects: z
+          .array(
+            z
+              .object({
+                from: z.string().regex(/^\/[a-z0-9\-_.~/]*(\/:slug)?$/, "Redirects start from an address like /old-page"),
+                to: z.string().max(500).refine((v) => isSafeHref(v) && !v.startsWith("#"), "Unsafe redirect target"),
+              })
+              .strict(),
+          )
+          .max(500)
+          .optional(),
       })
       .strict(),
   })

@@ -11,3 +11,4 @@ export * from "./collections.js";
 export * from "./brand.js";
 export * from "./templates.js";
 export * from "./i18n.js";
+export * from "./redirects.js";

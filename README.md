@@ -25,6 +25,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | [CMS](docs/CMS.md) | Collections, item pages, lists, drafts |
 | [Authoring](docs/AUTHORING.md) | Templates, brand kits and locking, the image library, comments and approvals, scheduled publishing |
 | [New sections and components](docs/EXTENDING.md) | Authors: build, reuse and share sections without code. Developers: add blocks, new elements, ops and site behavior |
+| [Governance](docs/GOVERNANCE.md) | Regulated sites: the portfolio, MLR sign-off with e-signatures, job codes, what blocks publishing, the verified audit trail, a demo workspace |
 | [Claude Code](docs/CLAUDE_CODE.md) | Connecting Claude Code, the plugin, example requests, every tool, guardrails |
 | [Deploy on Cloudflare](docs/CLOUDFLARE.md) | The live setup at `sitecraft.guduriphaniram1988.workers.dev`, deployed from GitHub Actions |
 | [Deploy elsewhere](docs/DEPLOY.md) | AWS, Google Cloud or any container host |

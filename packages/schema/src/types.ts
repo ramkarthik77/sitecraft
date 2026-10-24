@@ -210,6 +210,11 @@ export interface Page {
   description?: string;
   /** Social share image URL. */
   ogImage?: string;
+  /**
+   * The approval code for this page's content (for example US-CAL-2400123),
+   * shown at the foot of the published page as regulated material requires.
+   */
+  jobCode?: string;
   root: SiteNode;
 }
 
@@ -301,5 +306,15 @@ export interface SiteDocument {
     /** More languages, published at /<code>/… (e.g. ["fr", "de"]). */
     locales?: string[];
     favicon?: string;
+    /**
+     * Old addresses that send visitors on to new ones, added when a page
+     * moves. "from" may end in /:slug for CMS item pages.
+     */
+    redirects?: Redirect[];
   };
+}
+
+export interface Redirect {
+  from: string;
+  to: string;
 }

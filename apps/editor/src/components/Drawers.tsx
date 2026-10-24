@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Schedule, type SiteSummary, type Version } from "../api";
+import { BranchSignOff } from "./Reviews";
+import { ApiError, Approvals, Brands, Schedules, Sites, Templates, type ApprovalInfo, type Brand, type Deployment, type Diff, type Me, type Schedule, type SiteSummary, type Version } from "../api";
 import { LANGUAGES, languageName, translationStatus, type Operation, type SiteDocument } from "@sitecraft/schema";
 import { Icon } from "./Icon";
 import { ScheduleForm, ScheduleList } from "./Schedule";
@@ -36,7 +37,7 @@ export function Who({ name, role }: { name: string; role?: string }) {
 
 const when = (s: string) => new Date(s).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function ReviewDrawer(props: { siteId: string; branch: string; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean; isAdmin?: boolean; refreshKey?: number }) {
+export function ReviewDrawer(props: { siteId: string; branch: string; me?: Me; onClose: () => void; onMerged: () => void; toast: (m: string, tone?: "error") => void; canShip?: boolean; isAdmin?: boolean; refreshKey?: number }) {
   const [diff, setDiff] = useState<Diff | null>(null);
   const [appr, setAppr] = useState<ApprovalInfo | null>(null);
   const loadApprovals = () => Approvals.get(props.siteId, props.branch).then(setAppr).catch(() => {});
@@ -93,36 +94,7 @@ export function ReviewDrawer(props: { siteId: string; branch: string; onClose: (
           ))}
         </div>
       </section>
-      {appr && appr.required > 0 && (
-        <section className={`approvals ${appr.met ? "met" : ""}`} aria-label="Approvals">
-          <h3 style={{ margin: 0, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-            Approvals
-            <span className="badge">
-              {appr.approvals.length} of {appr.required}
-            </span>
-          </h3>
-          {appr.approvals.map((a) => (
-            <div key={a.approver} className="small">
-              <Icon name="check" size={12} style={{ color: "var(--ok)" }} /> {a.approver} approved {when(a.at)}
-              {a.note ? `: ${a.note}` : ""}
-            </div>
-          ))}
-          {!appr.met && <span className="muted small">Approvals count for this version of the branch; a new change needs them again.</span>}
-          <div style={{ display: "flex", gap: 6 }}>
-            {appr.canApprove && (
-              <button className="btn sm primary" onClick={async () => (await Approvals.approve(props.siteId, props.branch).catch((e) => props.toast(e.message, "error")), void loadApprovals())}>
-                <Icon name="check" size={13} /> Approve
-              </button>
-            )}
-            {appr.approvedByMe && (
-              <button className="btn sm ghost" onClick={async () => (await Approvals.withdraw(props.siteId, props.branch).catch(() => {}), void loadApprovals())}>
-                Withdraw my approval
-              </button>
-            )}
-            {!appr.canApprove && !appr.approvedByMe && appr.reason && <span className="muted small">{appr.reason}</span>}
-          </div>
-        </section>
-      )}
+      {props.me && props.branch !== "main" && <BranchSignOff siteId={props.siteId} branch={props.branch} me={props.me} refreshKey={props.refreshKey} onChanged={() => void loadApprovals()} />}
       {!!diff?.brandIssues?.length && (
         <section className="brand-check" aria-label="Brand check">
           <h3 style={{ margin: "0 0 8px", fontSize: 13 }}>
@@ -337,6 +309,7 @@ export function SettingsDrawer(props: {
         </button>
       </section>
       {props.doc && props.apply && props.canEdit && <LanguagesSetting doc={props.doc} apply={props.apply} />}
+      {props.doc && props.apply && props.canEdit && <RedirectsSetting doc={props.doc} apply={props.apply} />}
       {props.isAdmin && <ApprovalsSetting site={props.site} toast={props.toast} onSaved={(n) => props.onSaved({ ...props.site, requiredApprovals: n })} />}
       <BrandSection site={props.site} isAdmin={!!props.isAdmin} toast={props.toast} onChanged={(brandId) => (props.onSaved({ ...props.site, brandId }), props.onBrandChanged?.())} />
       {props.canEdit && <SaveAsTemplate site={props.site} toast={props.toast} />}
@@ -636,6 +609,52 @@ function LanguagesSetting({ doc, apply }: { doc: SiteDocument; apply: (ops: Oper
       <span className="muted small">
         Each language is published at /code/… with links between the versions for search engines. Switch language in the top bar to translate, add a Languages element for a switcher, or ask Claude to translate the site.
       </span>
+    </section>
+  );
+}
+
+/** Old addresses that send visitors on. Moving a page adds one; add your own for links printed elsewhere. */
+function RedirectsSetting({ doc, apply }: { doc: SiteDocument; apply: (ops: Operation[]) => unknown }) {
+  const list = doc.settings.redirects ?? [];
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const save = (next: { from: string; to: string }[]) => apply([{ op: "set_redirects", redirects: next }]);
+  const pages = new Set(doc.pages.map((p) => p.path));
+  const clean = (v: string) => "/" + v.trim().toLowerCase().replace(/^\/+|\/+$/g, "");
+  const fromPath = from.trim() ? clean(from) : "";
+  const problem = !fromPath ? "" : pages.has(fromPath) ? "A page already lives at that address." : list.some((r) => r.from === fromPath) ? "That address already redirects." : "";
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <h3 style={{ margin: 0, fontSize: 13 }}>Redirects</h3>
+      <span className="muted small">Old addresses that send visitors (and search engines) on to new ones. Moving a page adds one automatically.</span>
+      {list.length === 0 && <span className="muted small">None yet.</span>}
+      {list.map((r) => (
+        <div key={r.from} className="redirect-row">
+          <span className="mono small">{r.from}</span>
+          <Icon name="back" size={12} style={{ transform: "rotate(180deg)", color: "var(--ink-3)" }} />
+          <span className="mono small grow">{r.to}</span>
+          <button className="btn ghost icon sm" aria-label={`Remove the redirect from ${r.from}`} onClick={() => save(list.filter((x) => x.from !== r.from))}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      ))}
+      <form
+        className="redirect-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!fromPath || !to.trim() || problem) return;
+          save([...list, { from: fromPath, to: to.trim() }]);
+          setFrom("");
+          setTo("");
+        }}
+      >
+        <input className="input mono" aria-label="Redirect from" placeholder="/old-address" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <input className="input mono" aria-label="Redirect to" placeholder="/new-address or https://…" value={to} onChange={(e) => setTo(e.target.value)} />
+        <button className="btn sm" disabled={!fromPath || !to.trim() || !!problem}>
+          Add
+        </button>
+      </form>
+      {problem && <span className="small" style={{ color: "var(--danger)" }}>{problem}</span>}
     </section>
   );
 }

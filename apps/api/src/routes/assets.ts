@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { walk, type SiteDocument } from "@sitecraft/schema";
-import { requireRole, type Actor } from "../auth.js";
+import { parseTextArray, requireRole, type Actor } from "../auth.js";
+import { JOB_CODE } from "@sitecraft/schema";
 import { HttpError } from "../errors.js";
 import { IMAGE_TYPES, imageSize, sniffImage } from "../images.js";
 import type { AppContext } from "../server.js";
@@ -27,6 +28,10 @@ export interface LibraryRow {
   focal_x: number;
   focal_y: number;
   expires_at: string | null;
+  status?: string;
+  job_code?: string;
+  markets?: unknown;
+  brand_id?: string | null;
   version: number;
   created_by: string;
   created_at: string;
@@ -34,6 +39,9 @@ export interface LibraryRow {
 }
 
 const UUID = /^[0-9a-f-]{36}$/i;
+/** Where an asset is in approval: only approved assets can go live. */
+export const ASSET_STATUSES = ["draft", "in_review", "approved", "withdrawn"] as const;
+export type AssetStatus = (typeof ASSET_STATUSES)[number];
 export const libraryKey = (id: string, ext: string) => `library/${id}.${ext}`;
 
 export function assetOut(cfg: AppContext["cfg"], r: LibraryRow) {
@@ -53,6 +61,10 @@ export function assetOut(cfg: AppContext["cfg"], r: LibraryRow) {
     focalY: Number(r.focal_y),
     expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
     expired: !!r.expires_at && new Date(r.expires_at).getTime() < Date.now(),
+    status: (r.status ?? "approved") as AssetStatus,
+    jobCode: r.job_code || null,
+    markets: parseTextArray(r.markets),
+    brandId: r.brand_id ?? null,
     version: r.version,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),
@@ -89,7 +101,7 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     return rows[0];
   };
 
-  app.get<{ Querystring: { q?: string; tag?: string; limit?: string } }>("/assets", async (req) => {
+  app.get<{ Querystring: { q?: string; tag?: string; limit?: string; status?: string; market?: string; brand?: string; expiring?: string } }>("/assets", async (req) => {
     const where: string[] = [];
     const args: unknown[] = [];
     if (req.query.q?.trim()) {
@@ -98,6 +110,11 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
       where.push(`(title ILIKE $${n} OR alt ILIKE $${n} OR file_name ILIKE $${n} OR credit ILIKE $${n} OR tags::text ILIKE $${n})`);
     }
     if (req.query.tag?.trim()) where.push(`tags ? $${args.push(req.query.tag.trim().toLowerCase())}`);
+    if (req.query.status === "expired") where.push("expires_at < now()");
+    else if (req.query.status) where.push(`status = $${args.push(req.query.status)}`);
+    if (req.query.expiring) where.push(`expires_at IS NOT NULL AND expires_at < now() + ($${args.push(Math.min(365, Number(req.query.expiring) || 30))} || ' days')::interval`);
+    if (req.query.market) where.push(`(cardinality(markets) = 0 OR $${args.push(req.query.market.toUpperCase())} = ANY(markets) OR 'GLOBAL' = ANY(markets))`);
+    if (req.query.brand) where.push(req.query.brand === "none" ? "brand_id IS NULL" : `brand_id = $${args.push(req.query.brand)}`);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
     const { rows } = await db.query<LibraryRow>(`SELECT * FROM library_assets ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ${limit}`, args);
     return rows.map((r) => assetOut(cfg, r));
@@ -131,11 +148,16 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     requireRole(req.actor, "admin", "editor");
     canWrite(req.actor);
     const cur = await get(req.params.id);
-    const b = body<{ title?: string; alt?: string; credit?: string; tags?: string[]; focalX?: number; focalY?: number; expiresAt?: string | null }>(req);
+    const b = body<{ title?: string; alt?: string; credit?: string; tags?: string[]; focalX?: number; focalY?: number; expiresAt?: string | null; status?: string; jobCode?: string; markets?: string[]; brandId?: string | null }>(req);
     const focal = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : d);
     if (b.expiresAt && Number.isNaN(Date.parse(b.expiresAt))) throw new HttpError(400, "expiresAt must be a date like 2027-01-31.");
+    if (b.status !== undefined && !(ASSET_STATUSES as readonly string[]).includes(b.status)) throw new HttpError(400, `status is one of ${ASSET_STATUSES.join(", ")}.`);
+    if (b.jobCode && !JOB_CODE.test(b.jobCode.trim())) throw new HttpError(400, "A job code uses letters, numbers, dots, dashes and slashes, like US-CAL-2400123.");
+    if (b.markets !== undefined && (!Array.isArray(b.markets) || b.markets.some((m) => !/^([A-Za-z]{2}|GLOBAL)$/i.test(String(m))))) throw new HttpError(400, "markets are two-letter country codes like US or GB, or GLOBAL.");
+    if (b.brandId && !UUID.test(b.brandId)) throw new HttpError(400, "That isn't a brand.");
     const { rows } = await db.query<LibraryRow>(
-      `UPDATE library_assets SET title = $2, alt = $3, credit = $4, tags = $5::text::jsonb, focal_x = $6, focal_y = $7, expires_at = $8, updated_at = now() WHERE id = $1 RETURNING *`,
+      `UPDATE library_assets SET title = $2, alt = $3, credit = $4, tags = $5::text::jsonb, focal_x = $6, focal_y = $7, expires_at = $8,
+         status = $9, job_code = $10, markets = $11, brand_id = $12, updated_at = now() WHERE id = $1 RETURNING *`,
       [
         cur.id,
         b.title !== undefined ? String(b.title).slice(0, 200) : cur.title,
@@ -145,8 +167,21 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
         focal(b.focalX, Number(cur.focal_x)),
         focal(b.focalY, Number(cur.focal_y)),
         b.expiresAt === undefined ? cur.expires_at : b.expiresAt ? new Date(b.expiresAt).toISOString() : null,
+        b.status ?? cur.status ?? "approved",
+        b.jobCode !== undefined ? b.jobCode.trim().slice(0, 40) : (cur.job_code ?? ""),
+        b.markets !== undefined ? [...new Set(b.markets.map((m) => String(m).toUpperCase()))] : parseTextArray(cur.markets),
+        b.brandId !== undefined ? b.brandId || null : (cur.brand_id ?? null),
       ],
     );
+    // Approval and rights changes matter in an audit.
+    const changed: Record<string, unknown> = {};
+    if (b.status !== undefined && b.status !== cur.status) changed.status = b.status;
+    if (b.expiresAt !== undefined) changed.expiresAt = b.expiresAt;
+    if (b.markets !== undefined) changed.markets = b.markets;
+    if (b.jobCode !== undefined && b.jobCode !== cur.job_code) changed.jobCode = b.jobCode;
+    if (Object.keys(changed).length) {
+      await db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'asset.update', $3)", [req.actor.name, req.actor.role, { id: cur.id, name: cur.title || cur.file_name, ...changed }]);
+    }
     return assetOut(cfg, rows[0]!);
   });
 

@@ -16,7 +16,8 @@
     "test:e2e": "node scripts/e2e.mjs",
     "db:migrate": "pnpm --filter @sitecraft/api run migrate",
     "seed": "pnpm --filter @sitecraft/api run seed",
-    "move-to-cloud": "node scripts/move-to-cloud.mjs"
+    "move-to-cloud": "node scripts/move-to-cloud.mjs",
+    "demo:seed": "node scripts/demo-seed.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

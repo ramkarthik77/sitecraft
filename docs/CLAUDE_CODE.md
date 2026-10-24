@@ -148,10 +148,13 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `remove_item` | Delete an item |
 | `add_collection_list` | Show a collection's items on a page, sorted and limited |
 | `get_diff` | What a branch changes compared to `main` |
-| `list_versions` | Recent saved versions of a branch |
-| `restore_version` | Go back to an earlier version (saved as a new one) |
+| `list_versions` | Saved versions of a branch: who, when, which pages changed, published, live or named; filter by page, named or published |
+| `restore_version` | Bring back the whole site, one page, or one element from an earlier version (saved as a new one) |
 | `get_preview_url` | Shareable preview link and editor link for a branch |
-| `request_review` | Summary and review link for the person |
+| `request_review` | Sends the branch for review in Sitecraft (MLR sign-off where the site needs it), with a summary and review link for the person |
+| `list_reviews` | Open reviews: who has signed, what's waiting, and the reasons reviewers gave for changes |
+| `resubmit_review` | Send a review back to reviewers after making the changes they asked for |
+| `check_publish_readiness` | What blocks publishing: pages without job codes, library images that are expired, unapproved or not cleared for the site's market |
 | `merge_branch` | Merge into `main` (people only, unless an admin allows agents) |
 | `publish_site` | Publish `main` (people only, unless an admin allows agents) |
 
@@ -160,13 +163,14 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 - **Agents work on branches.** An agent token can't edit `main`. Claude gets a clear error and creates a branch instead.
 - **People ship.** Agent tokens can't merge or publish. Claude gets a review link to hand over. An admin can change this with `AGENT_CAN_PUBLISH=true` and `AGENT_CAN_EDIT_MAIN=true`.
 - **Ask before shipping.** With the plugin installed, Claude Code asks you before every merge or publish, even when agents are allowed to.
+- **Claude can't sign off.** It can ask for review and resubmit, but approvals and MLR signatures are for people. Each Claude token works for a person, and that person can't approve what their Claude changed.
 - **Everything is reversible.** Every save is a version, every publish can be rolled back, and the audit log records who did what.
 - **Unsafe content is refused.** Script links, unsafe CSS and unknown style properties are rejected before anything is saved.
 
 ## Rolling out to your organization (Claude Code Enterprise)
 
 1. Deploy Sitecraft ([CLOUDFLARE.md](CLOUDFLARE.md)).
-2. Mint an agent token for each person.
+2. Mint an agent token for each person, set to **work for** them (Access → Claude Code → Works for). Their Claude's changes then count as theirs for approvals.
 3. Push the plugin and an MCP allowlist to everyone through managed settings. [deploy/claude-code/managed-settings.example.json](../deploy/claude-code/managed-settings.example.json) is a starting point; `allowedMcpServers` is an allowlist, so include your other approved servers or drop that key.
 4. People set `SITECRAFT_TOKEN` to their own token.
 
