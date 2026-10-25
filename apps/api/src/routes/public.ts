@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { resolveRoute, splitLocale } from "@sitecraft/schema";
+import { localePath, resolveRedirect, resolveRoute, splitLocale } from "@sitecraft/schema";
 import { renderNotFound, renderPage } from "@sitecraft/renderer";
 import { verifyPreview } from "../auth.js";
 import { HttpError } from "../errors.js";
@@ -70,8 +70,13 @@ export async function publicRoutes(app: FastifyInstance, ctx: AppContext) {
     const lang = splitLocale(head.document, path === "" ? "/" : path);
     const route = resolveRoute(head.document, lang.path, { includeDrafts: true });
     reply.headers(siteHeaders(cfg)).header("Cache-Control", "no-store").header("X-Robots-Tag", "noindex");
-    if (!route) return reply.status(404).type("text/html").send(renderNotFound(head.document));
     const basePath = `/preview/${key}/${siteId}/${encodeURIComponent(branch)}`;
+    if (!route) {
+      // A moved page: send the old address on to the new one.
+      const to = resolveRedirect(head.document, lang.path);
+      if (to) return reply.redirect(/^https?:/.test(to) ? to : basePath + localePath(to, lang.locale, head.document), 301);
+      return reply.status(404).type("text/html").send(renderNotFound(head.document));
+    }
     return reply
       .type("text/html; charset=utf-8")
       .send(renderPage(head.document, route.page, { mode: "preview", basePath, itemId: route.item?.id, locale: lang.locale, formAction: formActionFor(cfg, siteId), ...renderSecurity(cfg) }));

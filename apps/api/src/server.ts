@@ -27,7 +27,7 @@ export interface AppContext {
 export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const db = await createDb(cfg.databaseUrl);
   await migrate(db);
-  for (const t of cfg.seedTokens) await createToken(db, t.name, t.role, t.token);
+  for (const t of cfg.seedTokens) await createToken(db, t.name, t.role, t.token, { onBehalfOf: t.onBehalfOf });
   const storage = createStorage(cfg.storage);
   await storage.init();
   const events = new EventBus(cfg.databaseUrl, db);
@@ -113,6 +113,13 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
   const purge = async () => {
     if (cfg.formRetentionDays > 0) {
       await db.query("DELETE FROM form_submissions WHERE created_at < now() - make_interval(days => $1)", [cfg.formRetentionDays]).catch((e) => app.log.error(e));
+    }
+    // Condense edit history older than the retention window, one site at a time.
+    if (cfg.historyDays > 0) {
+      for (const s of await ctx.repo.listSites().catch(() => [])) {
+        const n = await ctx.repo.pruneHistory(s.id, cfg.historyDays).catch((e) => (app.log.error(e), 0));
+        if (n) app.log.info(`Condensed ${n} old versions of ${s.slug}`);
+      }
     }
   };
   void purge();

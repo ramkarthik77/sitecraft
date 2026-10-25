@@ -124,3 +124,74 @@ function diffCollections(before: Collection[], after: Collection[]): string[] {
   for (const c of before) if (!now.has(c.id)) out.push(`- collection ${c.name}`);
   return out;
 }
+
+/** What one saved version changed, kept with the version for the history timeline. */
+export interface VersionChanges {
+  /** Pages whose content or settings changed, with how many elements. */
+  pages: { id: string; path: string; title: string; added: number; changed: number; removed: number; status?: "added" | "removed" }[];
+  pageIds: string[];
+  added: number;
+  changed: number;
+  removed: number;
+  theme: boolean;
+  components: boolean;
+  /** Collection and item changes, first few. */
+  content: string[];
+  /** Language, redirect and other settings. */
+  settings: boolean;
+}
+
+export function summarizeChanges(before: SiteDocument, after: SiteDocument): VersionChanges {
+  const d = diffDocuments(before, after);
+  const where = (doc: SiteDocument) => {
+    const m = new Map<string, string>();
+    for (const p of doc.pages) walk(p.root, (n) => void m.set(n.id, p.id));
+    for (const c of doc.components) walk(c.root, (n) => void m.set(n.id, `component:${c.id}`));
+    return m;
+  };
+  const wa = where(before);
+  const wb = where(after);
+  const pages = new Map<string, VersionChanges["pages"][number]>();
+  const pageOf = (id: string) => {
+    const p = after.pages.find((x) => x.id === id) ?? before.pages.find((x) => x.id === id);
+    if (!p) return null;
+    let e = pages.get(id);
+    if (!e) pages.set(id, (e = { id, path: p.path, title: p.title, added: 0, changed: 0, removed: 0 }));
+    return e;
+  };
+  let components = false;
+  const count = (ids: string[], map: Map<string, string>, key: "added" | "changed" | "removed") => {
+    for (const id of ids) {
+      const owner = map.get(id);
+      if (!owner) continue;
+      if (owner.startsWith("component:")) components = true;
+      else {
+        const e = pageOf(owner);
+        if (e) e[key]++;
+      }
+    }
+  };
+  count(d.added, wb, "added");
+  count(d.changed, wb, "changed");
+  count(d.removed, wa, "removed");
+  const beforeIds = new Set(before.pages.map((p) => p.id));
+  const afterIds = new Set(after.pages.map((p) => p.id));
+  for (const p of after.pages) if (!beforeIds.has(p.id)) pageOf(p.id)!.status = "added";
+  for (const p of before.pages) if (!afterIds.has(p.id)) pageOf(p.id)!.status = "removed";
+  for (const p of after.pages) {
+    const o = before.pages.find((x) => x.id === p.id);
+    if (o && (o.path !== p.path || o.title !== p.title || o.description !== p.description || stable(o.i18n) !== stable(p.i18n) || !!o.unpublished !== !!p.unpublished)) pageOf(p.id);
+  }
+  const list = [...pages.values()];
+  return {
+    pages: list,
+    pageIds: list.map((p) => p.id),
+    added: d.added.length,
+    changed: d.changed.length,
+    removed: d.removed.length,
+    theme: d.themeChanged,
+    components,
+    content: d.content.slice(0, 8),
+    settings: stable(before.settings) !== stable(after.settings) || stable(before.brand) !== stable(after.brand),
+  };
+}

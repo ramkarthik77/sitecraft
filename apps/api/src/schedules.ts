@@ -3,6 +3,7 @@ import type { Actor, Role } from "./auth.js";
 import { HttpError } from "./errors.js";
 import { publishVersion } from "./publish.js";
 import { assertApproved } from "./reviews.js";
+import { assertReadyToPublish } from "./routes/pharma.js";
 import { libraryHelpers } from "./routes/library.js";
 import type { AppContext } from "./server.js";
 
@@ -103,6 +104,8 @@ export async function runDueSchedules(ctx: AppContext): Promise<number> {
     const actor: Actor = { name: `${s.created_by} (scheduled)`, role: s.created_role };
     try {
       const site = await repo.getSite(s.site_id);
+      // Check what will go live before changing anything.
+      await assertReadyToPublish(ctx, site, (await repo.getHead(site.id, s.branch)).document);
       if (s.branch !== "main") {
         // A release: it needs its approvals, and won't overwrite main if main changed since the branch started.
         await assertApproved(ctx, actor, site.id, s.branch);
@@ -112,7 +115,7 @@ export async function runDueSchedules(ctx: AppContext): Promise<number> {
       const r = await publishVersion(ctx.cfg, repo, ctx.storage, actor, await repo.getSite(site.id), "main");
       await db.query("UPDATE schedules SET status = 'done', result = $2, finished_at = now() WHERE id = $1", [s.id, `Published version ${r.versionId} to ${r.url}`]);
     } catch (e) {
-      const msg = e instanceof HttpError && e.status === 409 ? "Main changed after this branch was made, so it wasn't merged. Review the branch and schedule it again." : (e as Error).message;
+      const msg = e instanceof HttpError && e.status === 409 && !e.message.startsWith("This site can't be published") ? "Main changed after this branch was made, so it wasn't merged. Review the branch and schedule it again." : (e as Error).message;
       await db.query("UPDATE schedules SET status = 'failed', result = $2, finished_at = now() WHERE id = $1", [s.id, msg.slice(0, 500)]);
       await db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'schedule.failed', $4)", [s.site_id, actor.name, actor.role, { branch: s.branch, error: msg.slice(0, 300) }]);
     }

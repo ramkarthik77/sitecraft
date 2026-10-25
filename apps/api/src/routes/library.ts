@@ -48,12 +48,12 @@ export function libraryHelpers(ctx: AppContext) {
     const head = await repo.getHead(site.id, "main");
     if (brand) {
       if (head.document.brand?.id === brand.id && head.document.brand.version === brand.version) return false;
-      await repo.commit(actor, site.id, "main", (cur) => ({ document: applyBrand(cur, kitOf(brand)), message: why ?? `Apply the ${brand.name} brand (v${brand.version})` }));
+      await repo.commit(actor, site.id, "main", (cur) => ({ document: applyBrand(cur, kitOf(brand)), message: why ?? `Apply the ${brand.name} brand (v${brand.version})`, kind: "brand" }));
       return true;
     }
     if (!head.document.brand) return false;
     const name = head.document.brand.name;
-    await repo.commit(actor, site.id, "main", (cur) => ({ document: detachBrand(cur), message: why ?? `Stop following the ${name} brand` }));
+    await repo.commit(actor, site.id, "main", (cur) => ({ document: detachBrand(cur), message: why ?? `Stop following the ${name} brand`, kind: "brand" }));
     return true;
   };
   return { getBrand, syncBrand };
@@ -74,6 +74,7 @@ export async function libraryRoutes(app: FastifyInstance, ctx: AppContext) {
     description: r.description,
     brandId: r.brand_id ?? null,
     brandName: r.brand_name ?? null,
+    sourceSiteId: r.source_site_id ?? null,
     createdBy: r.created_by,
     updatedAt: iso(r.updated_at),
     pages: Array.isArray((r.document as SiteDocument | undefined)?.pages) ? (r.document as SiteDocument).pages.length : undefined,
@@ -103,8 +104,8 @@ export async function libraryRoutes(app: FastifyInstance, ctx: AppContext) {
     const doc = templateFromDocument(head.document, { includeItems: !!b.includeItems });
     const { rows } = await db
       .query<Record<string, unknown>>(
-        "INSERT INTO site_templates (name, description, document, source_name, brand_id, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-        [b.name.trim().slice(0, 80), (b.description ?? "").slice(0, 300), doc, site.name, site.brand_id ?? null, req.actor.name],
+        "INSERT INTO site_templates (name, description, document, source_name, brand_id, created_by, source_site_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+        [b.name.trim().slice(0, 80), (b.description ?? "").slice(0, 300), doc, site.name, site.brand_id ?? null, req.actor.name, site.id],
       )
       .catch((e) => {
         if ((e as { code?: string }).code === "23505") throw new HttpError(409, `There's already a template called "${b.name}".`);
@@ -130,6 +131,7 @@ export async function libraryRoutes(app: FastifyInstance, ctx: AppContext) {
       sets.push(`document = $${args.push(templateFromDocument(head.document, { includeItems: !!b.includeItems }))}`);
       sets.push(`source_name = $${args.push(site.name)}`);
       sets.push(`brand_id = $${args.push(site.brand_id ?? null)}`);
+      sets.push(`source_site_id = $${args.push(site.id)}`);
     }
     const { rows } = await db.query<Record<string, unknown>>(`UPDATE site_templates SET ${sets.join(", ")} WHERE id = $1 RETURNING *`, args).catch((e) => {
       if ((e as { code?: string }).code === "23505") throw new HttpError(409, `There's already a template called "${b.name}".`);

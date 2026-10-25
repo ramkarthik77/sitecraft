@@ -14,11 +14,13 @@ import {
   uniqueName,
 } from "./collections.js";
 import { newId } from "./ids.js";
-import { cloneWithNewIds, collectIds, ensureUniqueIds, findInTree, findNodeInDocument, findPage } from "./tree.js";
+import { cloneWithNewIds, collectIds, ensureUniqueIds, findInTree, findNodeInDocument, findPage, walk } from "./tree.js";
 import { CONTAINER_TYPES, FIELD_TYPES, type Breakpoint, type Collection, type CollectionField, type FieldValue, type SiteDocument, type SiteNode, type Style } from "./types.js";
 import { brandViolations } from "./brand.js";
 import { LOCALE, PAGE_TRANSLATABLE, stripLocale, TRANSLATABLE } from "./i18n.js";
 import { validateDocument } from "./validate.js";
+import { addRedirects, MAX_REDIRECTS } from "./redirects.js";
+import type { ComponentDef, Page } from "./types.js";
 
 /**
  * Edit operations. The editor, the API and the MCP server all change documents
@@ -99,10 +101,19 @@ export const operationSchema = z.discriminatedUnion("op", [
     title: z.string().optional(),
     description: z.string().optional(),
     ogImage: z.string().optional(),
+    /** The page's approval code, like US-CAL-2400123; "" removes it. */
+    jobCode: z.string().max(40).optional(),
     /** Hide the page from the published site (true) or show it again (false). */
     unpublished: z.boolean().optional(),
   }),
   z.object({ op: z.literal("remove_page"), pageId: z.string() }),
+  /** Put back a page as it was in an earlier version (also brings back components it uses). */
+  z.object({ op: z.literal("put_page"), page: z.record(z.string(), z.unknown()), components: z.array(z.record(z.string(), z.unknown())).max(200).optional() }),
+  /** Put back an element (with everything inside it) as it was in an earlier version. */
+  z.object({ op: z.literal("restore_node"), node: looseNode, parentId: z.string().optional(), index: z.number().int().min(0).optional() }),
+  /** Move a page, and the pages under it, to a new address; the old addresses redirect. */
+  z.object({ op: z.literal("move_page"), pageId: z.string(), path: z.string().min(1).max(200), redirect: z.boolean().optional() }),
+  z.object({ op: z.literal("set_redirects"), redirects: z.array(z.object({ from: z.string(), to: z.string() })).max(MAX_REDIRECTS) }),
   z.object({
     op: z.literal("set_theme"),
     colors: z.record(z.string(), z.string()).optional(),
@@ -403,11 +414,82 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       if (op.title !== undefined) page.title = op.title;
       if (op.description !== undefined) page.description = op.description;
       if (op.ogImage !== undefined) page.ogImage = op.ogImage;
+      if (op.jobCode !== undefined) {
+        if (op.jobCode.trim()) page.jobCode = op.jobCode.trim();
+        else delete page.jobCode;
+      }
       if (op.unpublished !== undefined) {
         if (op.unpublished) page.unpublished = true;
         else delete page.unpublished;
       }
       return page.id;
+    }
+    case "put_page": {
+      const incoming = structuredClone(op.page) as unknown as Page;
+      if (typeof incoming.id !== "string" || typeof incoming.path !== "string" || !incoming.root) throw new OperationError("that isn't a page", i);
+      const at = doc.pages.findIndex((p) => p.id === incoming.id);
+      if (doc.pages.some((p) => p.id !== incoming.id && p.path === incoming.path)) throw new OperationError(`another page now uses ${incoming.path}; move it first`, i);
+      if (at >= 0) doc.pages.splice(at, 1);
+      // Bring back components the page uses that have since been deleted.
+      for (const c of (op.components ?? []) as unknown as ComponentDef[]) {
+        if (!doc.components.some((x) => x.id === c.id)) doc.components.push({ ...structuredClone(c), root: ensureUniqueIds(c.root, collectIds(doc)) });
+      }
+      incoming.root = ensureUniqueIds(incoming.root, collectIds(doc));
+      doc.pages.splice(at >= 0 ? at : doc.pages.length, 0, incoming);
+      return incoming.id;
+    }
+    case "restore_node": {
+      const node = structuredClone(op.node) as SiteNode;
+      const existing = node.id ? findNodeInDocument(doc, node.id) : null;
+      if (existing?.parent) {
+        // Replace in place; ids inside the old copy are free to reuse.
+        const taken = collectIds(doc);
+        walk(existing.node, (n) => taken.delete(n.id));
+        existing.parent.children![existing.index] = ensureUniqueIds(node, taken);
+        return node.id;
+      }
+      if (existing && !existing.parent) throw new OperationError("a page's root can't be restored on its own; restore the page", i);
+      if (!op.parentId) throw new OperationError("this element was removed; say where to put it back (parentId)", i);
+      const parent = locateParent(doc, op.parentId, i);
+      const copy = ensureUniqueIds(node, collectIds(doc));
+      insertAt(parent, copy, op.index);
+      return copy.id;
+    }
+    case "move_page": {
+      const page = findPage(doc, op.pageId);
+      if (!page) throw new OperationError(`page "${op.pageId}" not found`, i);
+      const to = normalizePath(op.path);
+      const from = page.path;
+      if (from === "/") throw new OperationError("the home page always lives at /", i);
+      if (to === from) return page.id;
+      if (to.startsWith(from + "/")) throw new OperationError("a page can't move inside itself", i);
+      // The page and every page under it move together.
+      const moving = doc.pages.filter((p) => p.path === from || p.path.startsWith(from + "/"));
+      const moves = moving.map((p) => ({ from: p.path, to: to + p.path.slice(from.length) }));
+      const staying = new Set(doc.pages.filter((p) => !moving.includes(p)).map((p) => p.path));
+      for (const m of moves) if (staying.has(m.to)) throw new OperationError(`a page already uses ${m.to}`, i);
+      moving.forEach((p, k) => (p.path = moves[k]!.to));
+      // Links inside the site that pointed at the old addresses follow the move.
+      const retarget = (href: unknown) => {
+        if (typeof href !== "string") return href;
+        const m = moves.find((x) => href === x.from || href.startsWith(x.from + "#") || href.startsWith(x.from + "?"));
+        return m ? m.to + href.slice(m.from.length) : href;
+      };
+      const fix = (root: SiteNode) => walk(root, (n) => void (typeof n.props.href === "string" && (n.props.href = retarget(n.props.href))));
+      doc.pages.forEach((p) => fix(p.root));
+      doc.components.forEach((c) => fix(c.root));
+      if (op.redirect !== false) {
+        doc.settings.redirects = addRedirects(doc.settings.redirects ?? [], moves.map((m) => ({ from: m.from, to: m.to })), new Set(doc.pages.map((p) => p.path)));
+        if (!doc.settings.redirects.length) delete doc.settings.redirects;
+      }
+      return page.id;
+    }
+    case "set_redirects": {
+      const paths = new Set(doc.pages.map((p) => p.path));
+      const list = addRedirects([], op.redirects.map((r) => ({ from: normalizePath(r.from), to: r.to.trim() })), paths);
+      if (list.length) doc.settings.redirects = list;
+      else delete doc.settings.redirects;
+      return null;
     }
     case "remove_page": {
       const idx = doc.pages.findIndex((p) => p.id === op.pageId || p.path === op.pageId);

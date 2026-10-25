@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOperations,
+  resolveRedirect,
+  summarizeChanges,
   BLOCK_NAMES,
   buildBlock,
   createStarterDocument,
@@ -133,5 +135,75 @@ describe("diff", () => {
     expect(diff.summary[0]).toMatch(/^\+ section "Contact"/);
     const { document: d3 } = applyOperations(d2, [{ op: "move_node", nodeId: root.children![0]!.id, parentId: root.id, index: 3 }]);
     expect(diffDocuments(d2, d3).changed).toContain(root.children![0]!.id);
+  });
+});
+
+describe("history and moving pages", () => {
+  const base = () => {
+    const doc = createStarterDocument({ template: "landing" });
+    return applyOperations(doc, [
+      { op: "add_page", path: "/about", title: "About", blocks: ["text-section"] },
+      { op: "add_page", path: "/about/team", title: "Team", blocks: ["text-section"] },
+      { op: "add_node", parentId: doc.pages[0]!.root.id, node: { type: "button", props: { label: "Team", href: "/about/team#people" }, style: {} } },
+    ]).document;
+  };
+
+  it("summarizes what a version changed, by page", () => {
+    const a = base();
+    const home = a.pages[0]!;
+    const b = applyOperations(a, [
+      { op: "update_page", pageId: home.id, title: "New title" },
+      { op: "remove_page", pageId: "/about/team" },
+      { op: "set_theme", colors: { primary: "#111111" } },
+    ]).document;
+    const c = summarizeChanges(a, b);
+    expect(c.theme).toBe(true);
+    expect(c.pageIds).toContain(home.id);
+    expect(c.pages.find((p) => p.path === "/about/team")).toMatchObject({ status: "removed" });
+  });
+
+  it("moves a page with the pages under it, retargets links and adds redirects", () => {
+    const a = base();
+    const about = a.pages.find((p) => p.path === "/about")!;
+    const b = applyOperations(a, [{ op: "move_page", pageId: about.id, path: "/company" }]).document;
+    expect(b.pages.map((p) => p.path)).toEqual(expect.arrayContaining(["/company", "/company/team"]));
+    expect(JSON.stringify(b)).toContain('"href":"/company/team#people"');
+    expect(b.settings.redirects).toEqual([
+      { from: "/about", to: "/company" },
+      { from: "/about/team", to: "/company/team" },
+    ]);
+    expect(resolveRedirect(b, "/about/team/")).toBe("/company/team");
+    // Moving back removes the redirect that would hide the page again.
+    const c = applyOperations(b, [{ op: "move_page", pageId: about.id, path: "/about" }]).document;
+    expect(c.settings.redirects?.some((r) => r.from === "/about")).toBe(false);
+    expect(resolveRedirect(c, "/company")).toBe("/about");
+    expect(() => applyOperations(a, [{ op: "move_page", pageId: about.id, path: "/about/team/x" }])).toThrow(/inside itself/);
+    expect(() => applyOperations(a, [{ op: "move_page", pageId: a.pages[0]!.id, path: "/x" }])).toThrow(/home page/);
+    const other = applyOperations(a, [{ op: "add_page", path: "/company", title: "Taken" }]).document;
+    expect(() => applyOperations(other, [{ op: "move_page", pageId: about.id, path: "/company" }])).toThrow(/already uses/);
+  });
+
+  it("puts back a page or an element from an earlier version", () => {
+    const a = base();
+    const about = a.pages.find((p) => p.path === "/about")!;
+    const removed = applyOperations(a, [{ op: "remove_page", pageId: about.id }]).document;
+    const back = applyOperations(removed, [{ op: "put_page", page: about as never }]).document;
+    expect(back.pages.find((p) => p.id === about.id)?.title).toBe("About");
+    const section = about.root.children![0]!;
+    const gone = applyOperations(a, [{ op: "remove_node", nodeId: section.id }]).document;
+    const restored = applyOperations(gone, [{ op: "restore_node", node: section as never, parentId: about.root.id, index: 0 }]).document;
+    expect(restored.pages.find((p) => p.id === about.id)!.root.children![0]!.id).toBe(section.id);
+    // Restoring an element that still exists replaces it in place.
+    const edited = applyOperations(a, [{ op: "update_node", nodeId: section.id, name: "Edited" }]).document;
+    const replaced = applyOperations(edited, [{ op: "restore_node", node: section as never }]).document;
+    expect(JSON.stringify(replaced)).not.toContain('"name":"Edited"');
+  });
+
+  it("rejects unsafe redirects", () => {
+    const a = base();
+    expect(() => applyOperations(a, [{ op: "set_redirects", redirects: [{ from: "/x", to: "javascript:alert(1)" }] }])).toThrow();
+    const ok = applyOperations(a, [{ op: "set_redirects", redirects: [{ from: "/old", to: "https://example.com/new" }, { from: "/about", to: "/elsewhere" }] }]).document;
+    // A page at /about wins, so that redirect is dropped.
+    expect(ok.settings.redirects).toEqual([{ from: "/old", to: "https://example.com/new" }]);
   });
 });

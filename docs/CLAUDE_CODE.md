@@ -148,25 +148,47 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `remove_item` | Delete an item |
 | `add_collection_list` | Show a collection's items on a page, sorted and limited |
 | `get_diff` | What a branch changes compared to `main` |
-| `list_versions` | Recent saved versions of a branch |
-| `restore_version` | Go back to an earlier version (saved as a new one) |
+| `list_versions` | Saved versions of a branch: who, when, which pages changed, published, live or named; filter by page, named or published |
+| `restore_version` | Bring back the whole site, one page, or one element from an earlier version (saved as a new one) |
 | `get_preview_url` | Shareable preview link and editor link for a branch |
-| `request_review` | Summary and review link for the person |
+| `request_review` | Sends the branch for review in Sitecraft (MLR sign-off where the site needs it), with a summary and review link for the person |
+| `list_reviews` | Open reviews: who has signed, what's waiting, and the reasons reviewers gave for changes |
+| `resubmit_review` | Send a review back to reviewers after making the changes they asked for |
+| `check_publish_readiness` | What blocks publishing: pages without job codes, library images that are expired, unapproved or not cleared for the site's market |
+| `import_website` | Bring an existing website in as a new site, its pages rebuilt as editable sections |
 | `merge_branch` | Merge into `main` (people only, unless an admin allows agents) |
 | `publish_site` | Publish `main` (people only, unless an admin allows agents) |
+
+## Designs from Figma
+
+Claude Code can read Figma through Figma's own MCP server and build in Sitecraft at the same time, so a Figma frame becomes a page or a template without an export step.
+
+1. Connect Figma to Claude Code ([Figma's guide](https://help.figma.com/hc/en-us/articles/39888612464151)). The simplest is Figma's plugin, which includes its remote server:
+   ```bash
+   claude plugin install figma@claude-plugins-official
+   ```
+   or add the remote server by hand: `claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp`. With the Figma desktop app you can instead turn on **Enable desktop MCP server** in Dev Mode and add `claude mcp add --transport http figma-desktop http://127.0.0.1:3845/mcp`.
+2. Keep Sitecraft connected too (above). Check both with `/mcp` in Claude Code.
+3. Select a frame in Figma, or copy its link, and ask:
+   - *"Build the selected Figma frame as a new page /congress on Calvexa UK HCP, on a branch, using the site's theme. Then request review."*
+   - *"Make a new template called HCP product site from this Figma file: <link>. One page per top-level frame."*
+   - *"Compare the hero on Calvexa US HCP with this Figma frame and update it to match, on a branch."*
+
+Claude reads the layout, text, colours and images from Figma, maps them to Sitecraft sections and the site's theme tokens, and builds on a branch, so the result goes through review like any change. Images from Figma should be uploaded to the asset library (approved, with a job code) before publishing.
 
 ## Guardrails
 
 - **Agents work on branches.** An agent token can't edit `main`. Claude gets a clear error and creates a branch instead.
 - **People ship.** Agent tokens can't merge or publish. Claude gets a review link to hand over. An admin can change this with `AGENT_CAN_PUBLISH=true` and `AGENT_CAN_EDIT_MAIN=true`.
 - **Ask before shipping.** With the plugin installed, Claude Code asks you before every merge or publish, even when agents are allowed to.
+- **Claude can't sign off.** It can ask for review and resubmit, but approvals and MLR signatures are for people. Each Claude token works for a person, and that person can't approve what their Claude changed.
 - **Everything is reversible.** Every save is a version, every publish can be rolled back, and the audit log records who did what.
 - **Unsafe content is refused.** Script links, unsafe CSS and unknown style properties are rejected before anything is saved.
 
 ## Rolling out to your organization (Claude Code Enterprise)
 
 1. Deploy Sitecraft ([CLOUDFLARE.md](CLOUDFLARE.md)).
-2. Mint an agent token for each person.
+2. Mint an agent token for each person, set to **work for** them (Access → Claude Code → Works for). Their Claude's changes then count as theirs for approvals.
 3. Push the plugin and an MCP allowlist to everyone through managed settings. [deploy/claude-code/managed-settings.example.json](../deploy/claude-code/managed-settings.example.json) is a starting point; `allowedMcpServers` is an allowlist, so include your other approved servers or drop that key.
 4. People set `SITECRAFT_TOKEN` to their own token.
 

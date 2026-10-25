@@ -100,6 +100,10 @@ describe("MCP server for Claude Code", () => {
     const pub = await client.callTool({ name: "publish_site", arguments: { site: "orbit-labs" } });
     expect(pub.isError).toBe(true);
     const review = text(await client.callTool({ name: "request_review", arguments: { site: "orbit-labs", branch: "agent/launch", summary: "Rebranded and added pricing and about." } }));
+    expect(review).toContain('Sent "Rebranded and added pricing and about." for review');
+    const open = text(await client.callTool({ name: "list_reviews", arguments: { site: "orbit-labs" } }));
+    expect(open).toContain("Rebranded and added pricing and about. · Orbit Labs · agent/launch · ready to merge · no sign-off needed");
+    expect(text(await client.callTool({ name: "check_publish_readiness", arguments: { site: "orbit-labs" } }))).toBe("Nothing blocks publishing.");
     expect(review).toContain("Review and merge: http://localhost:5173/sites/");
   });
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sites, Tokens, type Me, type SiteSummary, type TokenInfo } from "../api";
+import { cap, DISCIPLINES, Sites, Tokens, type Me, type SiteSummary, type TokenInfo } from "../api";
 import { ago } from "../format";
 import { useToast } from "../Toasts";
 import { Icon } from "./Icon";
@@ -13,7 +13,7 @@ const EXPIRY = [
 
 const ROLE_HINT: Record<string, string> = {
   editor: "Signs in to the editor; edits, merges and publishes",
-  agent: "For one person's Claude Code; works on branches only",
+  agent: "For one person's Claude Code; works on branches only, and can't approve",
   admin: "Everything, including people and tokens",
 };
 
@@ -28,7 +28,7 @@ export function AccessPage({ me }: { me: Me }) {
   const toast = useToast();
   const [tokens, setTokens] = useState<TokenInfo[] | null>(null);
   const [sites, setSites] = useState<SiteSummary[]>([]);
-  const [draft, setDraft] = useState({ name: "", role: "editor", days: 90 as number | null, sites: [] as string[] });
+  const [draft, setDraft] = useState({ name: "", role: "editor", days: 90 as number | null, sites: [] as string[], onBehalfOf: "", disciplines: [] as string[] });
   const [made, setMade] = useState<{ name: string; token: string } | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -49,9 +49,16 @@ export function AccessPage({ me }: { me: Me }) {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const t = await Tokens.create({ name: draft.name.trim(), role: draft.role, expiresInDays: draft.days, sites: draft.role === "admin" ? undefined : draft.sites });
+      const t = await Tokens.create({
+        name: draft.name.trim(),
+        role: draft.role,
+        expiresInDays: draft.days,
+        sites: draft.role === "admin" ? undefined : draft.sites,
+        onBehalfOf: draft.role === "agent" ? draft.onBehalfOf.trim() || undefined : undefined,
+        disciplines: draft.role === "agent" ? undefined : draft.disciplines,
+      });
       setMade({ name: t.name, token: t.token });
-      setDraft({ name: "", role: draft.role, days: draft.days, sites: [] });
+      setDraft({ name: "", role: draft.role, days: draft.days, sites: [], onBehalfOf: "", disciplines: [] });
       void load();
     } catch (err) {
       toast({ text: (err as Error).message, tone: "error" });
@@ -128,6 +135,34 @@ export function AccessPage({ me }: { me: Me }) {
             ))}
           </fieldset>
         )}
+        {draft.role === "agent" ? (
+          <label className="field-stack works-for">
+            <span className="small muted">Works for</span>
+            <select className="select" aria-label="Works for" value={draft.onBehalfOf} onChange={(e) => setDraft({ ...draft, onBehalfOf: e.target.value })}>
+              <option value="">You ({me.name})</option>
+              {[...new Set((tokens ?? []).filter((t) => !t.revokedAt && t.role !== "agent").map((t) => t.name))].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <span className="muted small">That person can't approve what this Claude changes; someone else reviews it.</span>
+          </label>
+        ) : (
+          <fieldset className="site-scope">
+            <legend>Reviews for</legend>
+            {DISCIPLINES.map((d) => (
+              <label key={d} className="check">
+                <input
+                  type="checkbox"
+                  checked={draft.disciplines.includes(d)}
+                  onChange={(e) => setDraft({ ...draft, disciplines: e.target.checked ? [...draft.disciplines, d] : draft.disciplines.filter((x) => x !== d) })}
+                />
+                {cap(d)}
+              </label>
+            ))}
+          </fieldset>
+        )}
         <span className="muted small hint">{ROLE_HINT[draft.role]}</span>
       </form>
 
@@ -157,7 +192,11 @@ export function AccessPage({ me }: { me: Me }) {
                       <span className="t">{t.name}</span>
                       {t.createdBy && <span className="muted small"> · by {t.createdBy}</span>}
                     </td>
-                    <td>{t.role === "agent" ? "Claude Code" : t.role[0]!.toUpperCase() + t.role.slice(1)}</td>
+                    <td>
+                      {t.role === "agent" ? "Claude Code" : t.role[0]!.toUpperCase() + t.role.slice(1)}
+                      {t.role === "agent" && t.onBehalfOf && <span className="muted small"> · for {t.onBehalfOf}</span>}
+                      {!!t.disciplines?.length && <span className="muted small"> · {t.disciplines.join(", ")} reviewer</span>}
+                    </td>
                     <td className="muted clip">{t.siteIds ? t.siteIds.map(siteName).join(", ") : "All"}</td>
                     <td className="muted">{t.lastUsedAt ? ago(t.lastUsedAt) : "Never"}</td>
                     <td className="muted">{t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : "Never"}</td>

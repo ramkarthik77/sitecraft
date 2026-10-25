@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import type { SiteDocument } from "@sitecraft/schema";
-import { Brands, Sites, Templates, type Brand, type Me, type SavedTemplate, type SiteSummary } from "../api";
+import { Brands, Folders, Sites, Templates, type Brand, type Me, type SavedTemplate, type SiteSummary } from "../api";
+import { refreshShared, useShared } from "../store";
+import { PageHead } from "./Shell";
+import { ImportDialog } from "./Import";
 import { DocThumb } from "../App";
 import { ago } from "../format";
 import { navigate } from "../router";
@@ -20,11 +23,174 @@ function TemplateThumb({ id }: { id: string }) {
   return <DocThumb doc={doc} />;
 }
 
+/** Save a site's main version as a template (or update a template from it). */
+export function SaveTemplateDialog({ siteId, siteName, onClose, onDone }: { siteId?: string; siteName?: string; onClose: () => void; onDone?: () => void }) {
+  const toast = useToast();
+  const { sites } = useShared();
+  const [list, setList] = useState<SavedTemplate[]>([]);
+  const [form, setForm] = useState({ siteId: siteId ?? "", name: siteName ? `${siteName} template` : "", description: "", includeItems: false, replace: "" });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => void Templates.list().then(setList, () => {}), []);
+  useEffect(() => {
+    if (!form.siteId && sites?.[0]) setForm((f) => ({ ...f, siteId: sites[0]!.id }));
+  }, [sites, form.siteId]);
+  const fromThis = list.filter((t) => t.sourceSiteId === form.siteId);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      if (form.replace) {
+        await Templates.update(form.replace, { siteId: form.siteId, includeItems: form.includeItems });
+        toast({ text: "Template updated from the site" });
+      } else {
+        await Templates.create({ siteId: form.siteId, name: form.name.trim(), description: form.description.trim() || undefined, includeItems: form.includeItems });
+        toast({ text: `Saved "${form.name.trim()}" as a template. It's in Create site → Your templates.` });
+      }
+      onDone?.();
+      onClose();
+    } catch (err) {
+      toast({ text: (err as Error).message, tone: "error" });
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal form-modal" role="dialog" aria-modal="true" aria-labelledby="st-title" onSubmit={submit}>
+        <header>
+          <h2 id="st-title">Save as template</h2>
+          <button type="button" className="btn ghost icon sm" aria-label="Close" onClick={onClose}>
+            <Icon name="close" size={14} />
+          </button>
+        </header>
+        <p className="muted small" style={{ margin: 0 }}>
+          Saves the site's main version: pages, design, components and CMS fields. New sites made from it take their own name and follow the same brand.
+        </p>
+        {!siteId && (
+          <label className="field-stack">
+            <span className="small muted">From site</span>
+            <select className="select" value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value, replace: "" })}>
+              {(sites ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {fromThis.length > 0 && (
+          <div className="seg" role="group" aria-label="New or update">
+            <button type="button" aria-pressed={!form.replace} onClick={() => setForm({ ...form, replace: "" })}>
+              New template
+            </button>
+            {fromThis.map((t) => (
+              <button type="button" key={t.id} aria-pressed={form.replace === t.id} onClick={() => setForm({ ...form, replace: t.id })}>
+                Update “{t.name}”
+              </button>
+            ))}
+          </div>
+        )}
+        {!form.replace && (
+          <>
+            <label className="field-stack">
+              <span className="small muted">Template name</span>
+              <input className="input" autoFocus required placeholder="e.g. HCP product site" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </label>
+            <label className="field-stack">
+              <span className="small muted">What it's for (optional)</span>
+              <input className="input" placeholder="e.g. Every new market's HCP site starts here" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            </label>
+          </>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={form.includeItems} onChange={(e) => setForm({ ...form, includeItems: e.target.checked })} />
+          <span>Include CMS items (otherwise only the collections and their fields)</span>
+        </label>
+        <footer>
+          <span className="grow" />
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || !form.siteId || (!form.replace && !form.name.trim())}>
+            {form.replace ? "Update template" : "Save template"}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+const STARTERS = [
+  ["landing", "Landing page"],
+  ["saas", "Product site"],
+  ["blog", "Blog"],
+  ["blank", "Blank"],
+] as const;
+
+/** Start a new template from scratch: a working site to design it in, saved as a template straight away. */
+function NewTemplateDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [starter, setStarter] = useState("saas");
+  const [busy, setBusy] = useState(false);
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      // Template sources live in a Templates folder in the site tree.
+      const folders = await Folders.list("site");
+      const home = folders.find((f) => !f.parentId && f.name.toLowerCase() === "templates") ?? (await Folders.create("site", "Templates"));
+      const s = await Sites.create(`${name.trim()} (template)`, starter, undefined, home.id);
+      await Templates.create({ siteId: s.id, name: name.trim() });
+      void refreshShared();
+      onDone();
+      toast({ text: `Created the template. Design it here, then Save as template again to update it.` });
+      navigate(`/sites/${s.id}`);
+    } catch (err) {
+      toast({ text: (err as Error).message, tone: "error" });
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal form-modal" role="dialog" aria-modal="true" aria-labelledby="nt-title" onSubmit={submit}>
+        <header>
+          <h2 id="nt-title">New template</h2>
+          <button type="button" className="btn ghost icon sm" aria-label="Close" onClick={onClose}>
+            <Icon name="close" size={14} />
+          </button>
+        </header>
+        <p className="muted small" style={{ margin: 0 }}>
+          Sitecraft makes a working copy in the Templates folder for you to design. Whenever it's how every new site should start, use <b>Save as template</b> on it to update the template.
+        </p>
+        <label className="field-stack">
+          <span className="small muted">Template name</span>
+          <input className="input" autoFocus required placeholder="e.g. HCP product site" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <div className="seg" role="radiogroup" aria-label="Start from">
+          {STARTERS.map(([k, l]) => (
+            <button type="button" key={k} role="radio" aria-checked={starter === k} aria-pressed={starter === k} onClick={() => setStarter(k)}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <footer>
+          <span className="grow" />
+          <button type="button" className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy || !name.trim()}>
+            Create and design it
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
 export function TemplatesPage({ me }: { me: Me }) {
   const toast = useToast();
   const [list, setList] = useState<SavedTemplate[] | null>(null);
-  const [sites, setSites] = useState<SiteSummary[]>([]);
-  const [saving, setSaving] = useState<{ siteId: string; name: string; description: string; includeItems: boolean } | null>(null);
+  const [dialog, setDialog] = useState<"save" | "new" | "import" | null>(null);
   const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const canEdit = me.role !== "agent";
@@ -33,30 +199,15 @@ export function TemplatesPage({ me }: { me: Me }) {
     Templates.list()
       .then(setList)
       .catch((e) => toast({ text: e.message, tone: "error" }));
-  useEffect(() => {
-    void load();
-    Sites.list().then(setSites).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!saving) return;
-    try {
-      await Templates.create(saving);
-      toast({ text: `Saved "${saving.name}" as a template` });
-      setSaving(null);
-      void load();
-    } catch (err) {
-      toast({ text: (err as Error).message, tone: "error" });
-    }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => void load(), []);
 
   const use = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!using) return;
     try {
       const s = await Sites.create(using.name.trim(), "", using.id);
+      void refreshShared();
       navigate(`/sites/${s.id}`);
     } catch (err) {
       toast({ text: (err as Error).message, tone: "error" });
@@ -64,43 +215,47 @@ export function TemplatesPage({ me }: { me: Me }) {
   };
 
   return (
-    <main className="dash-main">
-      <div className="dash-head">
-        <h1>Templates</h1>
-        <span className="muted">Start new sites from a site your team already built. Claude can use them too.</span>
-        <div className="spacer" />
-        {canEdit && (
-          <button className="btn primary" style={{ height: 36 }} onClick={() => setSaving(saving ? null : { siteId: sites[0]?.id ?? "", name: "", description: "", includeItems: false })} aria-expanded={!!saving}>
-            <Icon name="plus" size={14} /> Save a site as a template
-          </button>
-        )}
-      </div>
+    <main className="page">
+      <PageHead
+        eyebrow="Shared libraries"
+        title="Templates"
+        sub="Approved starting points for new sites, such as an HCP product site or a patient support site. New sites copy the template's pages, design and brand. Claude can start from them too."
+        actions={
+          canEdit && (
+            <>
+              <button className="btn" onClick={() => setDialog("import")}>
+                <Icon name="globe" size={14} /> Import from a website
+              </button>
+              <button className="btn" onClick={() => setDialog("save")}>
+                <Icon name="copy" size={14} /> Save a site as a template
+              </button>
+              <button className="btn primary" onClick={() => setDialog("new")}>
+                <Icon name="plus" size={14} /> New template
+              </button>
+            </>
+          )
+        }
+      />
 
-      {saving && (
-        <form className="create-panel wrap" onSubmit={save}>
-          <select className="select" aria-label="Site" value={saving.siteId} onChange={(e) => setSaving({ ...saving, siteId: e.target.value })}>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <input className="input" aria-label="Template name" placeholder="Template name, e.g. Product launch" value={saving.name} onChange={(e) => setSaving({ ...saving, name: e.target.value })} autoFocus />
-          <input className="input" aria-label="Description" placeholder="What it's for (optional)" value={saving.description} onChange={(e) => setSaving({ ...saving, description: e.target.value })} />
-          <label className="check">
-            <input type="checkbox" checked={saving.includeItems} onChange={(e) => setSaving({ ...saving, includeItems: e.target.checked })} /> Include CMS items
-          </label>
-          <button className="btn light" disabled={!saving.name.trim() || !saving.siteId}>
-            Save template
-          </button>
-          <span className="muted small hint">Saves the site's main version: pages, design, components and CMS fields. New sites replace the site's name with theirs, and follow its brand.</span>
-        </form>
-      )}
+      <ol className="how-steps" aria-label="How templates work">
+        <li>
+          <strong>Design it</strong>
+          <span className="muted small">Build a site the way every new one should start, or choose New template.</span>
+        </li>
+        <li>
+          <strong>Save as template</strong>
+          <span className="muted small">From the site's overview, or here. Save again later to update it.</span>
+        </li>
+        <li>
+          <strong>Start sites from it</strong>
+          <span className="muted small">Create site → Your templates, or Use template below.</span>
+        </li>
+      </ol>
 
       {using && (
-        <form className="create-panel" onSubmit={use}>
+        <form className="card inline-form tpl-use" onSubmit={use}>
           <input className="input" aria-label="New site name" placeholder="Name the new site" value={using.name} onChange={(e) => setUsing({ ...using, name: e.target.value })} autoFocus />
-          <button className="btn light" disabled={!using.name.trim()}>
+          <button className="btn primary" disabled={!using.name.trim()}>
             Create site
           </button>
           <button type="button" className="btn ghost" onClick={() => setUsing(null)}>
@@ -110,31 +265,35 @@ export function TemplatesPage({ me }: { me: Me }) {
       )}
 
       {list && list.length === 0 && (
-        <div className="empty">
-          No templates yet. Build a site the way every new one should start, then use <b>Save a site as a template</b>.
+        <div className="empty-state">
+          <strong>No templates yet</strong>
+          <span>Make one from scratch with New template, or save a site you've already built.</span>
         </div>
       )}
-      <div className="site-grid">
+      <div className="tiles">
         {(list ?? []).map((t) => (
-          <article key={t.id} className="site-card as-article">
+          <article key={t.id} className="tile tpl-tile">
             <TemplateThumb id={t.id} />
-            <div className="meta">
-              <strong>
-                {t.name}
-                {t.brandName && <span className="status brand">{t.brandName}</span>}
-              </strong>
-              <span className="sub">{t.description || `${t.pages ?? 0} pages`}</span>
-              <span className="sub">
+            <span className="tile-meta">
+              <span className="tile-name">
+                <strong>{t.name}</strong>
+                {t.brandName && <span className="pill p-cms">{t.brandName}</span>}
+              </span>
+              <span className="muted small">{t.description || `${t.pages ?? 0} pages`}</span>
+              <span className="muted small">
                 by {t.createdBy} · updated {ago(t.updatedAt)}
               </span>
-              <div className="card-actions">
-                {canEdit && (
+              {canEdit && (
+                <span className="card-actions">
                   <button className="btn sm primary" onClick={() => setUsing({ id: t.id, name: "" })}>
                     Use template
                   </button>
-                )}
-                {canEdit &&
-                  (confirm === t.id ? (
+                  {t.sourceSiteId && (
+                    <a className="btn sm" href={`/sites/${t.sourceSiteId}`} onClick={(e) => (e.preventDefault(), navigate(`/sites/${t.sourceSiteId}`))}>
+                      Edit its site
+                    </a>
+                  )}
+                  {confirm === t.id ? (
                     <>
                       <button
                         className="btn sm danger"
@@ -154,12 +313,16 @@ export function TemplatesPage({ me }: { me: Me }) {
                     <button className="btn sm ghost" onClick={() => setConfirm(t.id)}>
                       Delete…
                     </button>
-                  ))}
-              </div>
-            </div>
+                  )}
+                </span>
+              )}
+            </span>
           </article>
         ))}
       </div>
+      {dialog === "save" && <SaveTemplateDialog onClose={() => setDialog(null)} onDone={() => void load()} />}
+      {dialog === "new" && <NewTemplateDialog onClose={() => setDialog(null)} onDone={() => void load()} />}
+      {dialog === "import" && <ImportDialog asTemplate onClose={() => (setDialog(null), void load())} />}
     </main>
   );
 }

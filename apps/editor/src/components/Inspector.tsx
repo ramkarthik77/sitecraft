@@ -550,12 +550,59 @@ export function PageInspector(props: { doc: SiteDocument; page: Page; apply: App
             <TextInput label="Page title" value={page.title} onChange={(v) => v && apply([{ op: "update_page", pageId: page.id, title: v }], `page:${page.id}:title`)} />
           </Field>
         )}
-        <Field label="Path">
-          <TextInput label="Page path" value={page.path} onChange={(v) => apply([{ op: "update_page", pageId: page.id, path: v }], `page:${page.id}:path`)} />
-        </Field>
+        {page.path === "/" || page.collectionId ? (
+          <Field label="Path">
+            {page.path === "/" ? (
+              <span className="mono muted small">/ (the home page)</span>
+            ) : (
+              <TextInput label="Page path" value={page.path} onChange={(v) => apply([{ op: "update_page", pageId: page.id, path: v }], `page:${page.id}:path`)} />
+            )}
+          </Field>
+        ) : (
+          <>
+            <Field label="Path">
+              <PathInput key={page.id + page.path} path={page.path} onMove={(to) => apply([{ op: "move_page", pageId: page.id, path: to }])} />
+            </Field>
+            <Field label="Parent">
+              <select
+                className="select"
+                aria-label="Parent page"
+                value={parentPath(page.path, doc.pages.map((p) => p.path))}
+                onChange={(e) => {
+                  const leaf = page.path.split("/").filter(Boolean).pop()!;
+                  apply([{ op: "move_page", pageId: page.id, path: e.target.value === "/" ? `/${leaf}` : `${e.target.value}/${leaf}` }]);
+                }}
+              >
+                <option value="/">None (top level)</option>
+                {doc.pages
+                  .filter((p) => p.path !== "/" && !p.collectionId && p.id !== page.id && !p.path.startsWith(page.path + "/"))
+                  .sort((a, b) => a.path.localeCompare(b.path))
+                  .map((p) => (
+                    <option key={p.id} value={p.path}>
+                      {p.title} ({p.path})
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <span className="muted small">Moving a page moves the pages under it too. Old addresses keep working: they redirect to the new ones.</span>
+          </>
+        )}
         {!props.locale && (
           <Field label="Description">
             <textarea className="textarea" aria-label="SEO description" value={page.description ?? ""} placeholder="Shown in search results" onChange={(e) => apply([{ op: "update_page", pageId: page.id, description: e.target.value }], `page:${page.id}:desc`)} />
+          </Field>
+        )}
+        {!props.locale && (
+          <Field label="Job code">
+            <input
+              key={`${page.id}:${page.jobCode ?? ""}`}
+              className="input mono"
+              aria-label="Job code"
+              defaultValue={page.jobCode ?? ""}
+              placeholder="e.g. US-CAL-2400123"
+              onBlur={(e) => e.target.value.trim() !== (page.jobCode ?? "") && apply([{ op: "update_page", pageId: page.id, jobCode: e.target.value.trim() }])}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
           </Field>
         )}
         <Field label="Share image">
@@ -800,5 +847,38 @@ function MotionGroup({ node, apply }: { node: SiteNode; apply: (ops: Operation[]
       </div>
       <span className="muted small">Entrances and parallax play on the published site and in previews; hover effects work on the canvas too. Visitors who ask for reduced motion see the page without movement.</span>
     </div>
+  );
+}
+
+/** The address of the nearest page above this one, or "/" for top level. */
+function parentPath(path: string, all: string[]): string {
+  const parts = path.split("/").filter(Boolean);
+  for (let i = parts.length - 1; i > 0; i--) {
+    const p = "/" + parts.slice(0, i).join("/");
+    if (all.includes(p)) return p;
+  }
+  return "/";
+}
+
+/** A page address that applies when you press Enter or leave the field, as a move with a redirect. */
+function PathInput({ path, onMove }: { path: string; onMove: (to: string) => void }) {
+  const [v, setV] = useState(path);
+  const commit = () => {
+    const to = "/" + v.trim().toLowerCase().replace(/^\/+|\/+$/g, "").replace(/\s+/g, "-");
+    if (to !== path && to !== "/") onMove(to);
+    else setV(path);
+  };
+  return (
+    <input
+      className="input mono"
+      aria-label="Page path"
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === "Escape") (setV(path), (e.currentTarget as HTMLInputElement).blur());
+      }}
+    />
   );
 }

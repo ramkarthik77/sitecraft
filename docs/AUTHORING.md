@@ -1,4 +1,4 @@
-# Templates, brands, languages, assets, reviews and releases
+# Templates, brands, languages, assets, history, reviews and releases
 
 How teams keep many sites consistent and launch on time: **templates** decide how a new site starts, **brands** keep the look and voice the same across sites afterwards.
 
@@ -10,7 +10,13 @@ How teams keep many sites consistent and launch on time: **templates** decide ho
 
 ## Templates
 
-**Save one:** Templates → **Save a site as a template** (or Site settings → **Save as template**). It keeps the site's `main` version: pages, design, components and CMS fields. Tick **Include CMS items** to keep the posts or products too.
+**Save one:** on any site's overview, **Save as template** (or Templates → **Save a site as a template**). It keeps the site's `main` version: pages, design, components and CMS fields. Tick **Include CMS items** to keep the posts or products too. Saving again from the same site offers **Update** for the template it made before.
+
+**Make one from scratch:** Templates → **New template**. Name it and pick a starter; Sitecraft makes a working site for it in a **Templates** folder and opens it in the editor. Design it there, then **Save as template** on that site to update the template. **Edit its site** on the template card takes you back to it.
+
+**Import one from a website:** Templates → **Import from a website** (or **New site → Import from a website instead**). Give the address and how many pages to bring (the home page, then pages linked from its navigation). Sitecraft rebuilds each page as sections you can edit (headings, text, images, buttons, links), takes the site's main colour and fonts, and links between the imported pages. It's a starting point for migrating a site you own, not a pixel copy: scripts, forms, embeds and detailed styling stay behind, and sites that draw their pages with JavaScript import mostly empty. Images keep loading from the original site until you replace them with approved library images. Only public addresses can be imported (never internal ones), and each import is in the audit log.
+
+**From Figma:** ask Claude Code, connected to Figma and Sitecraft, to build a frame as a page or template. See [Designs from Figma](CLAUDE_CODE.md#designs-from-figma).
 
 **Use one:** pick it under **Your templates** when creating a site, or **Use template** on the Templates page. The new site:
 
@@ -76,6 +82,8 @@ Logo: never stretch, recolor or put on busy photos.
 
 **Assets** in the dashboard is one image library for every site, like AEM Assets.
 
+- **Folders:** organise the library in nested folders (for example Calvexa › Autumn congress), like AEM Assets. **New folder** in the folder tree makes one inside the folder you're in; hover a folder to rename it, add a folder inside or delete it (what's in it moves up a level, nothing is deleted). Uploads go into the folder you're in. Move an image by dragging it onto a folder, or with **Folder** in its details.
+- **Approval and rights:** each image has an approval status, a job code, the markets it's cleared for and when its usage rights end. Sites can't be published while they use an image that's expired, unapproved or not cleared for their market.
 - **Upload** with the button or by dropping files anywhere on the page. PNG, JPEG, GIF and WebP, up to 10 MB. Files are checked to really be the image type they claim.
 - **Describe** each image: title, **alt text**, tags, credit. Tiles show **No alt text** until it's written.
 - **Focal point:** click the most important part of the image. When an image is placed from the library, its crop keeps that point in view (`objectPosition`).
@@ -152,3 +160,32 @@ And one element: **Progress bar**, a thin bar along the top of the window that f
 **How it runs.** Chrome, Edge and Safari drive scroll effects natively, smoothly and off the main thread. Other browsers get the same result from a small part of the site's own script. Nothing is loaded from elsewhere, so the site's security policy is unchanged, and visitors who ask for reduced motion see the finished page.
 
 With Claude Code: "Add a story explaining our three-step onboarding, with the screenshot for each step, and reveal the big headings as they scroll in" uses `add_block` (story, statement) and `set_motion`.
+
+## Finding your way
+
+- **Home** is where you start: what needs you today, a getting-started checklist that ticks itself off, and recent sites. The **?** in the top bar takes the guided tour again (it's different for editors, reviewers and admins).
+- **Sites** are in folders, like AEM's content tree: make folders such as Immunology › Calvexa, drag sites onto them, or pick a folder in the site's Settings. New sites go into the folder you're in.
+- **A site's overview** (click a site) shows its pages with their status, the live link, changes waiting, CMS content, activity and who has access. **Open editor** goes in.
+- **Quick find:** press **⌘K** (Ctrl K on Windows) anywhere to jump to a site, a page, a CMS collection, a screen, or an action such as Publish, Open history or New page. The arrow next to the site name in the editor switches sites.
+- **Calendar** shows what goes live when across every site: scheduled releases, publishes and rollbacks, in the time zone you pick.
+
+## History: the time machine
+
+**History** in the editor (or the overview) opens every version of the site.
+
+| | |
+|---|---|
+| Timeline | Grouped by day and by session: one person's edits close together read as one entry ("You edited · 4 saves · Home, About"); expand it to see each save. Merges, publishes, restores and named versions stand out as milestones. Releases that are scheduled appear at the top |
+| Show | Everything, **This page** (only versions that changed the page you're on), Published, or Named |
+| Look | The stage draws the version you pick. **Show what's different now** outlines what changed since in amber and what's no longer there in red |
+| Restore | **Restore this page only**, **Bring this section into today's version** (click a section on the stage first), or **Restore the whole site**. Each restore is saved as a new version, so you can undo it |
+| Name | Name a version ("Before the rebrand") in the panel, or press **⌘⇧S** in the editor. Named versions are always kept |
+| Live site on | Pick a date and time to see exactly what was live then, including after rollbacks. A published version can be made live again from here |
+
+Old edits are condensed after 90 days to the last one of each day; everything named, published or merged stays, and the activity log keeps every save.
+
+## Moving pages
+
+Drag a page onto another in the **Pages** panel to put it under that page (`/careers` becomes `/about/careers`), or onto **Drop here to make it a top-level page**. The page's **Parent** picker and its **Path** field do the same from the keyboard.
+
+Pages under it move too, links inside the site follow, and **the old addresses redirect** to the new ones, on previews and published sites. See and edit the list in **Site settings → Redirects**, and add your own for addresses printed elsewhere.
