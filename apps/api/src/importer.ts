@@ -34,7 +34,9 @@ const MAX_SECTIONS = 30;
 const MAX_ITEMS = 40;
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
-const decode = (s: string) => s.replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
+const ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+/** Decode HTML entities in one pass, so "&amp;lt;" stays "&lt;". */
+const decode = (s: string) => s.replace(/&(#\d{1,6}|#x[0-9a-f]{1,6}|[a-z]{2,6});/gi, (m, e: string) => (e[0] === "#" ? String.fromCodePoint(Math.min(0x10ffff, e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1)))) : (ENTITIES[e.toLowerCase()] ?? m)));
 const textOf = (el: HTMLElement) => clean(decode(el.text ?? ""));
 const isEl = (n: Node): n is HTMLElement => n.nodeType === 1;
 
@@ -399,7 +401,7 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
     try {
       const u = new URL(href, base);
       // Google Fonts: the families are in the address, no need to fetch it.
-      if (/fonts\.googleapis\.com/.test(u.host)) {
+      if (u.hostname === "fonts.googleapis.com") {
         for (const fam of u.searchParams.getAll("family")) css += `\nbody{font-family:'${fam.split(":")[0]!.replace(/\+/g, " ")}'}`;
         continue;
       }

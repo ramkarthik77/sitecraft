@@ -73,7 +73,8 @@ export async function checkUrl(raw: string, opts: SafeFetchOptions = {}): Promis
   if (!addrs.length) throw new HttpError(400, `Couldn't find ${host}. Check the address.`);
   if (!allow && addrs.some((a) => isPrivateAddress(a.address))) throw new HttpError(400, "That address is inside a private network, so it can't be imported.");
   if (url.port && !["80", "443"].includes(url.port) && !allow) throw new HttpError(400, "Only addresses on the standard web ports can be imported.");
-  const pick = addrs[0]!;
+  // Prefer IPv4: many servers (and CI runners) listen there even when the name also has an IPv6 address.
+  const pick = addrs.find((a) => a.family === 4) ?? addrs[0]!;
   return { url, ip: pick.address, family: pick.family as 4 | 6 };
 }
 

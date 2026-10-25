@@ -8,7 +8,10 @@ export const MAX_REDIRECTS = 500;
  * so callers check for a page first. "/news/:slug" carries the item on.
  */
 export function resolveRedirect(doc: SiteDocument, path: string): string | null {
-  const clean = path === "/" ? "/" : path.replace(/\/+$/, "");
+  // Trim trailing slashes without a regex (a long run of slashes would make one slow).
+  let end = path.length;
+  while (end > 1 && path.charCodeAt(end - 1) === 47) end--;
+  const clean = path === "/" ? "/" : path.slice(0, end);
   for (const r of doc.settings.redirects ?? []) {
     if (r.from === clean) return r.to;
     if (r.from.endsWith("/:slug")) {

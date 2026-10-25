@@ -479,7 +479,7 @@ function applyOne(doc: SiteDocument, op: Operation, i: number): string | null {
       doc.pages.forEach((p) => fix(p.root));
       doc.components.forEach((c) => fix(c.root));
       if (op.redirect !== false) {
-        doc.settings.redirects = addRedirects(doc.settings.redirects ?? [], moves.map((m) => ({ from: m.from.replace(/:slug$/, ":slug"), to: m.to })), new Set(doc.pages.map((p) => p.path)));
+        doc.settings.redirects = addRedirects(doc.settings.redirects ?? [], moves.map((m) => ({ from: m.from, to: m.to })), new Set(doc.pages.map((p) => p.path)));
         if (!doc.settings.redirects.length) delete doc.settings.redirects;
       }
       return page.id;
