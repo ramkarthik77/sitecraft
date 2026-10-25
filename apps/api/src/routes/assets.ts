@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { walk, type SiteDocument } from "@sitecraft/schema";
 import { parseTextArray, requireRole, type Actor } from "../auth.js";
 import { JOB_CODE } from "@sitecraft/schema";
+import { folderFor } from "./folders.js";
 import { HttpError } from "../errors.js";
 import { IMAGE_TYPES, imageSize, sniffImage } from "../images.js";
 import type { AppContext } from "../server.js";
@@ -32,6 +33,7 @@ export interface LibraryRow {
   job_code?: string;
   markets?: unknown;
   brand_id?: string | null;
+  folder_id?: string | null;
   version: number;
   created_by: string;
   created_at: string;
@@ -65,6 +67,7 @@ export function assetOut(cfg: AppContext["cfg"], r: LibraryRow) {
     jobCode: r.job_code || null,
     markets: parseTextArray(r.markets),
     brandId: r.brand_id ?? null,
+    folderId: r.folder_id ?? null,
     version: r.version,
     createdBy: r.created_by,
     createdAt: new Date(r.created_at).toISOString(),
@@ -101,7 +104,9 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     return rows[0];
   };
 
-  app.get<{ Querystring: { q?: string; tag?: string; limit?: string; status?: string; market?: string; brand?: string; expiring?: string } }>("/assets", async (req) => {
+  const getFolder = (id: string) => folderFor(db, id, "asset");
+
+  app.get<{ Querystring: { q?: string; tag?: string; limit?: string; status?: string; market?: string; brand?: string; expiring?: string; folder?: string } }>("/assets", async (req) => {
     const where: string[] = [];
     const args: unknown[] = [];
     if (req.query.q?.trim()) {
@@ -115,6 +120,7 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     if (req.query.expiring) where.push(`expires_at IS NOT NULL AND expires_at < now() + ($${args.push(Math.min(365, Number(req.query.expiring) || 30))} || ' days')::interval`);
     if (req.query.market) where.push(`(cardinality(markets) = 0 OR $${args.push(req.query.market.toUpperCase())} = ANY(markets) OR 'GLOBAL' = ANY(markets))`);
     if (req.query.brand) where.push(req.query.brand === "none" ? "brand_id IS NULL" : `brand_id = $${args.push(req.query.brand)}`);
+    if (req.query.folder) where.push(req.query.folder === "none" ? "folder_id IS NULL" : `folder_id = $${args.push(req.query.folder)}`);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
     const { rows } = await db.query<LibraryRow>(`SELECT * FROM library_assets ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC LIMIT ${limit}`, args);
     return rows.map((r) => assetOut(cfg, r));
@@ -125,17 +131,18 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     return rows.map((r) => ({ tag: r.tag, count: Number(r.n) }));
   });
 
-  app.post<{ Querystring: { filename?: string; title?: string; alt?: string; tags?: string } }>("/assets", async (req, reply) => {
+  app.post<{ Querystring: { filename?: string; title?: string; alt?: string; tags?: string; folderId?: string } }>("/assets", async (req, reply) => {
     requireRole(req.actor, "admin", "editor", "agent");
     canWrite(req.actor);
+    const folder = req.query.folderId ? await getFolder(req.query.folderId) : null;
     const { buf, type, ext } = checkImage(req);
     const size = imageSize(buf);
     const name = (req.query.filename ?? `image.${ext}`).replace(/[^\w.-]/g, "_").slice(0, 100);
     const title = (req.query.title ?? name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ")).slice(0, 200);
     const { rows } = await db.query<LibraryRow>(
-      `INSERT INTO library_assets (file_name, ext, content_type, size_bytes, width, height, title, alt, tags, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10) RETURNING *`,
-      [name, ext, type, buf.length, size?.width ?? null, size?.height ?? null, title, (req.query.alt ?? "").slice(0, 500), JSON.stringify(cleanTags(req.query.tags?.split(","))), req.actor.name],
+      `INSERT INTO library_assets (file_name, ext, content_type, size_bytes, width, height, title, alt, tags, created_by, folder_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::jsonb, $10, $11) RETURNING *`,
+      [name, ext, type, buf.length, size?.width ?? null, size?.height ?? null, title, (req.query.alt ?? "").slice(0, 500), JSON.stringify(cleanTags(req.query.tags?.split(","))), req.actor.name, folder?.id ?? null],
     );
     const row = rows[0]!;
     await storage.put(libraryKey(row.id, ext), buf, type);
@@ -148,16 +155,17 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
     requireRole(req.actor, "admin", "editor");
     canWrite(req.actor);
     const cur = await get(req.params.id);
-    const b = body<{ title?: string; alt?: string; credit?: string; tags?: string[]; focalX?: number; focalY?: number; expiresAt?: string | null; status?: string; jobCode?: string; markets?: string[]; brandId?: string | null }>(req);
+    const b = body<{ title?: string; alt?: string; credit?: string; tags?: string[]; focalX?: number; focalY?: number; expiresAt?: string | null; status?: string; jobCode?: string; markets?: string[]; brandId?: string | null; folderId?: string | null }>(req);
     const focal = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : d);
     if (b.expiresAt && Number.isNaN(Date.parse(b.expiresAt))) throw new HttpError(400, "expiresAt must be a date like 2027-01-31.");
     if (b.status !== undefined && !(ASSET_STATUSES as readonly string[]).includes(b.status)) throw new HttpError(400, `status is one of ${ASSET_STATUSES.join(", ")}.`);
     if (b.jobCode && !JOB_CODE.test(b.jobCode.trim())) throw new HttpError(400, "A job code uses letters, numbers, dots, dashes and slashes, like US-CAL-2400123.");
     if (b.markets !== undefined && (!Array.isArray(b.markets) || b.markets.some((m) => !/^([A-Za-z]{2}|GLOBAL)$/i.test(String(m))))) throw new HttpError(400, "markets are two-letter country codes like US or GB, or GLOBAL.");
     if (b.brandId && !UUID.test(b.brandId)) throw new HttpError(400, "That isn't a brand.");
+    const folderId = b.folderId === undefined ? (cur.folder_id ?? null) : b.folderId ? (await getFolder(b.folderId)).id : null;
     const { rows } = await db.query<LibraryRow>(
       `UPDATE library_assets SET title = $2, alt = $3, credit = $4, tags = $5::text::jsonb, focal_x = $6, focal_y = $7, expires_at = $8,
-         status = $9, job_code = $10, markets = $11, brand_id = $12, updated_at = now() WHERE id = $1 RETURNING *`,
+         status = $9, job_code = $10, markets = $11, brand_id = $12, folder_id = $13, updated_at = now() WHERE id = $1 RETURNING *`,
       [
         cur.id,
         b.title !== undefined ? String(b.title).slice(0, 200) : cur.title,
@@ -171,6 +179,7 @@ export async function assetRoutes(app: FastifyInstance, ctx: AppContext) {
         b.jobCode !== undefined ? b.jobCode.trim().slice(0, 40) : (cur.job_code ?? ""),
         b.markets !== undefined ? [...new Set(b.markets.map((m) => String(m).toUpperCase()))] : parseTextArray(cur.markets),
         b.brandId !== undefined ? b.brandId || null : (cur.brand_id ?? null),
+        folderId,
       ],
     );
     // Approval and rights changes matter in an audit.

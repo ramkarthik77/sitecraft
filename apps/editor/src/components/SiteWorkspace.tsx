@@ -33,6 +33,8 @@ import { RequestReviewDialog } from "./Reviews";
 import { TimeMachine } from "./TimeMachine";
 import { ConnectClaude, editorHref, go, PageHead, Pill, siteUrl } from "./Shell";
 import { portfolioPath, siteStatus } from "./Directory";
+import { FolderSelect, pathText, useFolders } from "./Folders";
+import { SaveTemplateDialog } from "./Library";
 import { dueLabel } from "./Work";
 
 /** Inside one site: overview, branches, assets, activity and access, settings, history. */
@@ -74,6 +76,7 @@ export function SiteOverviewPage({ siteId, me }: { siteId: string; me: Me }) {
   const [recent, setRecent] = useState<ActivityItem[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [connect, setConnect] = useState(false);
+  const [saveTpl, setSaveTpl] = useState(false);
   const person = me.role !== "agent";
   useEffect(() => {
     Sites.head(siteId, "main").then((h) => setDoc(h.document), () => {});
@@ -104,6 +107,11 @@ export function SiteOverviewPage({ siteId, me }: { siteId: string; me: Me }) {
         }
         actions={
           <>
+            {person && (
+              <button className="btn" onClick={() => setSaveTpl(true)}>
+                <Icon name="copy" size={14} /> Save as template
+              </button>
+            )}
             <a className="btn" href={editorHref(siteId)} onClick={go(editorHref(siteId))}>
               <Icon name="pages" size={14} /> Open editor
             </a>
@@ -344,6 +352,7 @@ export function SiteOverviewPage({ siteId, me }: { siteId: string; me: Me }) {
         </div>
       </div>
       {connect && <ConnectClaude me={me} onClose={() => setConnect(false)} />}
+      {saveTpl && site && <SaveTemplateDialog siteId={siteId} siteName={site.name.replace(/ \(template\)$/, "")} onClose={() => setSaveTpl(false)} />}
     </main>
   );
 }
@@ -631,6 +640,7 @@ export function SiteSettings({ siteId, me }: { siteId: string; me: Me }) {
     if (site && !form) setForm({ name: site.name, domain: site.domain ?? "", therapyArea: site.therapyArea ?? "", market: site.market ?? "", audience: site.audience ?? "", jobCode: site.jobCode ?? "" });
   }, [site, form]);
   const areas = useMemo(() => [...new Set((sites ?? []).map((s) => s.therapyArea).filter(Boolean))] as string[], [sites]);
+  const { folders } = useFolders("site");
   if (!site || !form) return <main className="page"><div className="tm-loading" /></main>;
 
   const save = async (e: React.FormEvent) => {
@@ -708,6 +718,20 @@ export function SiteSettings({ siteId, me }: { siteId: string; me: Me }) {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="field-stack">
+            <span className="small muted">Folder</span>
+            <FolderSelect
+              folders={folders ?? []}
+              value={site.folderId ?? null}
+              label="Folder"
+              onChange={(id) =>
+                void Sites.setFolder(siteId, id).then(
+                  () => (toast({ text: id ? `Moved to ${pathText(folders ?? [], id)}` : "Moved out of its folder" }), void refreshShared(), void reload()),
+                  (e) => toast({ text: e.message, tone: "error" }),
+                )
+              }
+            />
           </label>
           <label className="field-stack">
             <span className="small muted">Site job code</span>

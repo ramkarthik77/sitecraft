@@ -135,6 +135,7 @@ export interface SiteSummary {
   openBranches?: number;
   claudeBranches?: number;
   nextRelease?: string | null;
+  folderId?: string | null;
 }
 
 export interface SiteProfile {
@@ -205,7 +206,9 @@ export interface Deployment {
 
 export const Sites = {
   list: () => api<SiteSummary[]>("GET", "/sites"),
-  create: (name: string, template: string, templateId?: string) => api<SiteSummary>("POST", "/sites", templateId ? { name, templateId } : { name, template }),
+  create: (name: string, template: string, templateId?: string, folderId?: string | null) =>
+    api<SiteSummary>("POST", "/sites", { name, ...(templateId ? { templateId } : { template }), ...(folderId ? { folderId } : {}) }),
+  setFolder: (id: string, folderId: string | null) => api<{ folderId: string | null }>("PUT", `/sites/${id}/folder`, { folderId }),
   setRequiredApprovals: (id: string, required: number) => api<{ required: number }>("PUT", `/sites/${id}/approvals-required`, { required }),
   setBrand: (id: string, brandId: string | null) => api<{ brandId: string | null; changed: boolean }>("PUT", `/sites/${id}/brand`, { brandId }),
   get: (id: string) => api<SiteSummary>("GET", `/sites/${id}`),
@@ -249,6 +252,7 @@ export interface SavedTemplate {
   description: string;
   brandId: string | null;
   brandName: string | null;
+  sourceSiteId?: string | null;
   createdBy: string;
   updatedAt: string;
   pages?: number;
@@ -324,6 +328,7 @@ export interface LibraryAsset {
   jobCode: string | null;
   markets: string[];
   brandId: string | null;
+  folderId: string | null;
   version: number;
   createdBy: string;
   createdAt: string;
@@ -334,13 +339,14 @@ export type AssetStatus = "draft" | "in_review" | "approved" | "withdrawn";
 export const ASSET_STATUS_LABEL: Record<AssetStatus, string> = { draft: "Draft", in_review: "In review", approved: "Approved", withdrawn: "Withdrawn" };
 
 export const Library = {
-  list: (q: { q?: string; tag?: string; status?: string; market?: string; brand?: string; expiring?: string } = {}) =>
+  list: (q: { q?: string; tag?: string; status?: string; market?: string; brand?: string; expiring?: string; folder?: string } = {}) =>
     api<LibraryAsset[]>("GET", `/assets?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]).toString()}`),
   tags: () => api<{ tag: string; count: number }[]>("GET", "/assets/tags"),
-  upload: (file: File) => api<LibraryAsset>("POST", `/assets?filename=${enc(file.name)}`, undefined, { contentType: file.type, data: file }),
+  upload: (file: File, folderId?: string | null) =>
+    api<LibraryAsset>("POST", `/assets?filename=${enc(file.name)}${folderId ? `&folderId=${enc(folderId)}` : ""}`, undefined, { contentType: file.type, data: file }),
   update: (
     id: string,
-    patch: Partial<Pick<LibraryAsset, "title" | "alt" | "credit" | "tags" | "focalX" | "focalY" | "status" | "markets">> & { expiresAt?: string | null; jobCode?: string; brandId?: string | null },
+    patch: Partial<Pick<LibraryAsset, "title" | "alt" | "credit" | "tags" | "focalX" | "focalY" | "status" | "markets">> & { expiresAt?: string | null; jobCode?: string; brandId?: string | null; folderId?: string | null },
   ) => api<LibraryAsset>("PATCH", `/assets/${id}`, patch),
   replace: (id: string, file: File) => api<LibraryAsset>("PUT", `/assets/${id}/file`, undefined, { contentType: file.type, data: file }),
   usage: (id: string) => api<{ siteId: string; siteName: string; slug: string; where: string[] }[]>("GET", `/assets/${id}/usage`),
@@ -603,3 +609,19 @@ export const AUDIENCES = [
 ] as const;
 export const audienceLabel = (a: string | null | undefined) => AUDIENCES.find(([k]) => k === a)?.[1] ?? "";
 export const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+export type FolderKind = "site" | "asset";
+export interface Folder {
+  id: string;
+  kind: FolderKind;
+  name: string;
+  parentId: string | null;
+  count: number;
+  createdBy: string;
+}
+export const Folders = {
+  list: (kind: FolderKind) => api<Folder[]>("GET", `/folders?kind=${kind}`),
+  create: (kind: FolderKind, name: string, parentId?: string | null) => api<Folder>("POST", "/folders", { kind, name, parentId: parentId ?? null }),
+  update: (id: string, patch: { name?: string; parentId?: string | null }) => api<Folder>("PATCH", `/folders/${id}`, patch),
+  remove: (id: string) => api("DELETE", `/folders/${id}`),
+};

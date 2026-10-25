@@ -24,6 +24,7 @@ import { assetRoutes, checkImage } from "./assets.js";
 import { historyRoutes } from "./history.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import { assertReadyToPublish, DISCIPLINES, pharmaRoutes, siteProfile } from "./pharma.js";
+import { folderFor, folderRoutes } from "./folders.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -97,6 +98,7 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     brandId: s.brand_id ?? null,
     requiredApprovals: Number(s.required_approvals ?? 0),
     ...siteProfile(s),
+    folderId: (s as { folder_id?: string | null }).folder_id ?? null,
   });
   const { getBrand, syncBrand } = libraryHelpers(ctx);
 
@@ -237,8 +239,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/sites", async (req, reply) => {
     if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
-    const b = body<{ name?: string; slug?: string; template?: string; templateId?: string; document?: SiteDocument }>(req);
+    const b = body<{ name?: string; slug?: string; template?: string; templateId?: string; document?: SiteDocument; folderId?: string }>(req);
     if (!b.name || typeof b.name !== "string") throw new HttpError(400, "Give the site a name.");
+    const folder = b.folderId ? await folderFor(ctx.db, b.folderId, "site") : null;
     let document = b.document;
     let brandId: string | null = null;
     // A saved template, by id or name (also accepted as "template").
@@ -256,7 +259,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     if (brandId) document = applyBrand(document, kitOf(await getBrand(brandId)));
     const site = await repo.createSite(req.actor, { name: b.name, slug: b.slug, document });
     if (brandId) await ctx.db.query("UPDATE sites SET brand_id = $2 WHERE id = $1", [site.id, brandId]);
+    if (folder) await ctx.db.query("UPDATE sites SET folder_id = $2 WHERE id = $1", [site.id, folder.id]);
     site.brand_id = brandId;
+    (site as { folder_id?: string | null }).folder_id = folder?.id ?? null;
     reply.status(201);
     return siteOut(site);
   });
@@ -522,4 +527,5 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
   await scheduleRoutes(app, ctx, assertCanShip);
   await historyRoutes(app, ctx, assertCanWrite);
   await pharmaRoutes(app, ctx);
+  await folderRoutes(app, ctx);
 }

@@ -10,7 +10,9 @@ How teams keep many sites consistent and launch on time: **templates** decide ho
 
 ## Templates
 
-**Save one:** Templates → **Save a site as a template** (or Site settings → **Save as template**). It keeps the site's `main` version: pages, design, components and CMS fields. Tick **Include CMS items** to keep the posts or products too.
+**Save one:** on any site's overview, **Save as template** (or Templates → **Save a site as a template**). It keeps the site's `main` version: pages, design, components and CMS fields. Tick **Include CMS items** to keep the posts or products too. Saving again from the same site offers **Update** for the template it made before.
+
+**Make one from scratch:** Templates → **New template**. Name it and pick a starter; Sitecraft makes a working site for it in a **Templates** folder and opens it in the editor. Design it there, then **Save as template** on that site to update the template. **Edit its site** on the template card takes you back to it.
 
 **Use one:** pick it under **Your templates** when creating a site, or **Use template** on the Templates page. The new site:
 
@@ -76,6 +78,8 @@ Logo: never stretch, recolor or put on busy photos.
 
 **Assets** in the dashboard is one image library for every site, like AEM Assets.
 
+- **Folders:** organise the library in nested folders (for example Calvexa › Autumn congress), like AEM Assets. **New folder** in the folder tree makes one inside the folder you're in; hover a folder to rename it, add a folder inside or delete it (what's in it moves up a level, nothing is deleted). Uploads go into the folder you're in. Move an image by dragging it onto a folder, or with **Folder** in its details.
+- **Approval and rights:** each image has an approval status, a job code, the markets it's cleared for and when its usage rights end. Sites can't be published while they use an image that's expired, unapproved or not cleared for their market.
 - **Upload** with the button or by dropping files anywhere on the page. PNG, JPEG, GIF and WebP, up to 10 MB. Files are checked to really be the image type they claim.
 - **Describe** each image: title, **alt text**, tags, credit. Tiles show **No alt text** until it's written.
 - **Focal point:** click the most important part of the image. When an image is placed from the library, its crop keeps that point in view (`objectPosition`).
@@ -155,7 +159,8 @@ With Claude Code: "Add a story explaining our three-step onboarding, with the sc
 
 ## Finding your way
 
-- **Home** is where you start: what to do next, recent sites, and anything waiting for your review.
+- **Home** is where you start: what needs you today, a getting-started checklist that ticks itself off, and recent sites. The **?** in the top bar takes the guided tour again (it's different for editors, reviewers and admins).
+- **Sites** are in folders, like AEM's content tree: make folders such as Immunology › Calvexa, drag sites onto them, or pick a folder in the site's Settings. New sites go into the folder you're in.
 - **A site's overview** (click a site) shows its pages with their status, the live link, changes waiting, CMS content, activity and who has access. **Open editor** goes in.
 - **Quick find:** press **⌘K** (Ctrl K on Windows) anywhere to jump to a site, a page, a CMS collection, a screen, or an action such as Publish, Open history or New page. The arrow next to the site name in the editor switches sites.
 - **Calendar** shows what goes live when across every site: scheduled releases, publishes and rollbacks, in the time zone you pick.

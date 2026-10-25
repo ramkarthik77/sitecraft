@@ -6,6 +6,7 @@ import { siteById, useShared } from "../store";
 import { describe } from "./Activity";
 import { openPalette, paletteKey } from "./CommandPalette";
 import { Icon, Logo } from "./Icon";
+import { HelpMenu } from "./Guide";
 
 /**
  * The frame around every screen except the page editor: a sidebar that shows
@@ -34,7 +35,7 @@ export const editorHref = (id: string, q: Record<string, string> = {}) => {
 
 function NavLink({ href, icon, label, on, count, tone, title }: { href: string; icon: string; label: string; on?: boolean; count?: number; tone?: "agent" | "warn"; title?: string }) {
   return (
-    <a className="sn-link" href={href} aria-current={on ? "page" : undefined} onClick={go(href)} title={title}>
+    <a className="sn-link" href={href} aria-current={on ? "page" : undefined} onClick={go(href)} title={title} data-tour={`nav:${href}`}>
       <Icon name={icon} size={15} />
       <span className="grow">{label}</span>
       {!!count && <span className={`sn-count ${tone ?? ""}`}>{count}</span>}
@@ -183,7 +184,7 @@ function Bell() {
   };
   return (
     <div className="bell" ref={box}>
-      <button className="tb-btn" aria-label={data?.unread ? `Notifications, ${data.unread} new` : "Notifications"} aria-expanded={open} onClick={toggle}>
+      <button className="tb-btn" data-tour="bell" aria-label={data?.unread ? `Notifications, ${data.unread} new` : "Notifications"} aria-expanded={open} onClick={toggle}>
         <Icon name="bell" size={15} />
         {!!data?.unread && <span className="bell-dot" aria-hidden="true" />}
       </button>
@@ -297,7 +298,7 @@ export function AppShell({ me, org, site, crumbs, children }: { me: Me; org?: Or
           </>
         )}
         <div className="grow" />
-        <button className="sn-claude" onClick={() => setConnect(true)}>
+        <button className="sn-claude" data-tour="claude" onClick={() => setConnect(true)}>
           <span className="connect-mark" aria-hidden="true">
             <Icon name="sparkle" size={13} />
           </span>
@@ -346,12 +347,13 @@ export function AppShell({ me, org, site, crumbs, children }: { me: Me; org?: Or
             ))}
           </nav>
           <div className="grow" />
-          <button className="tb-search" onClick={() => openPalette()} aria-label="Quick find">
+          <button className="tb-search" data-tour="search" onClick={() => openPalette()} aria-label="Quick find">
             <Icon name="search" size={14} />
             <span className="grow">Search sites, pages and actions</span>
             <kbd>{paletteKey}</kbd>
           </button>
           <Bell />
+          <HelpMenu me={me} />
         </header>
         <div className="app-scroll">{children}</div>
       </div>

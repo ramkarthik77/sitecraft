@@ -4,7 +4,9 @@ import { audienceLabel, Sites, type Me, type SiteSummary } from "../api";
 import { DocThumb } from "../App";
 import { ago } from "../format";
 import { setQuery } from "../router";
-import { useShared } from "../store";
+import { useToast } from "../Toasts";
+import { DRAG_TYPE, FolderCrumbs, FolderTree, pathText, useFolders, type FolderPick } from "./Folders";
+import { refreshShared, useShared } from "../store";
 import { NewSiteDialog } from "./Home";
 import { Icon } from "./Icon";
 import { go, PageHead, Pill, siteUrl } from "./Shell";
@@ -74,11 +76,31 @@ export function SitesDirectory({ me }: { me: Me }) {
   const [f, setF] = useState<Record<string, string>>(() => Object.fromEntries(FACETS.map(([k]) => [k, params.get(k) ?? ""])));
   const [view, setView] = useState<"list" | "grouped">(params.get("view") === "grouped" ? "grouped" : "list");
   const [creating, setCreating] = useState(params.get("new") === "1");
-  useEffect(() => setQuery({ q: q || null, view: view === "grouped" ? view : null, ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v || null])) }), [q, f, view]);
+  const [folder, setFolder] = useState<FolderPick>(params.get("folder") ?? "all");
+  const { folders, reload: reloadFolders } = useFolders("site");
+  const toast = useToast();
+  useEffect(
+    () => setQuery({ q: q || null, view: view === "grouped" ? view : null, folder: folder === "all" ? null : folder, ...Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v || null])) }),
+    [q, f, view, folder],
+  );
+  const moveSite = async (siteId: string, folderId: string | null) => {
+    try {
+      await Sites.setFolder(siteId, folderId);
+      const name = sites?.find((x) => x.id === siteId)?.name ?? "Site";
+      toast({ text: folderId ? `Moved ${name} to ${pathText(folders ?? [], folderId)}` : `Moved ${name} out of its folder` });
+      void refreshShared();
+      void reloadFolders();
+    } catch (e) {
+      toast({ text: (e as Error).message, tone: "error" });
+    }
+  };
 
   const all = sites ?? [];
   const options = useMemo(() => Object.fromEntries(FACETS.map(([k, , get]) => [k, [...new Set(all.map(get).filter(Boolean))].sort()])), [all]);
+  const inFolder = (s: SiteSummary) => (folder === "all" ? true : folder === "none" ? !s.folderId : s.folderId === folder);
+  const subfolders = folder === "all" || folder === "none" ? [] : (folders ?? []).filter((x) => x.parentId === folder).sort((a, b) => a.name.localeCompare(b.name));
   const shown = all.filter((s) => {
+    if (!inFolder(s)) return false;
     if (q && !`${s.name} ${s.slug} ${s.domain ?? ""} ${s.jobCode ?? ""} ${portfolioPath(s).join(" ")}`.toLowerCase().includes(q.toLowerCase())) return false;
     return FACETS.every(([k, , get]) => !f[k] || get(s) === f[k]);
   });
@@ -114,16 +136,24 @@ export function SitesDirectory({ me }: { me: Me }) {
           )
         }
       />
+      <div className="dir-layout">
+      <aside className="dir-tree card">
+        <FolderTree
+          kind="site"
+          folders={folders}
+          current={folder}
+          onPick={setFolder}
+          onChanged={() => (void reloadFolders(), void refreshShared())}
+          onDropItem={canCreate ? (id, to) => void moveSite(id, to) : undefined}
+          canEdit={canCreate}
+          rootLabel="All sites"
+          total={all.length}
+          unfiled={all.filter((x) => !x.folderId).length}
+        />
+      </aside>
       <section className="card">
         <div className="dir-bar">
-          <span className="dir-path" aria-label="How sites are organised">
-            {["Therapy area", "Brand", "Market", "Audience", "Site", "Pages"].map((x, i) => (
-              <span key={x}>
-                {i > 0 && <Icon name="chevronRight" size={11} />}
-                <span className={x === "Pages" ? "on" : ""}>{x}</span>
-              </span>
-            ))}
-          </span>
+          <FolderCrumbs folders={folders ?? []} current={folder} onPick={setFolder} rootLabel="All sites" />
         </div>
         <div className="dir-tools">
           <label className="search">
@@ -157,7 +187,11 @@ export function SitesDirectory({ me }: { me: Me }) {
           </div>
         </div>
         <div className="dir-count muted small">
-          {sites ? `Showing ${shown.length} of ${all.length} ${all.length === 1 ? "site" : "sites"}${markets ? ` · ${markets} ${markets === 1 ? "market" : "markets"}` : ""}` : "Loading…"}
+          {!sites
+            ? "Loading…"
+            : folder === "all"
+              ? `Showing ${shown.length} of ${all.length} ${all.length === 1 ? "site" : "sites"}${markets ? ` · ${markets} ${markets === 1 ? "market" : "markets"}` : ""}`
+              : `${subfolders.length ? `${subfolders.length} ${subfolders.length === 1 ? "folder" : "folders"} · ` : ""}${shown.length} ${shown.length === 1 ? "site" : "sites"} here`}
         </div>
         {sites && all.length === 0 && (
           <div className="empty-state">
@@ -165,9 +199,11 @@ export function SitesDirectory({ me }: { me: Me }) {
             <span>Create one from a template, or ask Claude to build one for you.</span>
           </div>
         )}
-        {sites && all.length > 0 && shown.length === 0 && <div className="empty">No sites match. Clear the search or a filter.</div>}
+        {sites && all.length > 0 && shown.length === 0 && subfolders.length === 0 && (
+          <div className="empty">{folder !== "all" && !filtered ? "This folder is empty. Drag sites here from All sites, or create one." : "No sites match. Clear the search or a filter."}</div>
+        )}
 
-        {view === "list" && shown.length > 0 && (
+        {view === "list" && (shown.length > 0 || subfolders.length > 0) && (
           <table className="dtable">
             <thead>
               <tr>
@@ -179,12 +215,35 @@ export function SitesDirectory({ me }: { me: Me }) {
               </tr>
             </thead>
             <tbody>
+              {subfolders.map((sf) => (
+                <tr key={sf.id} className="folder-row">
+                  <td colSpan={5}>
+                    <button className="dt-site as-btn" onClick={() => setFolder(sf.id)}>
+                      <span className="site-mark folder-mark" aria-hidden="true">
+                        <Icon name="folder" size={15} />
+                      </span>
+                      <span>
+                        <strong>{sf.name}</strong>
+                        <span className="muted small">
+                          Folder · {sf.count} {sf.count === 1 ? "site" : "sites"}
+                          {(folders ?? []).some((x) => x.parentId === sf.id) ? " and more folders" : ""}
+                        </span>
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              ))}
               {shown.map((s) => {
                 const st = siteStatus(s);
                 const href = siteUrl(s.id);
                 const path = portfolioPath(s);
                 return (
-                  <tr key={s.id}>
+                  <tr
+                    key={s.id}
+                    draggable={canCreate}
+                    onDragStart={(e) => (e.dataTransfer.setData(DRAG_TYPE, JSON.stringify({ kind: "site", id: s.id })), (e.dataTransfer.effectAllowed = "move"))}
+                    title={canCreate ? "Drag onto a folder to move it" : undefined}
+                  >
                     <td>
                       <a className="dt-site" href={href} onClick={go(href)}>
                         <SiteMark site={s} />
@@ -260,7 +319,8 @@ export function SitesDirectory({ me }: { me: Me }) {
           </div>
         )}
       </section>
-      {creating && <NewSiteDialog onClose={() => setCreating(false)} />}
+      </div>
+      {creating && <NewSiteDialog folderId={folder !== "all" && folder !== "none" ? folder : null} onClose={() => setCreating(false)} />}
     </main>
   );
 }

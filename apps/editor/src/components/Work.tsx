@@ -5,6 +5,7 @@ import { NewSiteDialog } from "./Home";
 import { Icon } from "./Icon";
 import { ConnectClaude, go, PageHead, Pill, siteUrl } from "./Shell";
 import { SiteTile } from "./Directory";
+import { Checklist } from "./Guide";
 
 /** Home (what needs you today across every site) and My work (all of it). */
 
@@ -151,36 +152,7 @@ export function CommandCenter({ me }: { me: Me }) {
         }
       />
 
-      {sites && sites.length === 0 && (
-        <section className="first-run" aria-labelledby="gs">
-          <h2 id="gs">Get started</h2>
-          <ol>
-            <li>
-              <strong>Create your first site</strong>
-              <span className="muted">From a template or a blank page. Add its therapy area, market and audience so it files itself in the portfolio.</span>
-              {canCreate && (
-                <button className="btn primary sm" onClick={() => setCreating(true)}>
-                  <Icon name="plus" size={13} /> New site
-                </button>
-              )}
-            </li>
-            <li>
-              <strong>Connect Claude</strong>
-              <span className="muted">Claude drafts pages and translations on branches. Nothing it does goes live without a person.</span>
-              <button className="btn sm agent-outline" onClick={() => setConnect(true)}>
-                Show me how
-              </button>
-            </li>
-            <li>
-              <strong>Set your review rules</strong>
-              <span className="muted">Turn on medical, legal and regulatory sign-off, and require job codes, per site.</span>
-              <a className="btn sm" href="/settings" onClick={go("/settings")}>
-                Open settings
-              </a>
-            </li>
-          </ol>
-        </section>
-      )}
+      <Checklist me={me} onCreate={() => setCreating(true)} onConnect={() => setConnect(true)} />
 
       <section aria-labelledby="attn">
         <div className="sec-head">

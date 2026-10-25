@@ -9,6 +9,7 @@ import { AssetsPage } from "./components/Assets";
 import { Logo } from "./components/Icon";
 import { LayerScene } from "./components/Scene3D";
 import { CommandPalette } from "./components/CommandPalette";
+import { Tour } from "./components/Guide";
 import { CalendarPage } from "./components/Calendar";
 import { AppShell, type Crumb, type OrgNav, type SiteNav } from "./components/Shell";
 import { CommandCenter, MyWork } from "./components/Work";
@@ -52,6 +53,7 @@ function Root() {
     <>
       <Screen me={me} loc={loc} />
       <CommandPalette me={me} />
+      <Tour me={me} />
     </>
   );
 }

@@ -52,9 +52,19 @@ const SITES = [
   ["Corporate careers", "blog", null, "GLOBAL", "corporate", null],
 ];
 
+// Folders, as in a content tree: therapy area › brand.
+const folder = async (kind, name, parentId) => (await call("POST", "/folders", { kind, name, parentId })).id;
+const sf = {};
+sf.Immunology = await folder("site", "Immunology");
+sf.Neurology = await folder("site", "Neurology");
+sf.Calvexa = await folder("site", "Calvexa", sf.Immunology);
+sf.Neurivo = await folder("site", "Neurivo", sf.Neurology);
+sf.Corporate = await folder("site", "Corporate");
+const siteFolder = (name) => (name.startsWith("Calvexa") ? sf.Calvexa : name.startsWith("Neurivo") ? sf.Neurivo : sf.Corporate);
+
 const ids = {};
 for (const [name, template, therapyArea, market, audience, jobCode] of SITES) {
-  const s = await call("POST", "/sites", { name, template });
+  const s = await call("POST", "/sites", { name, template, folderId: siteFolder(name) });
   ids[name] = s.id;
   await call("PUT", `/sites/${s.id}/profile`, { therapyArea, market, audience, jobCode });
   console.log(`Created ${name}`);
@@ -89,6 +99,9 @@ const hcp = await head(ids["Calvexa US HCP"]);
 await call("POST", `/sites/${ids["Calvexa US HCP"]}/branches/main/ops`, { ops: hcp.pages.map((p, i) => ({ op: "update_page", pageId: p.id, jobCode: `US-CAL-24001${String(23 + i).padStart(2, "0")}` })), message: "Add job codes" });
 await call("PUT", `/sites/${ids["Calvexa US HCP"]}/policy`, { requireJobCodes: true });
 for (const n of ["Calvexa US HCP", "Calvexa US Patient", "Calvexa UK HCP", "Neurivo UK Patient", "Neurivo DE HCP"]) await call("POST", `/sites/${ids[n]}/publish`, {});
+
+await call("POST", "/site-templates", { siteId: ids["Calvexa US HCP"], name: "HCP product site", description: "Every new market's HCP site starts here" });
+await call("POST", "/site-templates", { siteId: ids["Neurivo UK Patient"], name: "Patient support site", description: "Patient education and support resources" });
 
 const due = (h) => new Date(Date.now() + h * 3600e3).toISOString();
 
@@ -164,13 +177,20 @@ const COLORS = [
   [[91, 33, 182], [244, 114, 182]],
   [[51, 65, 85], [203, 213, 225]],
 ];
+const af = {};
+af.Calvexa = await folder("asset", "Calvexa");
+af.campaign = await folder("asset", "Autumn congress", af.Calvexa);
+af.Neurivo = await folder("asset", "Neurivo");
+af.Corporate = await folder("asset", "Corporate");
+const assetFolder = { "Calvexa hero, clinic": af.campaign, "Calvexa patient lifestyle": af.Calvexa, "Neurivo mechanism of action": af.Neurivo, "Corporate campus": af.Corporate };
+
 for (const [i, [title, code, markets, status, days, b]] of [
   ["Calvexa hero, clinic", "GLB-CAL-2600018", [], "approved", 400, "Calvexa"],
   ["Calvexa patient lifestyle", "US-CAL-2400148", ["US"], "approved", 5, "Calvexa"],
   ["Neurivo mechanism of action", "GB-NEU-2500219", ["GB", "DE"], "in_review", null, "Neurivo"],
   ["Corporate campus", "GLB-COR-2600002", [], "approved", null, null],
 ].entries()) {
-  const a = await call("POST", `/assets?filename=${encodeURIComponent(title.toLowerCase().replace(/\W+/g, "-"))}.png&title=${encodeURIComponent(title)}`, undefined, admin, { type: "image/png", data: png(480, 300, ...COLORS[i]) });
+  const a = await call("POST", `/assets?filename=${encodeURIComponent(title.toLowerCase().replace(/\W+/g, "-"))}.png&title=${encodeURIComponent(title)}&folderId=${assetFolder[title]}`, undefined, admin, { type: "image/png", data: png(480, 300, ...COLORS[i]) });
   await call("PATCH", `/assets/${a.id}`, { alt: title, jobCode: code, markets, status, expiresAt: days ? new Date(Date.now() + days * 864e5).toISOString().slice(0, 10) : null, brandId: b ? brand[b] : null });
 }
 

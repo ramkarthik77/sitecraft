@@ -542,3 +542,57 @@ test("the workspace: directory filters, asset rights, audit integrity and settin
   await page.getByRole("button", { name: /Notifications/ }).click();
   await expect(page.getByRole("dialog", { name: "Notifications" })).toContainText(/asked for review|merged/);
 });
+
+test("folders for sites and assets, templates, and the guided tour", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), ADMIN);
+
+  // Sites: make a folder and drag a site into it.
+  await page.goto("/sites", { waitUntil: "domcontentloaded" });
+  const tree = page.getByRole("tree", { name: "All sites folders" });
+  await page.locator(".dir-tree").getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("New folder name").fill("Coffee brands");
+  await page.keyboard.press("Enter");
+  await expect(tree.getByRole("button", { name: /^Coffee brands/ })).toBeVisible();
+  await tree.getByRole("button", { name: /^All sites/ }).click();
+  await page.locator(".dtable tbody tr", { hasText: "Northstar Coffee" }).dragTo(tree.getByRole("button", { name: /^Coffee brands/ }));
+  await expect(page.locator(".toast").first()).toContainText("Moved Northstar Coffee to Coffee brands");
+  await tree.getByRole("button", { name: /^Coffee brands/ }).click();
+  await expect(page.locator(".dtable tbody tr", { hasText: "Northstar Coffee" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Folder" })).toContainText("Coffee brands");
+
+  // Assets: folders too.
+  await page.goto("/assets", { waitUntil: "domcontentloaded" });
+  await page.locator(".dam-facets").getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("New folder name").fill("Autumn campaign");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("navigation", { name: "Folder" })).toContainText("Autumn campaign");
+  await expect(page.locator(".dam-where")).toContainText("uploads go into this folder");
+
+  // Templates: save a site as one from its overview, then make one from scratch.
+  await page.goto(`/sites/${siteId}/overview`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Save as template" }).click();
+  const dlg = page.getByRole("dialog", { name: "Save as template" });
+  await dlg.getByPlaceholder("e.g. HCP product site").fill("Coffee shop site");
+  await dlg.getByRole("button", { name: "Save template" }).click();
+  await expect(page.locator(".toast").first()).toContainText('Saved "Coffee shop site" as a template');
+  await page.goto("/templates", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".tpl-tile", { hasText: "Coffee shop site" })).toContainText("Edit its site");
+  await page.getByRole("button", { name: "New template" }).click();
+  await page.getByRole("dialog", { name: "New template" }).getByPlaceholder("e.g. HCP product site").fill("Event page");
+  await page.getByRole("button", { name: "Create and design it" }).click();
+  await expect(canvas(page).locator("body")).toBeVisible();
+  await page.goto("/templates", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".tpl-tile", { hasText: "Event page" })).toBeVisible();
+
+  // The tour, from the help menu.
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Help" }).click();
+  await page.getByRole("menuitem", { name: "Take the tour" }).click();
+  const tour = page.getByRole("dialog", { name: "Home" });
+  await expect(tour).toContainText("1 of");
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(page.getByRole("dialog", { name: "Sites" })).toBeVisible();
+  await page.getByRole("button", { name: "Skip tour" }).click();
+  await expect(page.locator(".tour")).toHaveCount(0);
+});

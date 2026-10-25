@@ -20,7 +20,7 @@ const STARTERS: { id: "landing" | "saas" | "blog" | "blank"; name: string; about
   { id: "blank", name: "Blank", about: "An empty page to build from scratch" },
 ];
 
-export function NewSiteDialog({ onClose }: { onClose: () => void }) {
+export function NewSiteDialog({ onClose, folderId }: { onClose: () => void; folderId?: string | null }) {
   const [name, setName] = useState("");
   const [choice, setChoice] = useState("landing");
   const [saved, setSaved] = useState<SavedTemplate[]>([]);
@@ -54,7 +54,7 @@ export function NewSiteDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     setBusy(true);
     try {
-      const s = choice.startsWith("t:") ? await Sites.create(name.trim(), "", choice.slice(2)) : await Sites.create(name.trim(), choice);
+      const s = choice.startsWith("t:") ? await Sites.create(name.trim(), "", choice.slice(2), folderId) : await Sites.create(name.trim(), choice, undefined, folderId);
       if (where.therapyArea || where.market || where.audience) await Sites.profile(s.id, where).catch((err) => toast({ text: (err as Error).message, tone: "error" }));
       void refreshShared();
       navigate(editorUrl(s.id));
