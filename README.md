@@ -35,7 +35,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 
 ## Quick start: the local app
 
-Needs Node 20+ and pnpm. No Docker, no database to install, no sign-in.
+Needs Node 22+ (24 recommended) and pnpm. No Docker, no database to install, no sign-in.
 
 ```bash
 git clone https://github.com/ramkarthik77/sitecraft && cd sitecraft

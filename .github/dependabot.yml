@@ -1,4 +1,5 @@
 version: 2
+# One pull request per ecosystem each week, so updates are reviewed and deployed together.
 updates:
   - package-ecosystem: npm
     directory: /
@@ -10,6 +11,13 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule: { interval: weekly }
+    ignore:
+      # Stay on Node's long-term support line (even majors). Move to the next LTS by hand.
+      - dependency-name: node
+        versions: [">=25"]
