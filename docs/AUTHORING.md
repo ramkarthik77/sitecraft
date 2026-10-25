@@ -14,6 +14,10 @@ How teams keep many sites consistent and launch on time: **templates** decide ho
 
 **Make one from scratch:** Templates → **New template**. Name it and pick a starter; Sitecraft makes a working site for it in a **Templates** folder and opens it in the editor. Design it there, then **Save as template** on that site to update the template. **Edit its site** on the template card takes you back to it.
 
+**Import one from a website:** Templates → **Import from a website** (or **New site → Import from a website instead**). Give the address and how many pages to bring (the home page, then pages linked from its navigation). Sitecraft rebuilds each page as sections you can edit (headings, text, images, buttons, links), takes the site's main colour and fonts, and links between the imported pages. It's a starting point for migrating a site you own, not a pixel copy: scripts, forms, embeds and detailed styling stay behind, and sites that draw their pages with JavaScript import mostly empty. Images keep loading from the original site until you replace them with approved library images. Only public addresses can be imported (never internal ones), and each import is in the audit log.
+
+**From Figma:** ask Claude Code, connected to Figma and Sitecraft, to build a frame as a page or template. See [Designs from Figma](CLAUDE_CODE.md#designs-from-figma).
+
 **Use one:** pick it under **Your templates** when creating a site, or **Use template** on the Templates page. The new site:
 
 - gets the template's pages and design, with the source site's name replaced by the new one

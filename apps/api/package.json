@@ -20,6 +20,7 @@
     "@sitecraft/schema": "workspace:*",
     "fastify": "^5.2.0",
     "fflate": "0.8.3",
+    "node-html-parser": "7.0.1",
     "pg": "^8.13.1"
   },
   "devDependencies": {

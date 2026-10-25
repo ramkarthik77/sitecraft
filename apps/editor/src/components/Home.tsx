@@ -6,6 +6,7 @@ import { refreshShared, useShared } from "../store";
 import { useToast } from "../Toasts";
 import { Icon } from "./Icon";
 import { DocThumb } from "../App";
+import { ImportDialog } from "./Import";
 
 /** Creating a site: a name, a starting point, and where it sits in the portfolio. */
 
@@ -27,6 +28,7 @@ export function NewSiteDialog({ onClose, folderId }: { onClose: () => void; fold
   const [savedDocs, setSavedDocs] = useState<Record<string, SiteDocument>>({});
   const [busy, setBusy] = useState(false);
   const [where, setWhere] = useState({ therapyArea: "", market: "", audience: "" });
+  const [importing, setImporting] = useState(false);
   const { sites } = useShared();
   const areas = [...new Set((sites ?? []).map((s) => s.therapyArea).filter(Boolean))] as string[];
   const toast = useToast();
@@ -74,6 +76,7 @@ export function NewSiteDialog({ onClose, folderId }: { onClose: () => void; fold
     </label>
   );
 
+  if (importing) return <ImportDialog folderId={folderId} onClose={onClose} />;
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal new-site" role="dialog" aria-modal="true" aria-labelledby="new-site-title" onSubmit={create}>
@@ -128,6 +131,9 @@ export function NewSiteDialog({ onClose, folderId }: { onClose: () => void; fold
           )}
         </fieldset>
         <footer>
+          <button type="button" className="btn ghost sm" onClick={() => setImporting(true)}>
+            <Icon name="globe" size={13} /> Import from a website instead
+          </button>
           <span className="muted small">You can change all of this later in the site's Settings.</span>
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel

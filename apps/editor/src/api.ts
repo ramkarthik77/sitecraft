@@ -625,3 +625,13 @@ export const Folders = {
   update: (id: string, patch: { name?: string; parentId?: string | null }) => api<Folder>("PATCH", `/folders/${id}`, patch),
   remove: (id: string) => api("DELETE", `/folders/${id}`),
 };
+
+export interface ImportResult {
+  site: SiteSummary;
+  pages: { path: string; title: string; source: string; sections: number }[];
+  theme: { colors: Record<string, string>; fonts: { heading?: string; body?: string } };
+  warnings: string[];
+}
+export const Imports = {
+  run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
+};

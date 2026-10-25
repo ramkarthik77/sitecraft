@@ -155,8 +155,26 @@ Claude finishes with a review link. Open it (or go to **Reviews** on the dashboa
 | `list_reviews` | Open reviews: who has signed, what's waiting, and the reasons reviewers gave for changes |
 | `resubmit_review` | Send a review back to reviewers after making the changes they asked for |
 | `check_publish_readiness` | What blocks publishing: pages without job codes, library images that are expired, unapproved or not cleared for the site's market |
+| `import_website` | Bring an existing website in as a new site, its pages rebuilt as editable sections |
 | `merge_branch` | Merge into `main` (people only, unless an admin allows agents) |
 | `publish_site` | Publish `main` (people only, unless an admin allows agents) |
+
+## Designs from Figma
+
+Claude Code can read Figma through Figma's own MCP server and build in Sitecraft at the same time, so a Figma frame becomes a page or a template without an export step.
+
+1. Connect Figma to Claude Code ([Figma's guide](https://help.figma.com/hc/en-us/articles/39888612464151)). The simplest is Figma's plugin, which includes its remote server:
+   ```bash
+   claude plugin install figma@claude-plugins-official
+   ```
+   or add the remote server by hand: `claude mcp add --scope user --transport http figma https://mcp.figma.com/mcp`. With the Figma desktop app you can instead turn on **Enable desktop MCP server** in Dev Mode and add `claude mcp add --transport http figma-desktop http://127.0.0.1:3845/mcp`.
+2. Keep Sitecraft connected too (above). Check both with `/mcp` in Claude Code.
+3. Select a frame in Figma, or copy its link, and ask:
+   - *"Build the selected Figma frame as a new page /congress on Calvexa UK HCP, on a branch, using the site's theme. Then request review."*
+   - *"Make a new template called HCP product site from this Figma file: <link>. One page per top-level frame."*
+   - *"Compare the hero on Calvexa US HCP with this Figma frame and update it to match, on a branch."*
+
+Claude reads the layout, text, colours and images from Figma, maps them to Sitecraft sections and the site's theme tokens, and builds on a branch, so the result goes through review like any change. Images from Figma should be uploaded to the asset library (approved, with a job code) before publishing.
 
 ## Guardrails
 

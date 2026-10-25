@@ -3,6 +3,7 @@ import type { SiteDocument } from "@sitecraft/schema";
 import { Brands, Folders, Sites, Templates, type Brand, type Me, type SavedTemplate, type SiteSummary } from "../api";
 import { refreshShared, useShared } from "../store";
 import { PageHead } from "./Shell";
+import { ImportDialog } from "./Import";
 import { DocThumb } from "../App";
 import { ago } from "../format";
 import { navigate } from "../router";
@@ -189,7 +190,7 @@ function NewTemplateDialog({ onClose, onDone }: { onClose: () => void; onDone: (
 export function TemplatesPage({ me }: { me: Me }) {
   const toast = useToast();
   const [list, setList] = useState<SavedTemplate[] | null>(null);
-  const [dialog, setDialog] = useState<"save" | "new" | null>(null);
+  const [dialog, setDialog] = useState<"save" | "new" | "import" | null>(null);
   const [using, setUsing] = useState<{ id: string; name: string } | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const canEdit = me.role !== "agent";
@@ -222,6 +223,9 @@ export function TemplatesPage({ me }: { me: Me }) {
         actions={
           canEdit && (
             <>
+              <button className="btn" onClick={() => setDialog("import")}>
+                <Icon name="globe" size={14} /> Import from a website
+              </button>
               <button className="btn" onClick={() => setDialog("save")}>
                 <Icon name="copy" size={14} /> Save a site as a template
               </button>
@@ -318,6 +322,7 @@ export function TemplatesPage({ me }: { me: Me }) {
       </div>
       {dialog === "save" && <SaveTemplateDialog onClose={() => setDialog(null)} onDone={() => void load()} />}
       {dialog === "new" && <NewTemplateDialog onClose={() => setDialog(null)} onDone={() => void load()} />}
+      {dialog === "import" && <ImportDialog asTemplate onClose={() => (setDialog(null), void load())} />}
     </main>
   );
 }

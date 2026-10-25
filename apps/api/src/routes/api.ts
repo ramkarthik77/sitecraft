@@ -11,6 +11,7 @@ import {
   outlineDocument,
   parseOperations,
   TEMPLATES,
+  type Operation,
   type SiteDocument,
   type TemplateName,
 } from "@sitecraft/schema";
@@ -25,6 +26,7 @@ import { historyRoutes } from "./history.js";
 import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import { assertReadyToPublish, DISCIPLINES, pharmaRoutes, siteProfile } from "./pharma.js";
 import { folderFor, folderRoutes } from "./folders.js";
+import { importWebsite, opsForImport } from "../importer.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -280,6 +282,44 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     const site = await repo.getSite(req.params.siteId);
     await repo.deleteSite(req.actor, site.id);
     return reply.status(204).send();
+  });
+
+  // Bring an existing website in as a new site: its pages rebuilt as editable sections.
+  app.post("/imports", async (req, reply) => {
+    if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
+    const b = body<{ url?: string; name?: string; maxPages?: number; folderId?: string }>(req);
+    if (!b.url || typeof b.url !== "string") throw new HttpError(400, "Give the address of the site to import, like https://www.example.com");
+    const folder = b.folderId ? await folderFor(ctx.db, b.folderId, "site") : null;
+    const url = /^https?:\/\//i.test(b.url.trim()) ? b.url.trim() : `https://${b.url.trim()}`;
+    const result = await importWebsite(url, { maxPages: Number(b.maxPages) || 1, fetch: { allowPrivate: cfg.local || cfg.importAllowPrivate } }).catch((e) => {
+      throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message);
+    });
+    const name = (b.name?.trim() || result.name).slice(0, 80);
+    const site = await repo.createSite(req.actor, { name, document: createStarterDocument({ name, template: "blank" }) });
+    if (folder) await ctx.db.query("UPDATE sites SET folder_id = $2 WHERE id = $1", [site.id, folder.id]);
+    const first = await repo.getHead(site.id, "main");
+    await repo.applyOps(req.actor, site.id, "main", opsForImport(result, first.document.pages[0]!.id), `Import pages from ${result.origin}`);
+    const doc = (await repo.getHead(site.id, "main")).document;
+    const add: Operation[] = [];
+    for (const p of result.pages) {
+      const page = doc.pages.find((x) => x.path === p.path);
+      if (!page) continue;
+      for (const s of p.sections) add.push({ op: "add_node", parentId: page.root.id, node: s } as unknown as Operation);
+    }
+    if (add.length) await repo.applyOps(req.actor, site.id, "main", add, `Import content from ${result.origin}`);
+    await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'site.import', $4)", [
+      site.id,
+      req.actor.name,
+      req.actor.role,
+      { url: result.origin, pages: result.pages.map((p) => p.path) },
+    ]);
+    reply.status(201);
+    return {
+      site: await siteOut(await repo.getSite(site.id)),
+      pages: result.pages.map((p) => ({ path: p.path, title: p.title, source: p.source, sections: p.sections.length })),
+      theme: result.theme,
+      warnings: result.warnings,
+    };
   });
 
   // Branches and documents

@@ -76,6 +76,7 @@ Every save (with the pages it touched), create, merge, approval, publish, rollba
 | `SECRET` | — | Signs preview links and live-update tickets. 32+ characters in production |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET` | off | Bot check on forms |
 | `FORM_RETENTION_DAYS` | `365` | `0` keeps submissions |
+| `IMPORT_ALLOW_PRIVATE` | `false` | Let **Import from a website** reach private and loopback addresses. Leave off in the cloud: imports only reach public addresses, every redirect is checked, and the connection goes to the address that was checked. The local app always allows it, since it's your own computer |
 | `ORG_NAME` | `Sitecraft` | Your organisation's name, shown in the sidebar and breadcrumb |
 | `AGENT_FOR` | | The person the seeded `AGENT_TOKEN` works for, so they can't approve what that Claude changes |
 | `HISTORY_DAYS` | `90` | Edits kept in full; older ones are condensed to the last of each day. Named, published, merged and branch versions are always kept, and the audit trail is never condensed. `0` keeps everything |

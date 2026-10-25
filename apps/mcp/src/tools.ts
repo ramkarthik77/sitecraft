@@ -778,6 +778,27 @@ Keep it tasteful: one entrance style per page, durations 400-900 ms, small delay
   );
 
   server.registerTool(
+    "import_website",
+    {
+      title: "Import a website",
+      description:
+        "Bring an existing website (one the person's organisation owns) into Sitecraft as a new site: its pages are rebuilt as editable sections with the site's main colour and fonts. A starting point to refine with edits, not a pixel copy. Images still load from the original site until replaced with library images.",
+      inputSchema: {
+        url: z.string().describe("The site's address, e.g. https://www.example.com"),
+        name: z.string().max(80).optional().describe("Name for the new site; taken from the site if left out"),
+        maxPages: z.number().int().min(1).max(10).optional().describe("How many pages to bring (default 1): the home page, then pages linked from its navigation"),
+      },
+    },
+    ({ url, name, maxPages }) =>
+      run(async () => {
+        const r = await client.post<{ site: { id: string; slug: string; name: string }; pages: { path: string; title: string; sections: number }[]; warnings: string[] }>("/imports", { url, name, maxPages });
+        const pages = r.pages.map((p) => `- ${p.path} "${p.title}" (${p.sections} sections)`).join("\n");
+        const warn = r.warnings.length ? `\n\nNotes:\n${r.warnings.map((w) => `- ${w}`).join("\n")}` : "";
+        return `Imported as ${r.site.name} (slug ${r.site.slug}).\n\nPages:\n${pages}${warn}\n\nNext: get_site to see the outline, then refine on a branch.`;
+      }),
+  );
+
+  server.registerTool(
     "merge_branch",
     {
       title: "Merge branch",

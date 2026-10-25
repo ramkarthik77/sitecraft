@@ -42,6 +42,7 @@ const env = {
   STORAGE_DRIVER: "fs",
   STORAGE_DIR: mkdtempSync(join(tmpdir(), "sitecraft-e2e-")),
   ADMIN_TOKEN: "e2e-admin",
+  IMPORT_ALLOW_PRIVATE: "true",
   EDITOR_TOKEN: "e2e-editor",
   AGENT_TOKEN: "e2e-agent",
   LOG_LEVEL: "warn",

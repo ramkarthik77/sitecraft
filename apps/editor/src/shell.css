@@ -462,3 +462,12 @@ a.stat:hover { border-color: color-mix(in srgb, var(--tone) 45%, var(--line-2));
 .checklist .ck-list li { flex-direction: row; align-items: center; }
 .checklist .ck-list li::before { display: none; }
 .checklist .ck-list li .btn { margin-top: 0; }
+
+/* Import */
+.im-pages { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; }
+.im-pages li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; background: var(--raised); border: 1px solid var(--line-2); }
+.im-pages li .grow { display: flex; flex-direction: column; }
+.im-theme { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ink-2); }
+.im-swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line-2); display: inline-block; }
+.im-warn { list-style: none; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn); font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; }
+.im-warn li { display: flex; gap: 6px; align-items: flex-start; }

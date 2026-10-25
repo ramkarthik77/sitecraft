@@ -596,3 +596,25 @@ test("folders for sites and assets, templates, and the guided tour", async ({ pa
   await page.getByRole("button", { name: "Skip tour" }).click();
   await expect(page.locator(".tour")).toHaveCount(0);
 });
+
+test("import a website as a template", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), ADMIN);
+  // Import the published Northstar Coffee site back in, the way an existing site would come across.
+  const site = await apiCall(page, ADMIN, "GET", `/sites/${siteId}`);
+  await page.goto("/templates", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Import from a website" }).click();
+  const dlg = page.getByRole("dialog", { name: "Import from a website" });
+  await dlg.getByLabel("Website address").fill(site.liveUrl + "/");
+  await dlg.getByPlaceholder("Taken from the site").fill("Coffee import");
+  await dlg.getByLabel("Pages to bring").selectOption("3");
+  await expect(dlg.getByRole("button", { name: "Import" })).toBeDisabled();
+  await dlg.getByText("This site is ours").click();
+  await dlg.getByRole("button", { name: "Import" }).click();
+  const done = page.getByRole("dialog", { name: "Imported Coffee import" });
+  await expect(done.locator(".im-pages li").first()).toContainText("Home");
+  await done.getByRole("button", { name: "Open in editor" }).click();
+  await expect(canvas(page).locator("h1").first()).toBeVisible();
+  await page.goto("/templates", { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".tpl-tile", { hasText: "Coffee import" })).toBeVisible();
+});

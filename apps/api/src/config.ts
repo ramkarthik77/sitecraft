@@ -15,6 +15,8 @@ export interface Config {
   /** Seed tokens created at startup (handy for local dev). */
   /** Shown in the workspace switcher and the breadcrumb, e.g. "Northstar Pharma". */
   orgName: string;
+  /** Let website imports reach private and loopback addresses (tests; the local app always may). */
+  importAllowPrivate: boolean;
   seedTokens: { token: string; name: string; role: "admin" | "editor" | "agent"; onBehalfOf?: string }[];
   agentCanPublish: boolean;
   agentCanEditMain: boolean;
@@ -77,6 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         : { driver: "fs", dir: env.STORAGE_DIR ?? "./data/storage" },
     seedTokens,
     orgName: (env.ORG_NAME ?? "").trim().slice(0, 60) || "Sitecraft",
+    importAllowPrivate: bool(env.IMPORT_ALLOW_PRIVATE, false),
     agentCanPublish: bool(env.AGENT_CAN_PUBLISH, false),
     agentCanEditMain: bool(env.AGENT_CAN_EDIT_MAIN, false),
     editorDist: env.EDITOR_DIST || undefined,
