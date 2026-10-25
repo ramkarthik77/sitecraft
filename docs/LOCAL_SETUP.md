@@ -5,7 +5,7 @@ Pick the way that fits:
 | | The local app | Team server, Docker (A) | Team server, no Docker (B) |
 |---|---|---|---|
 | Best for | One person on their own computer | Testing the shared setup end to end | Changing the code (hot reload) |
-| You install | Node 20+, pnpm | Docker Desktop | Node 22, pnpm 10, Postgres 16 |
+| You install | Node 22+ (24 recommended), pnpm | Docker Desktop | Node 24, pnpm 10, Postgres 16 |
 | Database | Built in (a folder) | Postgres in Docker | Your Postgres |
 | Sign-in | None; only this computer can connect | Tokens | Tokens |
 | Start | `pnpm start` | `docker compose up` | `pnpm dev` |
