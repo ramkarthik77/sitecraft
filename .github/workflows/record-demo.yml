@@ -1,0 +1,73 @@
+name: Record Sitecraft demo
+
+# Records the REAL browser UI against a disposable PostgreSQL database.
+# This never connects to the public Cloudflare application or customer data.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "e2e/demo.spec.ts"
+      - ".github/workflows/record-demo.yml"
+      - "scripts/e2e.mjs"
+      - "playwright.config.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: Browser recording — author to MLR approval and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sitecraft
+          POSTGRES_PASSWORD: sitecraft
+          POSTGRES_DB: sitecraft_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sitecraft"
+          --health-interval 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install browser
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run realistic author → review → publish browser demo
+        env:
+          E2E_VIDEO: "1"
+          DATABASE_URL: postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e
+        run: pnpm test:e2e demo.spec.ts
+      - name: Publish browser recording
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sitecraft-browser-demo
+          path: |
+            test-results/**/video.webm
+            test-results/**/*.png
+            test-results/**/error-context.md
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Add run summary
+        if: always()
+        run: |
+          {
+            echo "## Sitecraft walkthrough"
+            echo
+            echo "- The test uses fabricated copy, test-only reviewer identities and disposable PostgreSQL."
+            echo "- The video is a Chromium recording; there is no narrated audio."
+            echo "- **Passing demo** means the complete author / MLR / merge / publish scenario succeeded."
+            echo "- If the test failed, the artifact is failure evidence, not a successful demo."
+            echo "- Download the **sitecraft-browser-demo** artifact at the bottom of this run."
+            echo "- Reference: [Demo runbook](docs/DEMO_RUNBOOK.md) and [Approval guide](docs/APPROVALS_EXPLAINED.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
