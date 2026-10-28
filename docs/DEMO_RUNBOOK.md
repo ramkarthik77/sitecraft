@@ -69,7 +69,7 @@ To record on your computer instead:
 # Make sure PostgreSQL 16 is running and this DATABASE_URL is *disposable*.
 pnpm install --frozen-lockfile
 pnpm exec playwright install chromium
-E2E_VIDEO=1 DATABASE_URL=postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e pnpm test:e2e
+E2E_VIDEO=1 E2E_DEMO=1 DATABASE_URL=postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e pnpm test:e2e demo.spec.ts
 # Videos: test-results/<test-name>/video.webm
 ```
 
