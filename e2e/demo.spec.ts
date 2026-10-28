@@ -32,7 +32,7 @@ async function signReview(page: Page, token: string, person: string, reviewId: s
   await dlg.getByLabel("Sign-in token").fill(token);
   await dlg.getByRole("checkbox").check();
   await dlg.getByRole("button", { name: "Sign" }).click();
-  await expect(page.locator(".signoff li.done")).toContainText(person);
+  await expect(page.locator(".signoff li.done").filter({ hasText: person })).toHaveCount(1);
 }
 
 test("Sitecraft guided demo: edit, request three-discipline MLR review, change, approve, merge and publish", async ({ page }) => {
