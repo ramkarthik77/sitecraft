@@ -1,5 +1,53 @@
 # Running Sitecraft on your computer
 
+## Demo quick start — Docker and PR #15
+
+Use a **new, disposable** workspace. These exact commands are for the local
+team walkthrough and include the PDF/DOCX/website importer from
+[PR #15](https://github.com/ramkarthik77/sitecraft/pull/15) (not yet merged into `main`).
+
+```bash
+git clone https://github.com/ramkarthik77/sitecraft.git
+cd sitecraft
+git switch docs/demo-approval-onboarding-recording
+cp .env.example .env
+docker compose up -d --build
+docker compose ps --all
+curl --fail http://localhost:4000/healthz
+docker compose exec app chromium --version
+# Seed ONCE, only after confirming the workspace is empty.
+docker compose exec -e SITECRAFT_URL=http://localhost:4000 -e SITECRAFT_TOKEN=dev-admin-token app node scripts/demo-seed.mjs
+```
+
+Open **http://localhost:4000**. Sign in with `dev-admin-token` (or
+the value you set for `ADMIN_TOKEN`). The seed prints separate 30-day tokens
+for Maya (author), Dr. Elena (Medical), Daniel (Legal) and Priya (Regulatory).
+Keep the values private. For independent roles, use separate browser profiles
+rather than changing tokens in a shared browser tab.
+
+Run the **optional importer smoke** in the same disposable workspace. This
+creates two extra sample imported sites, but does not publish them:
+
+```bash
+docker compose exec -e SITECRAFT_DEMO_SMOKE=1 -e SITECRAFT_URL=http://localhost:4000 -e SITECRAFT_TOKEN=dev-admin-token app node scripts/demo-import-smoke.mjs
+docker compose cp app:/tmp/sitecraft-smoke.pdf ./sitecraft-smoke.pdf
+docker compose cp app:/tmp/sitecraft-smoke.docx ./sitecraft-smoke.docx
+```
+
+The copied files can be dragged into **Import → PDF / Word file** during
+the presentation. The smoke verifies authentication, Chromium, PDF and DOCX
+extraction, a DOCX table and embedded image, a **DRAFT** DAM asset, and the
+`import/...` review branch with unchanged `main`. To validate an actual
+authorized public website too, append `--website https://YOUR-SITE.example`
+to the smoke command; external network access and reuse permission are required.
+The isolated Playwright import-fidelity workflow also covers a JavaScript
+website with controlled fixtures.
+
+**Do not re-seed an existing workspace.** The script now refuses to seed
+when any site exists. `docker compose down -v` **permanently deletes** the
+database and media volumes; run it only for an intentionally disposable demo.
+
+
 Pick the way that fits:
 
 | | The local app | Team server, Docker (A) | Team server, no Docker (B) |
@@ -90,7 +138,7 @@ cd sitecraft
 cp .env.example .env
 ```
 
-The defaults in `.env` work as they are. Change the three tokens before anyone else can reach your computer.
+The defaults in `.env` are disposable demo values. Change the three tokens before anyone else can reach your computer, and use the matching admin value in seed/smoke commands.
 
 ### 3. Start everything
 
@@ -98,13 +146,13 @@ The defaults in `.env` work as they are. Change the three tokens before anyone e
 docker compose up --build
 ```
 
-The first build takes a few minutes. It's ready when the log shows `Sitecraft API on http://localhost:4000`.
+The first build downloads Node dependencies and Chromium plus PostgreSQL/MinIO images, so it takes longer than subsequent starts. Check `docker compose ps --all` for healthy `app`, `db` and `mcp`, and a successfully exited `storage-init`. Then check `curl --fail http://localhost:4000/healthz`. If startup fails, inspect `docker compose logs db storage storage-init app mcp`.
 
 ### 4. Sign in
 
 Open <http://localhost:4000> and paste `dev-editor-token` (the `EDITOR_TOKEN` from `.env`). Create a site, edit it, then press **Publish**; the published site opens at `http://localhost:4000/s/<your-site-slug>`.
 
-Compose also runs MinIO for storage. Its console is at <http://localhost:9001> (user `sitecraft`, password `sitecraft-secret`) if you want to see the published files.
+Compose also runs MinIO for storage. Its console is at <http://localhost:9001> (user `sitecraft`, password `sitecraft-secret`) if you want to see the published files. A one-shot `storage-init` container waits for MinIO and confirms the `sitecraft` bucket before the API starts. Demo ports bind to localhost; this is **not** a remotely exposed production environment.
 
 ### Everyday commands
 
@@ -112,8 +160,21 @@ Compose also runs MinIO for storage. Its console is at <http://localhost:9001> (
 docker compose up -d --build   # start in the background, rebuilding after a git pull
 docker compose logs -f app     # follow the API log
 docker compose down            # stop, keep your data
-docker compose down -v         # stop and delete all sites, versions and files
+docker compose down -v         # DANGER: permanently delete demo sites, versions and all stored media
 ```
+
+### Docker demo troubleshooting and imports
+
+- **API not healthy / MinIO not ready:** `docker compose ps --all` and `docker compose logs --tail=100 storage storage-init app`. The MinIO client initializer must finish with exit code 0. Verify ports 4000, 4100, 5432, 9000 and 9001 are not already occupied.
+- **Chromium not found / static fallback:** `docker compose exec app chromium --version` and `docker compose exec app printenv SITECRAFT_IMPORT_CHROMIUM_PATH`. The image sets `/usr/bin/chromium`; browser requests must pass the existing URL safety rules. Private/localhost source URLs are blocked by default.
+- **No reviewer identity:** use the Docker **team server**, not `pnpm start` single-owner mode. Seed prints role-specific tokens; use a distinct browser profile for each reviewer. Never show token values in the recording.
+- **File import appears missing:** open the returned site, choose the `import/...` branch (or open the resulting editor link). Imported file content is intentionally absent from `main` until an approved merge. **Assets** shows embedded images as DRAFT; review rights and alt text before publishing.
+- **Scanned PDF / complex Word formatting:** OCR, embedded PDF media, complicated tables and perfect source layout reproduction are not supported. Read the import warnings and correct the editable sections.
+- **Seed accidentally run again:** it refuses if any site exists. For an entirely fresh disposable demo only, `docker compose down -v` then `docker compose up -d --build` and seed once. Never reset a shared workspace.
+- **CI/browser tests:** `pnpm test:e2e` wipes its configured database; **do not** run it against the Docker demo's `sitecraft` database. Use the isolated GitHub Actions smoke workflow or a separate `sitecraft_e2e` database.
+
+See [DEMO_RUNBOOK.md](DEMO_RUNBOOK.md) for author → MLR → publish, and
+[IMPORT_SOURCES.md](IMPORT_SOURCES.md) for the file upload API and limitations.
 
 ## Option B: without Docker
 
