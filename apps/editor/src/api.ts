@@ -641,6 +641,7 @@ export interface ImportResult {
     sharedComponents: number;
     importedAssets: number;
     retainedRemoteAssets: number;
+    lowConfidenceSections?: number;
     decisions: { path: string; index: number; label: string; mapped: boolean; reason: string }[];
   };
 }
