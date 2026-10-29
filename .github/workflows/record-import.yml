@@ -1,0 +1,78 @@
+name: Record website import fidelity
+
+# Three isolated source-site archetypes with JavaScript, multi-page nav,
+# asset migration, computed styles and screenshot evidence. No external sites.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/api/src/importer.ts"
+      - "apps/api/src/rendered-import.ts"
+      - "apps/api/src/semantic-import.ts"
+      - "apps/api/src/import-assets.ts"
+      - "apps/api/src/routes/api.ts"
+      - "e2e/import-fidelity.spec.ts"
+      - ".github/workflows/record-import.yml"
+      - "playwright.config.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  import-fidelity:
+    name: Rendered DOM → Sitecraft operations → editable site
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sitecraft
+          POSTGRES_PASSWORD: sitecraft
+          POSTGRES_DB: sitecraft_e2e
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sitecraft"
+          --health-interval 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify JS, layout, image copying and three-page crawl
+        env:
+          DATABASE_URL: postgres://sitecraft:sitecraft@localhost:5432/sitecraft_e2e
+          E2E_IMPORT: "1"
+          E2E_VIDEO: "1"
+        run: pnpm test:e2e import-fidelity.spec.ts
+      - name: Attach browser video and before/after screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sitecraft-import-fidelity-evidence
+          path: |
+            test-results/**/video.webm
+            test-results/import-visual/*.png
+            test-results/**/test-failed-*.png
+            test-results/**/error-context.md
+          retention-days: 14
+          if-no-files-found: warn
+      - name: QA summary
+        if: always()
+        run: |
+          {
+            echo "## Website import fidelity"
+            echo
+            echo "Synthetic, permission-safe test source pages:"
+            echo "- JavaScript-rendered split hero and responsive feature grid"
+            echo "- Multi-page navigation and footer component reuse"
+            echo "- Pricing/FAQ semantic preservation"
+            echo
+            echo "Attached: browser videos and source/editor screenshot comparison."
+            echo "Any failing test means the evidence does NOT represent an approved improvement."
+          } >> "$GITHUB_STEP_SUMMARY"
