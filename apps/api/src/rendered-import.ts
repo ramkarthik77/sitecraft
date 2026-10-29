@@ -98,6 +98,27 @@ export async function captureRenderedPage(
       // Give client-side hydration a short, bounded window, without allowing
       // continuous trackers to hold the import open forever.
       await page.waitForTimeout(700);
+      // Annotate computed layout structure before serialising the DOM. Source
+      // classes often say only "row", "col" or hashed CSS-module names.
+      // These bounded hints are consumed by the safe static node converter.
+      await page.evaluate(() => {
+        const main = document.querySelector("main, [role=main]") ?? document.body;
+        for (const el of Array.from(main.querySelectorAll("div,section,article,ul")).slice(0, 550)) {
+          const css = getComputedStyle(el);
+          const children = Array.from(el.children).filter((c) => {
+            const s = getComputedStyle(c);
+            const r = c.getBoundingClientRect();
+            return s.display !== "none" && s.visibility !== "hidden" && r.width > 12 && r.height > 12;
+          });
+          if (children.length < 2 || children.length > 6) continue;
+          if (css.display === "grid" && /\d+px\s+\d+px/.test(css.gridTemplateColumns) && children.length >= 2) {
+            el.setAttribute("data-sitecraft-layout", "grid");
+          } else if ((css.display === "flex" || css.display === "inline-flex") && css.flexDirection === "row" && children.length === 2 &&
+            children.some((c) => !!c.querySelector("img,video")) && children.some((c) => (c.textContent ?? "").trim().length > 30)) {
+            el.setAttribute("data-sitecraft-layout", "split");
+          }
+        }
+      });
       const html = await page.content();
       const styles = await page.evaluate(() => {
         const root = document.querySelector("main, [role=main]") ?? document.body;
