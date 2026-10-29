@@ -1,7 +1,8 @@
 import { parse, type HTMLElement, type Node } from "node-html-parser";
 import { isSafeHref, isSafeSrc, type Operation } from "@sitecraft/schema";
 import { safeFetch, type SafeFetchOptions } from "./safefetch.js";
-import { captureRenderedPage, type RenderedCapture } from "./rendered-import.js";
+import { captureRenderedPage, launchImportBrowser, type RenderedCapture } from "./rendered-import.js";
+import type { Browser } from "playwright-core";
 
 /**
  * Bring an existing website into Sitecraft: read its pages and rebuild each
@@ -524,13 +525,27 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
 
   const pages: ImportedPage[] = [];
   const captures = new Map<string, RenderedCapture>();
+  let browser: Browser | undefined;
+  if (opts.render !== "off") {
+    try {
+      browser = await launchImportBrowser();
+    } catch (e) {
+      warnings.push(`Chromium was unavailable; safely falling back to static HTML: ${(e as Error).message.slice(0, 100)}`);
+    }
+  }
+  try {
+  const deadline = Date.now() + 120_000;
   for (const u of pageUrls) {
+    if (Date.now() > deadline) {
+      warnings.push("The 120-second import capture budget was reached; remaining pages were not processed.");
+      break;
+    }
     try {
       let html = htmlCache.get(u) ?? (await safeFetch(u, f)).body;
       const path = pagePaths.get(new URL(u).origin + new URL(u).pathname.replace(/\/$/, "")) ?? "/";
-      if (opts.render !== "off") {
+      if (browser) {
         try {
-          const captured = await captureRenderedPage(u, { fetch: opts.fetch });
+          const captured = await captureRenderedPage(u, { fetch: opts.fetch }, browser);
           html = captured.html;
           captures.set(path, captured);
           warnings.push(...captured.warnings.map((w) => `${path}: ${w}`));
@@ -544,6 +559,9 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
     } catch (e) {
       warnings.push(`Skipped ${u}: ${(e as Error).message}`);
     }
+  }
+  } finally {
+    await browser?.close();
   }
   if (!pages.length) throw new Error("No pages could be imported.");
   if (pages.some((p) => p.sections.some((s) => JSON.stringify(s).includes('"type":"image"')))) {
