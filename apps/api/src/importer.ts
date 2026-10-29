@@ -1,6 +1,7 @@
 import { parse, type HTMLElement, type Node } from "node-html-parser";
 import { isSafeHref, isSafeSrc, type Operation } from "@sitecraft/schema";
 import { safeFetch, type SafeFetchOptions } from "./safefetch.js";
+import { captureRenderedPage, type RenderedCapture } from "./rendered-import.js";
 
 /**
  * Bring an existing website into Sitecraft: read its pages and rebuild each
@@ -26,6 +27,8 @@ export interface ImportResult {
   pages: ImportedPage[];
   theme: { colors: Record<string, string>; fonts: { heading?: string; body?: string } };
   warnings: string[];
+  /** Internal-only browser capture evidence. Stored privately by the API, never returned inline. */
+  captures?: Map<string, RenderedCapture>;
 }
 
 const SKIP = new Set(["script", "style", "noscript", "svg", "template", "iframe", "form", "button", "select", "textarea", "input", "canvas", "video", "audio", "object", "picture>source", "source", "link", "meta", "head"]);
@@ -448,7 +451,7 @@ export function themeFrom(css: string, html: string): ImportResult["theme"] {
 
 // ── The whole import ────────────────────────────────────────────────────
 
-export async function importWebsite(start: string, opts: { maxPages?: number; fetch?: SafeFetchOptions } = {}): Promise<ImportResult> {
+export async function importWebsite(start: string, opts: { maxPages?: number; fetch?: SafeFetchOptions; render?: "auto" | "off" } = {}): Promise<ImportResult> {
   const max = Math.max(1, Math.min(10, opts.maxPages ?? 1));
   const f = { accept: /text\/html|application\/xhtml/i, ...opts.fetch };
   const warnings: string[] = [];
@@ -503,10 +506,21 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
   }
 
   const pages: ImportedPage[] = [];
+  const captures = new Map<string, RenderedCapture>();
   for (const u of pageUrls) {
     try {
-      const html = u === first.url ? first.body : (await safeFetch(u, f)).body;
+      let html = u === first.url ? first.body : (await safeFetch(u, f)).body;
       const path = pagePaths.get(new URL(u).origin + new URL(u).pathname.replace(/\/$/, "")) ?? "/";
+      if (opts.render !== "off") {
+        try {
+          const captured = await captureRenderedPage(u, { fetch: opts.fetch });
+          html = captured.html;
+          captures.set(path, captured);
+          warnings.push(...captured.warnings.map((w) => `${path}: ${w}`));
+        } catch (e) {
+          warnings.push(`${path}: Rendered capture unavailable; used safe static HTML (${(e as Error).message.slice(0, 120)}).`);
+        }
+      }
       const conv = convertPage(html, { base: new URL(u), pagePaths }, siteName, path === "/");
       if (!conv.sections.length) warnings.push(`${path === "/" ? "The home page" : path} had no content Sitecraft could read. It may be built with JavaScript.`);
       pages.push({ source: u, path, ...conv, title: path === "/" ? conv.title : conv.title.split(/\s[|–—-]\s/)[0]!.trim() || conv.title });
@@ -518,7 +532,7 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
   if (pages.some((p) => p.sections.some((s) => JSON.stringify(s).includes('"type":"image"')))) {
     warnings.push("Images still load from the original site. Replace them with approved images from the asset library before publishing.");
   }
-  return { origin: base.origin, name: siteName.slice(0, 80), pages, theme: themeFrom(css, first.body), warnings };
+  return { origin: base.origin, name: siteName.slice(0, 80), pages, theme: themeFrom(css, first.body), warnings, captures };
 }
 
 /** The operations that build an imported site, given the new site's home page id. */
