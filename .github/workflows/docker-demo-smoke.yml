@@ -73,7 +73,7 @@ jobs:
             echo "## Docker team demo: PASS"
             echo
             echo "- Clean checkout, `docker compose up -d --build` and API health verified"
-            echo "- PostgreSQL + MinIO bucket initialization + API + MCP started"
+            echo "- PostgreSQL + persistent local media volume initialization + API + MCP started"
             echo "- Container Chromium executable and import path verified"
             echo "- Fictional demo seed completed; duplicate seeding rejected"
             echo "- Authenticated PDF and DOCX uploads created review branches"
@@ -86,7 +86,7 @@ jobs:
         if: failure()
         run: |
           docker compose ps --all || true
-          docker compose logs --tail=100 db storage storage-init app mcp || true
+          docker compose logs --tail=100 db media-init app mcp || true
       - name: Always destroy disposable services and volumes
         if: always()
         run: docker compose down -v --remove-orphans || true
