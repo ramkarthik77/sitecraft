@@ -1,0 +1,92 @@
+name: Docker team demo smoke
+
+# A real fresh Docker Compose build on a GitHub-hosted Docker runner.
+# Never accesses deployed Sitecraft, production credentials or real brands.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "docker-compose.yml"
+      - "Dockerfile"
+      - ".env.example"
+      - "scripts/demo-seed.mjs"
+      - "scripts/demo-import-smoke.mjs"
+      - ".github/workflows/docker-demo-smoke.yml"
+      - "docs/LOCAL_SETUP.md"
+      - "docs/DEMO_RUNBOOK.md"
+      - "apps/api/src/import-document.ts"
+      - "apps/api/src/routes/import-file.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: Fresh Compose → seed → PDF/DOCX/Chromium smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up disposable demo configuration
+        run: |
+          cp .env.example .env
+          docker compose version
+          docker compose config --quiet
+      - name: Build and start all services from scratch
+        run: docker compose up -d --build
+      - name: Check dependency health and Chromium
+        run: |
+          ready=0
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:4000/healthz; then ready=1; break; fi
+            sleep 3
+          done
+          if [ "$ready" != 1 ]; then
+            docker compose ps --all
+            exit 1
+          fi
+          docker compose ps --all
+          docker compose exec -T app chromium --version
+          docker compose exec -T app node -e 'const path=process.env.SITECRAFT_IMPORT_CHROMIUM_PATH; if(path!=="/usr/bin/chromium") process.exit(1);'
+      - name: Seed only an empty workspace (don't expose reviewer tokens)
+        run: |
+          docker compose exec -T -e SITECRAFT_URL=http://localhost:4000 -e SITECRAFT_TOKEN=dev-admin-token             app node scripts/demo-seed.mjs >/tmp/sitecraft-seed-output.txt
+          grep -q "Done. Open" /tmp/sitecraft-seed-output.txt
+          # A second invocation must fail *before* creating extra sites/tokens.
+          if docker compose exec -T -e SITECRAFT_URL=http://localhost:4000 -e SITECRAFT_TOKEN=dev-admin-token             app node scripts/demo-seed.mjs >/tmp/sitecraft-second-seed.txt 2>&1; then
+            echo "ERROR: repeated seeding was accepted" >&2
+            exit 1
+          fi
+          grep -q "Demo seed refused" /tmp/sitecraft-second-seed.txt
+          echo "PASS: seed-once guard blocked a duplicate demo workspace"
+      - name: Smoke PDF/DOCX uploads, draft images, branches and auth
+        run: |
+          docker compose exec -T -e SITECRAFT_DEMO_SMOKE=1             -e SITECRAFT_URL=http://localhost:4000             -e SITECRAFT_TOKEN=dev-admin-token             app node scripts/demo-import-smoke.mjs
+          docker compose cp app:/tmp/sitecraft-smoke.pdf ./sitecraft-smoke.pdf
+          docker compose cp app:/tmp/sitecraft-smoke.docx ./sitecraft-smoke.docx
+          test -s sitecraft-smoke.pdf
+          test -s sitecraft-smoke.docx
+      - name: QA summary
+        if: success()
+        run: |
+          {
+            echo "## Docker team demo: PASS"
+            echo
+            echo "- Clean checkout, `docker compose up -d --build` and API health verified"
+            echo "- PostgreSQL + MinIO bucket initialization + API + MCP started"
+            echo "- Container Chromium executable and import path verified"
+            echo "- Fictional demo seed completed; duplicate seeding rejected"
+            echo "- Authenticated PDF and DOCX uploads created review branches"
+            echo "- Main unchanged; DOCX image copied to library with DRAFT status"
+            echo "- Website rendering regression is covered by the separate import-fidelity workflow"
+            echo
+            echo "See [Local setup](docs/LOCAL_SETUP.md) and [demo runbook](docs/DEMO_RUNBOOK.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Diagnostics on failure (no seed tokens)
+        if: failure()
+        run: |
+          docker compose ps --all || true
+          docker compose logs --tail=100 db storage storage-init app mcp || true
+      - name: Always destroy disposable services and volumes
+        if: always()
+        run: docker compose down -v --remove-orphans || true
