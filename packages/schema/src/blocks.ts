@@ -45,7 +45,9 @@ const button = (label: string, href: string, variant: "primary" | "secondary" = 
     },
   );
 
-const str = (c: Content, k: string, d: string) => (typeof c[k] === "string" && c[k] ? (c[k] as string) : d);
+// An explicit empty value must remain empty on import: never replace absent
+// source copy with a demo placeholder from a library block.
+const str = (c: Content, k: string, d: string) => (typeof c[k] === "string" ? (c[k] as string) : d);
 
 function items(c: Content, k: string, d: Array<Record<string, string>>): Array<Record<string, string>> {
   const v = c[k];

@@ -27,6 +27,9 @@ import { kitOf, libraryHelpers, libraryRoutes } from "./library.js";
 import { assertReadyToPublish, DISCIPLINES, pharmaRoutes, siteProfile } from "./pharma.js";
 import { folderFor, folderRoutes } from "./folders.js";
 import { importWebsite, opsForImport } from "../importer.js";
+import { semanticOps, claudeSectionHints } from "../semantic-import.js";
+import { ingestImportedImages } from "../import-assets.js";
+import { importFileRoutes } from "./import-file.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -65,6 +68,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!canAccessSite(req.actor, site.id)) throw new HttpError(403, "This token can't access that site.");
     }
   });
+
+  // File imports share the same authenticated API scope and role checks.
+  importFileRoutes(app, ctx);
 
   const checkDisciplines = (v: unknown): string[] => {
     if (v === undefined || v === null) return [];
@@ -284,34 +290,93 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
     return reply.status(204).send();
   });
 
-  // Bring an existing website in as a new site: its pages rebuilt as editable sections.
+  // Import a site with browser capture, Section-library mapping and reviewed DAM
+  // assets. Never bypass repo.applyOps: it validates the full document.
   app.post("/imports", async (req, reply) => {
     if (req.actor.siteIds) throw new HttpError(403, "This token is limited to some sites, so it can't create new ones.");
-    const b = body<{ url?: string; name?: string; maxPages?: number; folderId?: string }>(req);
+    const b = body<{ url?: string; name?: string; maxPages?: number; folderId?: string; render?: boolean; ai?: boolean; rightsConfirmed?: boolean }>(req);
     if (!b.url || typeof b.url !== "string") throw new HttpError(400, "Give the address of the site to import, like https://www.example.com");
     const folder = b.folderId ? await folderFor(ctx.db, b.folderId, "site") : null;
     const url = /^https?:\/\//i.test(b.url.trim()) ? b.url.trim() : `https://${b.url.trim()}`;
-    const result = await importWebsite(url, { maxPages: Number(b.maxPages) || 1, fetch: { allowPrivate: cfg.local || cfg.importAllowPrivate } }).catch((e) => {
+    const safeOpts = { allowPrivate: cfg.local || cfg.importAllowPrivate };
+    // For compatibility with the old POST /imports client, lack of rights
+    // declaration only disables asset copying. The UI explicitly confirms it.
+    const result = await importWebsite(url, { maxPages: Math.max(1, Math.min(25, Number(b.maxPages) || 1)), fetch: safeOpts, render: b.render === false ? "off" : "auto" }).catch((e) => {
       throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message);
     });
     const name = (b.name?.trim() || result.name).slice(0, 80);
+    const styleMap = new Map([...result.captures ?? []].map(([path, data]) => [path, data.styles]));
+    const inferred = await claudeSectionHints(result.pages, styleMap, !!b.ai);
+    if (inferred.warning) result.warnings.push(inferred.warning);
+    const assetResult = b.rightsConfirmed
+      ? await ingestImportedImages(result.pages, ctx, req.actor, { fetch: safeOpts })
+      : { imported: 0, retainedRemote: 0, warnings: ["Images were not copied: reuse rights were not confirmed."] };
+    // The old generic warning is replaced by the actual ingestion status.
+    if (b.rightsConfirmed) result.warnings = result.warnings.filter((w) => !w.startsWith("Images still load from the original site."));
+    result.warnings.push(...assetResult.warnings);
+
     const site = await repo.createSite(req.actor, { name, document: createStarterDocument({ name, template: "blank" }) });
     if (folder) await ctx.db.query("UPDATE sites SET folder_id = $2 WHERE id = $1", [site.id, folder.id]);
     const first = await repo.getHead(site.id, "main");
     await repo.applyOps(req.actor, site.id, "main", opsForImport(result, first.document.pages[0]!.id), `Import pages from ${result.origin}`);
     const doc = (await repo.getHead(site.id, "main")).document;
     const add: Operation[] = [];
+    const decisions: { path: string; index: number; label: string; mapped: boolean; reason: string }[] = [];
     for (const p of result.pages) {
       const page = doc.pages.find((x) => x.path === p.path);
       if (!page) continue;
-      for (const s of p.sections) add.push({ op: "add_node", parentId: page.root.id, node: s } as unknown as Operation);
+      const semantic = semanticOps(p.sections, page.root.id, inferred.hints.get(p.path));
+      add.push(...semantic.ops);
+      decisions.push(...semantic.decisions.map((x) => ({ path: p.path, ...x })));
     }
-    if (add.length) await repo.applyOps(req.actor, site.id, "main", add, `Import content from ${result.origin}`);
+    if (add.length) await repo.applyOps(req.actor, site.id, "main", add, `Import semantic content from ${result.origin}`);
+
+    // When navigation and footer are identical across pages, turn one copy
+    // into a Sitecraft shared component and replace the others with instances.
+    // This is still the same validated operation pipeline.
+    let sharedComponents = 0;
+    for (const name of ["Navigation", "Footer"]) {
+      const snapshot = (await repo.getHead(site.id, "main")).document;
+      const matches = snapshot.pages.map((p) => {
+        const node = p.root.children?.find((n) => n.name === name);
+        return node ? { page: p, node } : null;
+      }).filter((x): x is { page: typeof snapshot.pages[number]; node: typeof snapshot.pages[number]["root"] } => x !== null);
+      const cleanNode = (n: typeof snapshot.pages[number]["root"]): unknown => ({
+        type: n.type, name: n.name, props: n.props, style: n.style, children: n.children?.map(cleanNode),
+      });
+      if (matches.length < 2 || !matches.every((m) => JSON.stringify(cleanNode(m.node)) === JSON.stringify(cleanNode(matches[0]!.node)))) continue;
+      const created = await repo.applyOps(req.actor, site.id, "main", [{ op: "create_component", nodeId: matches[0]!.node.id, name: `Imported ${name}` }], `Reuse shared ${name.toLowerCase()} across imported pages`);
+      const componentId = created.created[0];
+      if (!componentId) continue;
+      const changes: Operation[] = [];
+      for (const { page, node } of matches.slice(1)) {
+        const index = page.root.children!.findIndex((n) => n.id === node.id);
+        changes.push({ op: "remove_node", nodeId: node.id });
+        changes.push({ op: "add_node", parentId: page.root.id, index, node: { type: "instance", name: `Imported ${name}`, props: { componentId }, style: {} } } as Operation);
+      }
+      if (changes.length) await repo.applyOps(req.actor, site.id, "main", changes, `Reference shared ${name.toLowerCase()}`);
+      sharedComponents++;
+    }
+
+    const screenshotPaths: { path: string; url: string; elements: number }[] = [];
+    let screenshotIndex = 0;
+    for (const p of result.pages) {
+      const capture = result.captures?.get(p.path);
+      if (!capture) continue;
+      const key = `imports/${site.id}/source-${screenshotIndex}.png`;
+      await ctx.storage.put(key, capture.screenshot, "image/png");
+      screenshotPaths.push({
+        path: p.path,
+        url: `/api/sites/${site.id}/import/screenshots/${screenshotIndex}`,
+        elements: capture.styles.length,
+      });
+      screenshotIndex++;
+    }
     await ctx.db.query("INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES ($1, $2, $3, 'site.import', $4)", [
       site.id,
       req.actor.name,
       req.actor.role,
-      { url: result.origin, pages: result.pages.map((p) => p.path) },
+      { url: result.origin, pages: result.pages.map((p) => p.path), mappedBlocks: decisions.filter((x) => x.mapped).length, copiedAssets: assetResult.imported, renderedPages: screenshotPaths.length, sharedComponents },
     ]);
     reply.status(201);
     return {
@@ -319,7 +384,28 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
       pages: result.pages.map((p) => ({ path: p.path, title: p.title, source: p.source, sections: p.sections.length })),
       theme: result.theme,
       warnings: result.warnings,
+      report: {
+        renderedPages: screenshotPaths.length,
+        screenshots: screenshotPaths,
+        mappedBlocks: decisions.filter((x) => x.mapped).length,
+        preservedSections: decisions.filter((x) => !x.mapped).length,
+        sharedComponents,
+        importedAssets: assetResult.imported,
+        retainedRemoteAssets: assetResult.retainedRemote,
+        decisions,
+      },
     };
+  });
+
+  // Private screenshot evidence for QA. Requires a valid token with access
+  // to this specific site; untrusted source screenshots are never public.
+  app.get<{ Params: { siteId: string; index: string } }>("/sites/:siteId/import/screenshots/:index", async (req, reply) => {
+    if (!/^\d{1,2}$/.test(req.params.index)) throw new HttpError(404, "Screenshot not found.");
+    const site = await repo.getSite(req.params.siteId);
+    if (!canAccessSite(req.actor, site.id)) throw new HttpError(403, "Site access required.");
+    const screenshot = await ctx.storage.get(`imports/${site.id}/source-${Number(req.params.index)}.png`);
+    if (!screenshot) throw new HttpError(404, "Screenshot not found.");
+    return reply.header("cache-control", "private, no-store").type("image/png").send(screenshot);
   });
 
   // Branches and documents

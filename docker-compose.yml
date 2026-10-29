@@ -1,7 +1,7 @@
 # Local end-to-end stack: docker compose up --build
 #   Editor + API + hosted sites  http://localhost:4000
 #   MCP server for Claude Code   http://localhost:4100/mcp
-#   MinIO console (storage)      http://localhost:9001
+#   Assets                      persisted local Docker volume (no external S3)
 name: sitecraft
 
 services:
@@ -11,54 +11,49 @@ services:
       POSTGRES_USER: sitecraft
       POSTGRES_PASSWORD: sitecraft
       POSTGRES_DB: sitecraft
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [db:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sitecraft"]
+      test: ["CMD-SHELL", "pg_isready -U sitecraft -d sitecraft"]
       interval: 3s
-      retries: 20
+      timeout: 3s
+      retries: 30
 
-  storage:
-    image: minio/minio:latest
-    command: server /data --console-address :9001
-    environment:
-      MINIO_ROOT_USER: sitecraft
-      MINIO_ROOT_PASSWORD: sitecraft-secret
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [storage:/data]
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 3s
-      retries: 20
+  # One-shot local volume setup. The server runs as a non-root "sitecraft"
+  # user, so a freshly created Docker volume needs matching ownership.
+  # Reuse the same app image so the UID/GID always match the server process.
+  media-init:
+    build: { context: ., target: app }
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /app/data/storage && chown -R sitecraft:sitecraft /app/data/storage"]
+    volumes: [media:/app/data/storage]
+    restart: "no"
 
   app:
     build: { context: ., target: app }
     env_file: [.env]
     environment:
       DATABASE_URL: postgres://sitecraft:sitecraft@db:5432/sitecraft
-      STORAGE_DRIVER: s3
-      S3_ENDPOINT: http://storage:9000
-      S3_BUCKET: sitecraft
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: sitecraft
-      S3_SECRET_ACCESS_KEY: sitecraft-secret
-      S3_FORCE_PATH_STYLE: "true"
+      STORAGE_DRIVER: fs
+      STORAGE_DIR: /app/data/storage
       PUBLIC_URL: http://localhost:4000
       EDITOR_URL: http://localhost:4000
       CORS_ORIGINS: http://localhost:4000,http://localhost:5173
-    ports: ["4000:4000"]
+    ports: ["127.0.0.1:4000:4000"]
+    volumes: [media:/app/data/storage]
     depends_on:
       db: { condition: service_healthy }
-      storage: { condition: service_healthy }
+      media-init: { condition: service_completed_successfully }
 
   mcp:
     build: { context: ., target: mcp }
     environment:
       SITECRAFT_API_URL: http://app:4000
-    ports: ["4100:4100"]
+    ports: ["127.0.0.1:4100:4100"]
     depends_on:
       app: { condition: service_healthy }
 
 volumes:
   db:
-  storage:
+  media:

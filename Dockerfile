@@ -5,6 +5,14 @@
 #   combined (default) — either one, picked by ROLE=app or ROLE=mcp
 
 FROM node:24-alpine AS build
+# Optional, local-build-only corporate CA. A BuildKit secret supplies a trusted
+# PEM certificate; default CI and Cloudflare builds have no secret and are unchanged.
+RUN --mount=type=secret,id=sitecraft_ca,required=false \
+    if [ -s /run/secrets/sitecraft_ca ]; then \
+      mkdir -p /usr/local/share/ca-certificates && \
+      cp /run/secrets/sitecraft_ca /usr/local/share/ca-certificates/sitecraft-local-ca.crt && \
+      update-ca-certificates; \
+    fi
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -18,7 +26,18 @@ COPY . .
 RUN pnpm -r run build
 
 FROM node:24-alpine AS base
-ENV NODE_ENV=production
+# The same optional CA must be trusted before apk fetches Chromium and fonts.
+# Never disable TLS verification or switch package repositories to HTTP.
+RUN --mount=type=secret,id=sitecraft_ca,required=false \
+    if [ -s /run/secrets/sitecraft_ca ]; then \
+      mkdir -p /usr/local/share/ca-certificates && \
+      cp /run/secrets/sitecraft_ca /usr/local/share/ca-certificates/sitecraft-local-ca.crt && \
+      update-ca-certificates; \
+    fi
+# Playwright Core uses the distribution Chromium binary for website import.
+# The browser runs behind the safeFetch proxy; no direct network access.
+RUN apk add --no-cache chromium nss freetype harfbuzz font-noto ttf-freefont
+ENV NODE_ENV=production SITECRAFT_IMPORT_CHROMIUM_PATH=/usr/bin/chromium
 WORKDIR /app
 RUN addgroup -S sitecraft && adduser -S sitecraft -G sitecraft
 COPY --from=build --chown=sitecraft:sitecraft /app /app

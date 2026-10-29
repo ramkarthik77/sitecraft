@@ -609,7 +609,7 @@ test("import a website as a template", async ({ page }) => {
   await dlg.getByPlaceholder("Taken from the site").fill("Coffee import");
   await dlg.getByLabel("Pages to bring").selectOption("3");
   await expect(dlg.getByRole("button", { name: "Import" })).toBeDisabled();
-  await dlg.getByText("This site is ours").click();
+  await dlg.getByRole("checkbox", { name: /I have permission to reuse this source/ }).check();
   await dlg.getByRole("button", { name: "Import" }).click();
   const done = page.getByRole("dialog", { name: "Imported Coffee import" });
   await expect(done.locator(".im-pages li").first()).toContainText("Home");

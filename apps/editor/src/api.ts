@@ -628,10 +628,28 @@ export const Folders = {
 
 export interface ImportResult {
   site: SiteSummary;
+  branch?: string;
+  source?: "docx" | "pdf";
   pages: { path: string; title: string; source: string; sections: number }[];
   theme: { colors: Record<string, string>; fonts: { heading?: string; body?: string } };
   warnings: string[];
+  report?: {
+    renderedPages: number;
+    screenshots: { path: string; url: string; elements: number }[];
+    mappedBlocks: number;
+    preservedSections: number;
+    sharedComponents: number;
+    importedAssets: number;
+    retainedRemoteAssets: number;
+    lowConfidenceSections?: number;
+    decisions: { path: string; index: number; label: string; mapped: boolean; reason: string }[];
+  };
 }
 export const Imports = {
-  run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
+  run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null; render?: boolean; ai?: boolean; rightsConfirmed?: boolean }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
+  runFile: (file: File, opts: { name?: string; siteId?: string; mode?: "pages" | "single"; ai?: boolean } = {}) => {
+    const params = new URLSearchParams({ rightsConfirmed: "1", filename: file.name, mode: opts.mode ?? "pages", ...(opts.name ? { name: opts.name } : {}), ...(opts.siteId ? { siteId: opts.siteId } : {}), ai: opts.ai ? "1" : "0" });
+    const type = file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    return api<ImportResult>("POST", `/imports/file?${params.toString()}`, undefined, { contentType: type, data: file });
+  },
 };
