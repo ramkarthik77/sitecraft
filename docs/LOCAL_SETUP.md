@@ -30,8 +30,9 @@ creates two extra sample imported sites, but does not publish them:
 
 ```bash
 docker compose exec -e SITECRAFT_DEMO_SMOKE=1 -e SITECRAFT_URL=http://localhost:4000 -e SITECRAFT_TOKEN=dev-admin-token app node scripts/demo-import-smoke.mjs
-docker compose cp app:/tmp/sitecraft-smoke.pdf ./sitecraft-smoke.pdf
-docker compose cp app:/tmp/sitecraft-smoke.docx ./sitecraft-smoke.docx
+`# Read the printed FIXTURE_PDF_PATH and FIXTURE_DOCX_PATH first`
+docker compose cp "app:<FIXTURE_PDF_PATH>" ./sitecraft-smoke.pdf
+docker compose cp "app:<FIXTURE_DOCX_PATH>" ./sitecraft-smoke.docx
 ```
 
 The copied files can be dragged into **Import → PDF / Word file** during
