@@ -8,3 +8,6 @@ coverage/
 test-results/
 playwright-report/
 .DS_Store
+
+# Machine-specific Compose CA settings (never commit corporate certificates)
+docker-compose.ca.local.yml
