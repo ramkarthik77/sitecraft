@@ -5,11 +5,12 @@ import { extractDocx, extractPdf, compileExtractedDocument } from "../src/import
 import { auth, EDITOR, startTestServer } from "./helpers.js";
 
 /** Real OpenXML packaging with 2 headings, paragraph, list and a table. */
-function wordFile() {
+function wordFile(withImage = false) {
   const document = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
     <w:body>
       <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Services overview</w:t></w:r></w:p>
       <w:p><w:r><w:t>Build experiences responsibly.</w:t></w:r></w:p>
+      ${withImage ? '<w:p><w:r><w:drawing><a:blip r:embed="rId1"/></w:drawing></w:r></w:p>' : ""}
       <w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Frequently asked questions</w:t></w:r></w:p>
       <w:p><w:r><w:t>Can I edit this?</w:t></w:r></w:p>
       <w:p><w:r><w:t>Yes, all content remains editable.</w:t></w:r></w:p>
@@ -18,6 +19,10 @@ function wordFile() {
     </w:body></w:document>`;
   return Buffer.from(zipSync({
     "word/document.xml": strToU8(document),
+    ...(withImage ? {
+      "word/_rels/document.xml.rels": strToU8('<Relationships><Relationship Id="rId1" Target="media/photo.png"/></Relationships>'),
+      "word/media/photo.png": Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl7sQAAAABJRU5ErkJggg==", "base64"),
+    } : {}),
     "[Content_Types].xml": strToU8('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'),
   }));
 }
@@ -82,6 +87,21 @@ describe("multi-source document importer", () => {
     expect(JSON.stringify(main.document)).not.toContain("Services overview");
     const after = JSON.parse((await app.inject({ method: "GET", url: "/api/sites", headers: auth(EDITOR) })).body);
     expect(after.length).toBe(count + 1);
+  });
+
+  it("stores embedded DOCX images as draft library assets", async () => {
+    const upload = await app.inject({
+      method: "POST", url: "/api/imports/file?filename=illustrated.docx",
+      headers: { ...auth(EDITOR), "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+      payload: wordFile(true),
+    });
+    expect(upload.statusCode, upload.body).toBe(201);
+    const imported = JSON.parse(upload.body);
+    expect(imported.report.importedAssets).toBe(1);
+    const assets = await app.inject({ method: "GET", url: "/api/assets", headers: auth(EDITOR) });
+    expect(JSON.parse(assets.body).some((a: { status: string }) => a.status === "draft")).toBe(true);
+    const draft = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${imported.site.id}/branches/${encodeURIComponent(imported.branch)}`, headers: auth(EDITOR) })).body);
+    expect(JSON.stringify(draft.document)).toContain("/media/library/");
   });
 
   it("extracts text-based PDF and creates a reviewable page", async () => {
