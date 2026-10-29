@@ -147,9 +147,10 @@ function layoutFor(el: HTMLElement, ctx: Ctx, seen: Set<HTMLElement>): N | null 
   if (parts.length < 2 || parts.length > 6) return null;
   const cls = classOf(el);
   const inline = el.getAttribute("style") ?? "";
-  const grid = GRID_HINT.test(cls) || (/display\s*:\s*grid/i.test(inline) && parts.length > 2);
+  const computed = el.getAttribute("data-sitecraft-layout");
+  const grid = computed === "grid" || GRID_HINT.test(cls) || (/display\s*:\s*grid/i.test(inline) && parts.length > 2);
   const split = parts.length === 2 &&
-    (SPLIT_HINT.test(cls) || /display\s*:\s*(?:flex|grid)/i.test(inline)) &&
+    (computed === "split" || SPLIT_HINT.test(cls) || /display\s*:\s*(?:flex|grid)/i.test(inline)) &&
     parts.some(hasImage) && parts.some(hasWords);
   if (!grid && !split) return null;
   // A page-wide wrapper containing multiple sections is not a card grid.
