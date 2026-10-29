@@ -167,6 +167,25 @@ docker compose down -v         # DANGER: permanently delete demo sites, versions
 ### Docker demo troubleshooting and imports
 
 - **API not healthy / media volume permission:** `docker compose ps --all` and `docker compose logs --tail=100 media-init app db`. The `media-init` service must finish with exit code 0. Verify local ports 4000, 4100 and 5432 are not already occupied.
+- **macOS Apple Silicon: Alpine `TLS: server certificate not trusted` while installing Chromium:** This means the container cannot validate the certificate for `dl-cdn.alpinelinux.org`; the subsequent `chromium (no such package)` is misleading. If your office VPN/HTTPS-inspecting proxy is active, check Docker Desktop's proxy/certificate trust configuration first. Do **not** change Alpine HTTPS repositories to HTTP or disable verification. If your organization provides a PEM-encoded trusted root CA certificate, place it outside this repository (example: `$HOME/.config/sitecraft/company-root-ca.crt`) and create a LOCAL-ONLY Compose override file, `docker-compose.ca.local.yml`, with:
+  
+  ```yaml
+  services:
+    app:
+      build:
+        secrets: [sitecraft_ca]
+    media-init:
+      build:
+        secrets: [sitecraft_ca]
+    mcp:
+      build:
+        secrets: [sitecraft_ca]
+  secrets:
+    sitecraft_ca:
+      file: ${SITECRAFT_CA_CERT}
+  ```
+
+  Then run `export SITECRAFT_CA_CERT="$HOME/.config/sitecraft/company-root-ca.crt"` and `docker compose -f docker-compose.yml -f docker-compose.ca.local.yml up -d --build`. The Dockerfile uses this optional BuildKit secret to install the trusted root before `apk` and `pnpm`. Leave the certificate and override file outside version control, and only trust a certificate provided by your IT/security team. Normal Docker and Cloudflare builds without this secret are unchanged.
 - **Chromium not found / static fallback:** `docker compose exec app chromium --version` and `docker compose exec app printenv SITECRAFT_IMPORT_CHROMIUM_PATH`. The image sets `/usr/bin/chromium`; browser requests must pass the existing URL safety rules. Private/localhost source URLs are blocked by default.
 - **No reviewer identity:** use the Docker **team server**, not `pnpm start` single-owner mode. Seed prints role-specific tokens; use a distinct browser profile for each reviewer. Never show token values in the recording.
 - **File import appears missing:** open the returned site, choose the `import/...` branch (or open the resulting editor link). Imported file content is intentionally absent from `main` until an approved merge. **Assets** shows embedded images as DRAFT; review rights and alt text before publishing.
