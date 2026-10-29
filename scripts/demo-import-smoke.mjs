@@ -6,6 +6,7 @@
 import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
 import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 
 const require = createRequire(import.meta.url);
 const { zipSync, strToU8 } = require("../apps/api/node_modules/fflate");
@@ -131,8 +132,15 @@ try {
   assert(sites.some((s) => s.name === "Calvexa US HCP"), "Demo seed missing. Seed the disposable workspace first.");
   const chromium = execFileSync(process.env.SITECRAFT_IMPORT_CHROMIUM_PATH || "/usr/bin/chromium", ["--version"], { encoding: "utf8" }).trim();
   console.log(`PASS API and auth; ${sites.length} seeded sites; ${chromium}`);
-  await checkFile("smoke.pdf", pdfFixture(), "application/pdf", "Sitecraft PDF smoke test", 0);
-  const docx = await checkFile("smoke.docx", docxFixture(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Sitecraft DOCX smoke test", 1);
+  const pdf = pdfFixture();
+  const word = docxFixture();
+  // The same fixtures can be copied from the container for a drag/drop UI
+  // demonstration, without installing Node or office software on the host.
+  await writeFile("/tmp/sitecraft-smoke.pdf", pdf);
+  await writeFile("/tmp/sitecraft-smoke.docx", word);
+  await checkFile("smoke.pdf", pdf, "application/pdf", "Sitecraft PDF smoke test", 0);
+  await checkFile("smoke.docx", word, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Sitecraft DOCX smoke test", 1);
+  console.log("Generated /tmp/sitecraft-smoke.pdf and /tmp/sitecraft-smoke.docx for optional UI uploads.");
   const assetList = await call("GET", "/api/assets");
   assert(Array.isArray(assetList) && assetList.some((a) => a.status === "draft"), "Expected a draft image in the asset library");
   console.log("PASS DOCX imported media remains a DRAFT asset; review rights and alt text before publishing.");
