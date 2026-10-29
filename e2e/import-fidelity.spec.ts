@@ -88,6 +88,8 @@ test("JavaScript site: rendered DOM, split hero, local draft assets, cards and s
   };
   readCards(doc.pages[0].root);
   expect(cardCopy).toMatchObject({ Design: "Simple design", Build: "Flexible build", Launch: "Ready to ship" });
+  expect(content).not.toContain("A focused toolkit for teams that ship often.");
+  expect(content).not.toContain("New — now in beta");
   expect(content).toContain("/media/library/");
   expect(content).not.toContain(`${origin}/photo.png`);
   // Source code never becomes executable user-authored JS.
