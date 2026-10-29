@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { expect, test, type Page } from "@playwright/test";
 
@@ -65,6 +66,9 @@ test("JavaScript site: rendered DOM, split hero, local draft assets, cards and s
   const screenshot = await page.request.get(imported.report.screenshots[0].url, { headers: { authorization: `Bearer ${ADMIN}` } });
   expect(screenshot.ok()).toBeTruthy();
   expect(screenshot.headers()["content-type"]).toContain("image/png");
+  await mkdir("test-results/import-visual", { recursive: true });
+  await writeFile("test-results/import-visual/source-rendered.png", Buffer.from(await screenshot.body()));
+
 
   const head = await page.request.get(`/api/sites/${imported.site.id}/branches/main`, { headers: { authorization: `Bearer ${ADMIN}` } });
   const doc = (await head.json()).document;
@@ -80,6 +84,14 @@ test("JavaScript site: rendered DOM, split hero, local draft assets, cards and s
   const assets = await page.request.get("/api/assets", { headers: { authorization: `Bearer ${ADMIN}` } });
   const list = await assets.json();
   expect(list.some((a: { status: string }) => a.status === "draft")).toBeTruthy();
+  // Real browser evidence: the imported Sitecraft site should be editable and
+  // recognisable next to the source screenshot, not merely valid JSON.
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.evaluate((t) => localStorage.setItem("sitecraft.token", t), ADMIN);
+  await page.goto(`/sites/${imported.site.id}`, { waitUntil: "domcontentloaded" });
+  await expect(page.frameLocator("iframe[title='Page canvas']").getByRole("heading", { name: "Build better experiences" })).toBeVisible();
+  await page.screenshot({ path: "test-results/import-visual/sitecraft-editor.png", fullPage: false });
+
 });
 
 test("multi-page site: crawl and convert shared navigation and footer to components", async ({ page }) => {
