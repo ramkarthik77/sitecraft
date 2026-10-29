@@ -6,7 +6,9 @@
 import { createRequire } from "node:module";
 import { deflateSync } from "node:zlib";
 import { execFileSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtemp, writeFile } from "node:fs/promises";
 
 const require = createRequire(import.meta.url);
 const { zipSync, strToU8 } = require("../apps/api/node_modules/fflate");
@@ -136,11 +138,14 @@ try {
   const word = docxFixture();
   // The same fixtures can be copied from the container for a drag/drop UI
   // demonstration, without installing Node or office software on the host.
-  await writeFile("/tmp/sitecraft-smoke.pdf", pdf);
-  await writeFile("/tmp/sitecraft-smoke.docx", word);
+  const smokeDir = await mkdtemp(join(tmpdir(), "sitecraft-smoke-"));
+  const smokePdfPath = join(smokeDir, "sitecraft-smoke.pdf");
+  const smokeDocxPath = join(smokeDir, "sitecraft-smoke.docx");
+  await writeFile(smokePdfPath, pdf, { flag: "wx" });
+  await writeFile(smokeDocxPath, word, { flag: "wx" });
   await checkFile("smoke.pdf", pdf, "application/pdf", "Sitecraft PDF smoke test", 0);
   await checkFile("smoke.docx", word, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Sitecraft DOCX smoke test", 1);
-  console.log("Generated /tmp/sitecraft-smoke.pdf and /tmp/sitecraft-smoke.docx for optional UI uploads.");
+  console.log(`Generated ${smokePdfPath} and ${smokeDocxPath} for optional UI uploads.`);
   const assetList = await call("GET", "/api/assets");
   assert(Array.isArray(assetList) && assetList.some((a) => a.status === "draft"), "Expected a draft image in the asset library");
   console.log("PASS DOCX imported media remains a DRAFT asset; review rights and alt text before publishing.");
