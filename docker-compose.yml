@@ -11,12 +11,13 @@ services:
       POSTGRES_USER: sitecraft
       POSTGRES_PASSWORD: sitecraft
       POSTGRES_DB: sitecraft
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [db:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sitecraft"]
+      test: ["CMD-SHELL", "pg_isready -U sitecraft -d sitecraft"]
       interval: 3s
-      retries: 20
+      timeout: 3s
+      retries: 30
 
   storage:
     image: minio/minio:latest
@@ -24,12 +25,30 @@ services:
     environment:
       MINIO_ROOT_USER: sitecraft
       MINIO_ROOT_PASSWORD: sitecraft-secret
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
     volumes: [storage:/data]
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 3s
-      retries: 20
+  # The server image doesn't guarantee the "mc" CLI is present. Use the
+  # official client as a one-shot readiness + bucket probe instead.
+  storage-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $(seq 1 60); do
+          if mc alias set demo http://storage:9000 sitecraft sitecraft-secret &&
+             mc mb --ignore-existing demo/sitecraft &&
+             mc stat demo/sitecraft; then
+            echo "Sitecraft asset bucket ready"
+            exit 0
+          fi
+          echo "Waiting for MinIO ($i/60)"
+          sleep 2
+        done
+        echo "MinIO did not become ready" >&2
+        exit 1
+    depends_on:
+      storage: { condition: service_started }
+    restart: "no"
 
   app:
     build: { context: ., target: app }
@@ -46,16 +65,16 @@ services:
       PUBLIC_URL: http://localhost:4000
       EDITOR_URL: http://localhost:4000
       CORS_ORIGINS: http://localhost:4000,http://localhost:5173
-    ports: ["4000:4000"]
+    ports: ["127.0.0.1:4000:4000"]
     depends_on:
       db: { condition: service_healthy }
-      storage: { condition: service_healthy }
+      storage-init: { condition: service_completed_successfully }
 
   mcp:
     build: { context: ., target: mcp }
     environment:
       SITECRAFT_API_URL: http://app:4000
-    ports: ["4100:4100"]
+    ports: ["127.0.0.1:4100:4100"]
     depends_on:
       app: { condition: service_healthy }
 
