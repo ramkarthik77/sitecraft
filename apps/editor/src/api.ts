@@ -631,7 +631,17 @@ export interface ImportResult {
   pages: { path: string; title: string; source: string; sections: number }[];
   theme: { colors: Record<string, string>; fonts: { heading?: string; body?: string } };
   warnings: string[];
+  report?: {
+    renderedPages: number;
+    screenshots: { path: string; url: string; elements: number }[];
+    mappedBlocks: number;
+    preservedSections: number;
+    sharedComponents: number;
+    importedAssets: number;
+    retainedRemoteAssets: number;
+    decisions: { path: string; index: number; label: string; mapped: boolean; reason: string }[];
+  };
 }
 export const Imports = {
-  run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
+  run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null; render?: boolean; ai?: boolean; rightsConfirmed?: boolean }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
 };
