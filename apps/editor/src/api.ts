@@ -628,6 +628,8 @@ export const Folders = {
 
 export interface ImportResult {
   site: SiteSummary;
+  branch?: string;
+  source?: "docx" | "pdf";
   pages: { path: string; title: string; source: string; sections: number }[];
   theme: { colors: Record<string, string>; fonts: { heading?: string; body?: string } };
   warnings: string[];
@@ -644,4 +646,9 @@ export interface ImportResult {
 }
 export const Imports = {
   run: (r: { url: string; name?: string; maxPages?: number; folderId?: string | null; render?: boolean; ai?: boolean; rightsConfirmed?: boolean }) => api<ImportResult>("POST", "/imports", { ...r, folderId: r.folderId ?? undefined }),
+  runFile: (file: File, opts: { name?: string; siteId?: string; mode?: "pages" | "single"; ai?: boolean } = {}) => {
+    const params = new URLSearchParams({ filename: file.name, mode: opts.mode ?? "pages", ...(opts.name ? { name: opts.name } : {}), ...(opts.siteId ? { siteId: opts.siteId } : {}), ai: opts.ai ? "1" : "0" });
+    const type = file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    return api<ImportResult>("POST", `/imports/file?${params.toString()}`, undefined, { contentType: type, data: file });
+  },
 };
