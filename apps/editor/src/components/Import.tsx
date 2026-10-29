@@ -19,6 +19,8 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
   const [folder, setFolder] = useState<string | null>(folderId);
   const [template, setTemplate] = useState(asTemplate);
   const [rights, setRights] = useState(false);
+  const [render, setRender] = useState(true);
+  const [ai, setAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ImportResult | null>(null);
   useEffect(() => {
@@ -31,7 +33,7 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await Imports.run({ url: url.trim(), name: name.trim() || undefined, maxPages: pages, folderId: folder });
+      const r = await Imports.run({ url: url.trim(), name: name.trim() || undefined, maxPages: pages, folderId: folder, render, ai, rightsConfirmed: rights });
       if (template) await Templates.create({ siteId: r.site.id, name: name.trim() || r.site.name }).catch((err) => toast({ text: `Imported, but the template wasn't saved: ${(err as Error).message}`, tone: "error" }));
       void refreshShared();
       setDone(r);
@@ -53,7 +55,7 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
             </button>
           </header>
           <p className="muted small" style={{ margin: 0 }}>
-            Sitecraft reads the site's pages and rebuilds them as sections you can edit: headings, text, images, buttons and links, in the site's main colour and fonts. It's a starting point, not a pixel copy. Scripts, forms and embeds are left out.
+            Sitecraft renders the website, inspects its layout and maps recognized content to editable Sections. It saves screenshots for comparison and copies supported images to the asset library as drafts. Complex widgets and interactions still require review.
           </p>
           <label className="field-stack">
             <span className="small muted">Website address</span>
@@ -67,7 +69,7 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
             <label className="field-stack">
               <span className="small muted">Pages to bring</span>
               <select className="select" value={pages} onChange={(e) => setPages(Number(e.target.value))} aria-label="Pages to bring">
-                {[1, 3, 5, 10].map((n) => (
+                {[1, 3, 5, 10, 25].map((n) => (
                   <option key={n} value={n}>
                     {n === 1 ? "Just this page" : `Up to ${n} pages`}
                   </option>
@@ -80,15 +82,23 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
             <FolderSelect folders={folders ?? []} value={folder} onChange={setFolder} label="Folder" />
           </label>
           <label className="check">
+            <input type="checkbox" checked={render} onChange={(e) => setRender(e.target.checked)} />
+            <span>Render JavaScript and capture source layout with Playwright (recommended)</span>
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} />
+            <span>Use Claude for optional semantic section suggestions (sends page structure to configured provider)</span>
+          </label>
+          <label className="check">
             <input type="checkbox" checked={template} onChange={(e) => setTemplate(e.target.checked)} />
             <span>Also save it as a template</span>
           </label>
           <label className="check">
             <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} />
-            <span>This site is ours, or we have the rights to reuse its content and design.</span>
+            <span>We own this site or have permission to copy its content, images and design. Imported images require separate asset approval before publishing.</span>
           </label>
           <footer>
-            <span className="muted small grow">{busy ? "Reading the site… this can take up to a minute." : "Images keep loading from the original site until you replace them."}</span>
+            <span className="muted small grow">{busy ? "Rendering and converting the site…" : "Supported images become draft assets. Review screenshots, content fidelity and rights before publishing."}</span>
             <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
               Cancel
             </button>
@@ -119,6 +129,18 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
               </li>
             ))}
           </ul>
+          {done.report && (
+            <div className="card" style={{ padding: "14px 16px", display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center" }} aria-label="Import quality report">
+              <strong>Import report</strong>
+              <span className="small">{done.report.renderedPages} rendered pages</span>
+              <span className="small">{done.report.mappedBlocks} Section blocks</span>
+              <span className="small">{done.report.preservedSections} faithful editable sections</span>
+              <span className="small">{done.report.sharedComponents} shared components</span>
+              <span className="small">{done.report.importedAssets} draft images copied</span>
+              {done.report.retainedRemoteAssets > 0 && <span className="small">{done.report.retainedRemoteAssets} source images need replacement</span>}
+              <p className="muted small" style={{ width: "100%", margin: 0 }}>Use source screenshots for a visual comparison before approving or publishing. Screenshots require sign-in and are available through the import report API.</p>
+            </div>
+          )}
           {(done.theme.colors.primary || done.theme.fonts.heading) && (
             <p className="small im-theme">
               {done.theme.colors.primary && (
