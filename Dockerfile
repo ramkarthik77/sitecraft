@@ -18,7 +18,10 @@ COPY . .
 RUN pnpm -r run build
 
 FROM node:24-alpine AS base
-ENV NODE_ENV=production
+# Playwright Core uses the distribution Chromium binary for website import.
+# The browser runs behind the safeFetch proxy; no direct network access.
+RUN apk add --no-cache chromium nss freetype harfbuzz font-noto ttf-freefont
+ENV NODE_ENV=production SITECRAFT_IMPORT_CHROMIUM_PATH=/usr/bin/chromium
 WORKDIR /app
 RUN addgroup -S sitecraft && adduser -S sitecraft -G sitecraft
 COPY --from=build --chown=sitecraft:sitecraft /app /app
