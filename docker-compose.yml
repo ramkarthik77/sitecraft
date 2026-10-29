@@ -30,7 +30,7 @@ services:
   # The server image doesn't guarantee the "mc" CLI is present. Use the
   # official client as a one-shot readiness + bucket probe instead.
   storage-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
