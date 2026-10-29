@@ -72,7 +72,7 @@ jobs:
           {
             echo "## Docker team demo: PASS"
             echo
-            echo "- Clean checkout, `docker compose up -d --build` and API health verified"
+            echo '- Clean checkout, `docker compose up -d --build` and API health verified'
             echo "- PostgreSQL + persistent local media volume initialization + API + MCP started"
             echo "- Container Chromium executable and import path verified"
             echo "- Fictional demo seed completed; duplicate seeding rejected"
