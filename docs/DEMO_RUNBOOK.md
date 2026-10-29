@@ -19,9 +19,13 @@ With Node 24, pnpm 10 and Docker Desktop installed:
 ```bash
 git clone https://github.com/ramkarthik77/sitecraft.git
 cd sitecraft
+git switch docs/demo-approval-onboarding-recording # PR #15 (not in main yet)
 cp .env.example .env
 # Keep this demo on your own computer. Do not expose the sample tokens in .env.
 docker compose up -d --build
+docker compose ps --all
+curl --fail http://localhost:4000/healthz
+docker compose exec app chromium --version
 
 # Seed only a BRAND-NEW throwaway workspace.
 # All of these demo names and assets are fictional.
@@ -34,6 +38,50 @@ Open **http://localhost:4000**. Sign in with the admin token from your local `.e
 For a clean restart on an *exclusively disposable* Docker workspace, see [LOCAL_SETUP.md](LOCAL_SETUP.md#start-over-with-empty-data). The reset can delete all local sites; do not run it on work you care about.
 
 **Identity tip:** tokens live in browser storage. To switch roles cleanly, use separate browser profiles or sign out before signing in as another role. Keep actual token values out of the recording.
+
+## Optional: demonstrate all three import sources
+
+After seeding, run the disposable import smoke helper. It checks that the API
+requires a token for PDF/DOCX, Chromium exists, and the converted documents are
+**editable on an `import/...` review branch**, not on live `main`.
+It creates two separate imported demo sites and one draft DOCX image asset.
+
+```bash
+docker compose exec -e SITECRAFT_DEMO_SMOKE=1 \
+  -e SITECRAFT_URL=http://localhost:4000 \
+  -e SITECRAFT_TOKEN=dev-admin-token \
+  app node scripts/demo-import-smoke.mjs
+docker compose cp app:/tmp/sitecraft-smoke.pdf ./sitecraft-smoke.pdf
+docker compose cp app:/tmp/sitecraft-smoke.docx ./sitecraft-smoke.docx
+```
+
+Then demonstrate in the editor:
+
+1. **URL:** open Import → Website URL, use an authorized public HTTPS site,
+   keep rendered capture enabled, and review the sections and warnings before
+   opening the imported site. Website imports currently create unpublished
+   content on `main`, so *do not* press Publish during a casual import demo.
+2. **PDF:** open Import → PDF / Word file, select
+   `sitecraft-smoke.pdf`, choose **Create a new site** (or an existing
+   site), import, and open the displayed `import/...` branch. Show that
+   the extracted text can be edited and the result requires review.
+3. **DOCX:** select `sitecraft-smoke.docx`, choose **One long editable page**,
+   import and edit its heading/list/table. Open **Assets** to show the
+   embedded PNG as **DRAFT**; rights and alt text must be approved
+   separately. Import warnings explain any fidelity limits.
+
+Use the smoke helper's optional `--website https://YOUR-AUTHORIZED-SITE.example`
+argument only for a source you control or have permission to reuse.
+For repeatable non-internet website proof, the PR's
+**Record website import fidelity** workflow exercises three synthetic site
+archetypes, including JavaScript hydration and reusable navigation.
+
+**Gotchas:** the first Docker build downloads Chromium and can be slower;
+use one private browser profile per reviewer, keep tokens out of recordings,
+and never re-seed existing data. To clear an *exclusively disposable* demo,
+`docker compose down -v` permanently removes the DB and media volumes.
+See [Docker quick start and troubleshooting](LOCAL_SETUP.md#demo-quick-start--docker-and-pr-15)
+and [multi-source importer limits](IMPORT_SOURCES.md).
 
 ## 2. The 12-minute presenter script
 
