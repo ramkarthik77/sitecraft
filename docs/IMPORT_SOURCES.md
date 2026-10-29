@@ -31,10 +31,10 @@ curl --fail-with-body -X POST \
   -H "Authorization: Bearer $SITECRAFT_TOKEN" \
   -H "Content-Type: application/pdf" \
   --data-binary @brochure.pdf \
-  "http://localhost:4000/api/imports/file?filename=brochure.pdf&mode=pages"
+  "http://localhost:4000/api/imports/file?filename=brochure.pdf&mode=pages&rightsConfirmed=1"
 ```
 
-For Word, use `application/vnd.openxmlformats-officedocument.wordprocessingml.document`; file extension must be `.docx`. Optional query params: `siteId=<uuid>` for existing-site import, `name=`, `mode=single|pages`, and `ai=1` to opt in to Claude. Response includes `site`, `branch`, `pages`, `warnings`, and `report`.
+For Word, use `application/vnd.openxmlformats-officedocument.wordprocessingml.document`; file extension must be `.docx`. Optional query params: `siteId=<uuid>` for existing-site import, `name=`, `mode=single|pages`, `rightsConfirmed=1` (mandatory permission acknowledgement), and `ai=1` to opt in to Claude. Response includes `site`, `branch`, `pages`, `warnings`, and `report`.
 
 URL import retains `POST /api/imports` with `{url,maxPages,render,ai,rightsConfirmed}` for compatibility. URL import currently works on main, but does not auto-publish; consider requiring an import review branch for all sources in the next enterprise hardening stage.
 
