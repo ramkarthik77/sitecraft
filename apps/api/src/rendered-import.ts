@@ -36,6 +36,14 @@ export interface RenderedCaptureOptions {
   chromiumPath?: string;
 }
 
+/** One browser per import job, with a fresh isolated context per source page. */
+export const launchImportBrowser = () => chromium.launch({
+  headless: true,
+  executablePath: process.env.SITECRAFT_IMPORT_CHROMIUM_PATH || process.env.PW_CHROMIUM_PATH || undefined,
+  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-background-networking"],
+  timeout: 12_000,
+});
+
 export async function captureRenderedPage(
   raw: string,
   options: RenderedCaptureOptions = {},
