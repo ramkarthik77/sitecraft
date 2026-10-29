@@ -112,9 +112,9 @@ export async function ingestEmbeddedImages(
     await ctx.storage.put(key, image.data, type);
     try {
       await ctx.db.query(
-        \`INSERT INTO library_assets (id, file_name, ext, content_type, size_bytes, width, height, title, alt, credit, tags, status, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, 'draft', $12)\`,
-        [id, \`document-\${id}.\${ext}\`, ext, type, image.data.length, size.width, size.height,
+        `INSERT INTO library_assets (id, file_name, ext, content_type, size_bytes, width, height, title, alt, credit, tags, status, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, 'draft', $12)`,
+        [id, `document-${id}.${ext}`, ext, type, image.data.length, size.width, size.height,
          image.alt.slice(0, 200), image.alt.slice(0, 500), "Imported from user-provided document",
          JSON.stringify(["imported", "rights-review-required"]), actor.name],
       );
@@ -126,9 +126,9 @@ export async function ingestEmbeddedImages(
       "INSERT INTO audit_log (site_id, actor, actor_role, action, detail) VALUES (NULL, $1, $2, 'asset.import', $3)",
       [actor.name, actor.role, { id, status: "draft", document: true }],
     );
-    urls.set(image.key, \`\${ctx.cfg.publicUrl}/media/library/\${id}.\${ext}\`);
+    urls.set(image.key, `${ctx.cfg.publicUrl}/media/library/${id}.${ext}`);
   }
   if (embedded.length > 40) warnings.push("Only the first 40 embedded images were considered.");
-  if (urls.size) warnings.push(\`\${urls.size} embedded images were copied as draft assets. Review alt text and usage rights before approval.\`);
+  if (urls.size) warnings.push(`${urls.size} embedded images were copied as draft assets. Review alt text and usage rights before approval.`);
   return { urls, warnings };
 }
