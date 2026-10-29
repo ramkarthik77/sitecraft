@@ -18,9 +18,10 @@ import { ingestEmbeddedImages } from "../import-assets.js";
  */
 export function importFileRoutes(app: FastifyInstance, ctx: AppContext) {
   const { repo } = ctx;
-  app.post<{ Querystring: { filename?: string; siteId?: string; mode?: string; ai?: string; name?: string } }>("/imports/file", async (req, reply) => {
+  app.post<{ Querystring: { filename?: string; siteId?: string; mode?: string; ai?: string; name?: string; rightsConfirmed?: string } }>("/imports/file", async (req, reply) => {
     requireRole(req.actor, "admin", "editor");
     const b = req.query ?? {};
+    if (b.rightsConfirmed !== "1" && b.rightsConfirmed !== "true") throw new HttpError(400, "Confirm you have permission to import and reuse this document and its images.");
     const filename = String(b.filename ?? "").replace(/[^\w. -]/g, "_").slice(0, 140);
     if (!filename || !/\.(pdf|docx)$/i.test(filename)) {
       throw new HttpError(400, "Choose a .pdf or .docx file. Older .doc files are not supported.");
