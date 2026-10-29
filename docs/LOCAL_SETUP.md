@@ -146,13 +146,13 @@ The defaults in `.env` are disposable demo values. Change the three tokens befor
 docker compose up --build
 ```
 
-The first build downloads Node dependencies and Chromium plus PostgreSQL/MinIO images, so it takes longer than subsequent starts. Check `docker compose ps --all` for healthy `app`, `db` and `mcp`, and a successfully exited `storage-init`. Then check `curl --fail http://localhost:4000/healthz`. If startup fails, inspect `docker compose logs db storage storage-init app mcp`.
+The first build downloads Node dependencies and Chromium plus PostgreSQL, so it takes longer than subsequent starts. Check `docker compose ps --all` for healthy `app`, `db` and `mcp`, and a successfully exited `media-init`. Then check `curl --fail http://localhost:4000/healthz`. If startup fails, inspect `docker compose logs db media-init app mcp`.
 
 ### 4. Sign in
 
 Open <http://localhost:4000> and paste `dev-editor-token` (the `EDITOR_TOKEN` from `.env`). Create a site, edit it, then press **Publish**; the published site opens at `http://localhost:4000/s/<your-site-slug>`.
 
-Compose also runs MinIO for storage. Its console is at <http://localhost:9001> (user `sitecraft`, password `sitecraft-secret`) if you want to see the published files. A one-shot `storage-init` container waits for MinIO and confirms the `sitecraft` bucket before the API starts. Demo ports bind to localhost; this is **not** a remotely exposed production environment.
+For demo reliability, Compose stores images and published files in a persistent **local Docker media volume** using Sitecraft’s existing filesystem driver. The one-shot `media-init` service makes that volume writable by the non-root app user before startup. No MinIO or external S3 images are required; Cloudflare/production S3 storage is unchanged. Demo ports bind to localhost; this is **not** a remotely exposed production environment.
 
 ### Everyday commands
 
@@ -165,7 +165,7 @@ docker compose down -v         # DANGER: permanently delete demo sites, versions
 
 ### Docker demo troubleshooting and imports
 
-- **API not healthy / MinIO not ready:** `docker compose ps --all` and `docker compose logs --tail=100 storage storage-init app`. The MinIO client initializer must finish with exit code 0. Verify ports 4000, 4100, 5432, 9000 and 9001 are not already occupied.
+- **API not healthy / media volume permission:** `docker compose ps --all` and `docker compose logs --tail=100 media-init app db`. The `media-init` service must finish with exit code 0. Verify local ports 4000, 4100 and 5432 are not already occupied.
 - **Chromium not found / static fallback:** `docker compose exec app chromium --version` and `docker compose exec app printenv SITECRAFT_IMPORT_CHROMIUM_PATH`. The image sets `/usr/bin/chromium`; browser requests must pass the existing URL safety rules. Private/localhost source URLs are blocked by default.
 - **No reviewer identity:** use the Docker **team server**, not `pnpm start` single-owner mode. Seed prints role-specific tokens; use a distinct browser profile for each reviewer. Never show token values in the recording.
 - **File import appears missing:** open the returned site, choose the `import/...` branch (or open the resulting editor link). Imported file content is intentionally absent from `main` until an approved merge. **Assets** shows embedded images as DRAFT; review rights and alt text before publishing.
