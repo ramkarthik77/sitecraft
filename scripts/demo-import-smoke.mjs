@@ -146,6 +146,9 @@ try {
   await checkFile("smoke.pdf", pdf, "application/pdf", "Sitecraft PDF smoke test", 0);
   await checkFile("smoke.docx", word, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Sitecraft DOCX smoke test", 1);
   console.log(`Generated ${smokePdfPath} and ${smokeDocxPath} for optional UI uploads.`);
+  // Machine-readable paths: never return to predictable /tmp filenames.
+  console.log(`FIXTURE_PDF_PATH=${smokePdfPath}`);
+  console.log(`FIXTURE_DOCX_PATH=${smokeDocxPath}`);
   const assetList = await call("GET", "/api/assets");
   assert(Array.isArray(assetList) && assetList.some((a) => a.status === "draft"), "Expected a draft image in the asset library");
   console.log("PASS DOCX imported media remains a DRAFT asset; review rights and alt text before publishing.");
