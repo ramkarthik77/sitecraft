@@ -119,6 +119,76 @@ function srcFor(img: HTMLElement, ctx: Ctx): string | null {
 
 const looksLikeButton = (a: HTMLElement) => /\b(btn|button|cta)\b/i.test(`${a.getAttribute("class") ?? ""} ${a.getAttribute("role") ?? ""}`);
 
+/** Recognise layouts before flattening their children into a column.
+ * This preserves editable two-column heroes and repeated card grids without
+ * copying arbitrary source CSS/JS into the published site.
+ */
+const GRID_HINT = /(?:^|[\s_-])(grid|cards|tiles|benefits|feature-list|feature-grid|service-list|service-grid|product-grid)(?:$|[\s_-])/i;
+const SPLIT_HINT = /(?:^|[\s_-])(hero|split|two-col|two-column|media-row|media-object|feature-row)(?:$|[\s_-])/i;
+const classOf = (el: HTMLElement) => `${el.getAttribute("class") ?? ""} ${el.getAttribute("id") ?? ""}`;
+const childrenOf = (el: HTMLElement) => el.childNodes.filter(isEl).filter((c) => !SKIP.has(c.tagName?.toLowerCase() ?? "") && c.getAttribute("hidden") === undefined && c.getAttribute("aria-hidden") !== "true");
+const hasImage = (el: HTMLElement) => !!el.querySelector("img");
+const hasWords = (el: HTMLElement) => !!el.querySelector("h1,h2,h3,h4,p,blockquote") || textOf(el).length > 60;
+const hasHeading = (el: HTMLElement) => !!el.querySelector("h1,h2,h3,h4");
+const isLayoutContainer = (el: HTMLElement) => ["div", "section", "article", "ul"].includes(el.tagName?.toLowerCase() ?? "");
+
+/** Extract a row/grid, but only if its child grouping is unambiguous. */
+function layoutFor(el: HTMLElement, ctx: Ctx, seen: Set<HTMLElement>): N | null {
+  if (!isLayoutContainer(el) || el.querySelector("nav,form")) return null;
+  let parts = childrenOf(el);
+  // Two layers of decorative wrappers are common in Bootstrap and CMS markup.
+  if (parts.length === 1 && ["div", "ul"].includes(parts[0]!.tagName?.toLowerCase() ?? "")) {
+    const nested = parts[0]!;
+    if (GRID_HINT.test(classOf(nested)) || SPLIT_HINT.test(classOf(nested))) return layoutFor(nested, ctx, seen);
+  }
+  if (parts.length < 2 || parts.length > 6) return null;
+  const cls = classOf(el);
+  const inline = el.getAttribute("style") ?? "";
+  const grid = GRID_HINT.test(cls) || (/display\s*:\s*grid/i.test(inline) && parts.length > 2);
+  const split = parts.length === 2 &&
+    (SPLIT_HINT.test(cls) || /display\s*:\s*(?:flex|grid)/i.test(inline)) &&
+    parts.some(hasImage) && parts.some(hasWords);
+  if (!grid && !split) return null;
+  // A page-wide wrapper containing multiple sections is not a card grid.
+  if (parts.some((p) => ["header", "footer", "main", "section"].includes(p.tagName?.toLowerCase() ?? ""))) return null;
+  if (grid && parts.filter((p) => hasHeading(p) || hasImage(p) || textOf(p).length > 45).length < 2) return null;
+  const cards: N[] = [];
+  for (const p of parts) {
+    const items: N[] = [];
+    collect(p, ctx, items, seen);
+    if (!items.length && p.tagName?.toLowerCase() === "img") addImage(p, ctx, items);
+    if (!items.length && textOf(p).length > 12) items.push({ type: "text", props: { text: textOf(p).slice(0, 2000) }, style: textStyle });
+    if (!items.length) continue;
+    cards.push({
+      type: "stack",
+      name: split ? (hasImage(p) && !hasHeading(p) ? "Media" : "Copy") : `Card ${cards.length + 1}`,
+      props: {},
+      style: {
+        base: { display: "flex", flexDirection: "column", gap: "14px", padding: "24px", borderRadius: "16px", backgroundColor: "var(--color-surface)", minWidth: "0" },
+      },
+      children: items,
+    });
+  }
+  if (cards.length < 2) return null;
+  if (split) {
+    // Keep the original media/text order, but collapse gracefully on phones.
+    for (const card of cards) {
+      card.style = { base: { flexDirection: "column", display: "flex", gap: "18px", width: "50%", minWidth: "0" }, mobile: { width: "100%" } };
+      for (const child of card.children ?? []) if (child.type === "image") child.style = { base: { width: "100%", maxWidth: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: "18px" } };
+    }
+    return {
+      type: "stack", name: "Two-column layout", props: {},
+      style: { base: { width: "100%", display: "flex", flexDirection: "row", gap: "48px", alignItems: "center" }, tablet: { gap: "28px" }, mobile: { flexDirection: "column", gap: "24px" } },
+      children: cards,
+    };
+  }
+  return {
+    type: "grid", name: "Cards", props: {},
+    style: { base: { width: "100%", display: "grid", gridTemplateColumns: `repeat(${Math.min(cards.length, 3)}, minmax(0, 1fr))`, gap: "20px" }, tablet: { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }, mobile: { gridTemplateColumns: "minmax(0, 1fr)", gap: "14px" } },
+    children: cards,
+  };
+}
+
 /** The content inside an element, in order, as Sitecraft nodes. */
 function collect(el: HTMLElement, ctx: Ctx, out: N[], seen: Set<HTMLElement>) {
   for (const child of el.childNodes) {
@@ -127,6 +197,8 @@ function collect(el: HTMLElement, ctx: Ctx, out: N[], seen: Set<HTMLElement>) {
     const tag = child.tagName?.toLowerCase() ?? "";
     if (SKIP.has(tag) || child.getAttribute("aria-hidden") === "true" || child.getAttribute("hidden") !== undefined) continue;
     if (seen.has(child)) continue;
+    const layout = layoutFor(child, ctx, seen);
+    if (layout) { out.push(layout); continue; }
     if (/^h[1-6]$/.test(tag)) {
       const t = textOf(child);
       if (t) out.push({ type: "heading", props: { text: t.slice(0, 300), level: Math.min(Number(tag[1]), 4) }, style: headingStyle(Number(tag[1])) });
@@ -278,7 +350,10 @@ export function convertPage(html: string, ctx: Ctx, siteName: string, isHome: bo
   for (const [i, b] of blocks.entries()) {
     if (sections.length >= MAX_SECTIONS) break;
     const items: N[] = [];
-    collect(b, ctx, items, new Set());
+    const seen = new Set<HTMLElement>();
+    const layout = layoutFor(b, ctx, seen);
+    if (layout) items.push(layout);
+    else collect(b, ctx, items, seen);
     // A block that's only text, with no paragraph tags.
     if (!items.length && textOf(b).length > 20) items.push({ type: "text", props: { text: textOf(b).slice(0, 2000) }, style: textStyle });
     if (!items.length) continue;
@@ -292,6 +367,21 @@ export function convertPage(html: string, ctx: Ctx, siteName: string, isHome: bo
       if (it.type === "button" && prev?.name === "Buttons") prev.children!.push(it);
       else if (it.type === "button") grouped.push({ type: "stack", name: "Buttons", props: {}, style: { base: { display: "flex", flexDirection: "row", gap: "12px", flexWrap: "wrap" } }, children: [{ ...it, style: buttonStyle(true) }] });
       else grouped.push(it);
+    }
+    if (hero && !grouped.some((x) => x.type === "stack" && x.name === "Two-column layout")) {
+      const images = grouped.filter((x) => x.type === "image");
+      const copy = grouped.filter((x) => x.type !== "image");
+      if (images.length === 1 && copy.some((x) => x.type === "heading") && copy.length <= 8) {
+        images[0]!.style = { base: { width: "100%", aspectRatio: "4 / 3", objectFit: "cover", borderRadius: "18px" } };
+        grouped.splice(0, grouped.length, {
+          type: "stack", name: "Two-column layout", props: {},
+          style: { base: { width: "100%", display: "flex", flexDirection: "row", alignItems: "center", gap: "48px" }, mobile: { flexDirection: "column", gap: "24px" } },
+          children: [
+            { type: "stack", name: "Copy", props: {}, style: { base: { display: "flex", flexDirection: "column", width: "55%", gap: "20px" }, mobile: { width: "100%" } }, children: copy },
+            { type: "stack", name: "Media", props: {}, style: { base: { display: "flex", flexDirection: "column", width: "45%" }, mobile: { width: "100%" } }, children: images },
+          ],
+        });
+      }
     }
     sections.push(section(label, grouped, hero ? "hero" : "plain"));
   }
