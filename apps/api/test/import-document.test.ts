@@ -30,19 +30,19 @@ function pdfFile(text = "Hello Sitecraft PDF import") {
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
     "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
-    `<< /Length ${Buffer.byteLength(instructions)} >>\\nstream\\n${instructions}\\nendstream`,
+    `<< /Length ${Buffer.byteLength(instructions)} >>\nstream\n${instructions}\nendstream`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
   ];
-  let pdf = "%PDF-1.4\\n";
+  let pdf = "%PDF-1.4\n";
   const offsets = [0];
   objects.forEach((obj, i) => {
     offsets.push(Buffer.byteLength(pdf));
-    pdf += `${i + 1} 0 obj\\n${obj}\\nendobj\\n`;
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
   });
   const xref = Buffer.byteLength(pdf);
-  pdf += `xref\\n0 ${objects.length + 1}\\n0000000000 65535 f \\n`;
-  for (const off of offsets.slice(1)) pdf += `${String(off).padStart(10, "0")} 00000 n \\n`;
-  pdf += `trailer\\n<< /Size ${objects.length + 1} /Root 1 0 R >>\\nstartxref\\n${xref}\\n%%EOF`;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const off of offsets.slice(1)) pdf += `${String(off).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(pdf);
 }
 
@@ -76,7 +76,7 @@ describe("multi-source document importer", () => {
     expect(body.source).toBe("docx");
     expect(body.branch).toMatch(/^import\//);
     expect(body.pages.length).toBe(1);
-    const draft = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${body.site.id}/branches/${body.branch}`, headers: auth(EDITOR) })).body);
+    const draft = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${body.site.id}/branches/${encodeURIComponent(body.branch)}`, headers: auth(EDITOR) })).body);
     expect(JSON.stringify(draft.document)).toContain("Services overview");
     const main = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${body.site.id}/branches/main`, headers: auth(EDITOR) })).body);
     expect(JSON.stringify(main.document)).not.toContain("Services overview");
@@ -94,7 +94,7 @@ describe("multi-source document importer", () => {
     });
     expect(res.statusCode, res.body).toBe(201);
     const body = JSON.parse(res.body);
-    const draft = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${body.site.id}/branches/${body.branch}`, headers: auth(EDITOR) })).body);
+    const draft = JSON.parse((await app.inject({ method: "GET", url: `/api/sites/${body.site.id}/branches/${encodeURIComponent(body.branch)}`, headers: auth(EDITOR) })).body);
     expect(JSON.stringify(draft.document)).toContain("Hello Sitecraft PDF import");
     expect(body.warnings.join(" ")).toMatch(/columns|tables/);
   });
