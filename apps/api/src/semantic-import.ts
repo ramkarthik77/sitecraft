@@ -31,6 +31,29 @@ const images = (n: Node) => flatten(n).filter((x) => x.type === "image");
 const links = (n: Node) => flatten(n).filter((x) => ["link", "button"].includes(x.type));
 const low = (n: Node) => `${n.name ?? ""} ${heads(n).join(" ")}`.toLowerCase();
 
+/** Preserve the association between each title and its own description.
+ * Flattened text arrays cannot be indexed against headings because a section
+ * can have optional intro copy, eyebrow text, and nested card containers.
+ */
+function groupsByHeading(section: Node, minLevel = 3): { intro: string[]; items: { title: string; body: string }[] } {
+  const ordered = flatten(section).filter((n) => n.type === "heading" || n.type === "text");
+  const items: { title: string; body: string }[] = [];
+  const intro: string[] = [];
+  let active: { title: string; body: string } | undefined;
+  for (const n of ordered) {
+    if (n.type === "heading" && Number(n.props.level ?? 2) >= minLevel) {
+      active = { title: val(n, "text"), body: "" };
+      if (active.title) items.push(active);
+    } else if (n.type === "text") {
+      const v = val(n, "text");
+      if (!v) continue;
+      if (active) active.body = active.body ? `${active.body} ${v}` : v;
+      else intro.push(v);
+    }
+  }
+  return { intro, items: items.slice(0, 12) };
+}
+
 export function suggestKind(section: Node, index: number): BlockKind {
   const label = low(section);
   const hs = heads(section);
@@ -76,9 +99,15 @@ export function semanticOps(
     } else if (!media.length && suggested === "testimonial" && body.length >= 1 && headings.length <= 1 && calls.length === 0) {
       content = { quote: body[0], author: body[1] ?? "" };
     } else if (!media.length && suggested === "features" && headings.length >= 3 && calls.length === 0) {
-      content = { headline: headings[0], subheadline: body[0] ?? "", items: headings.slice(1, 7).map((title, k) => ({ title, body: body[k + 1] ?? "" })) };
+      const paired = groupsByHeading(section);
+      if (paired.items.length >= 2 && paired.items.every((item) => item.body)) {
+        content = { headline: headings[0], subheadline: paired.intro[0] ?? "", items: paired.items.slice(0, 6) };
+      }
     } else if (!media.length && suggested === "faq" && headings.length >= 3 && calls.length === 0) {
-      content = { headline: headings[0], items: headings.slice(1, 11).map((title, k) => ({ title, body: body[k] ?? "" })) };
+      const paired = groupsByHeading(section);
+      if (paired.items.length >= 2 && paired.items.every((item) => item.body)) {
+        content = { headline: headings[0], items: paired.items.slice(0, 10) };
+      }
     } else if (!media.length && suggested === "cta" && headings.length === 1 && calls.length === 1) {
       content = { headline: headings[0], subheadline: body[0] ?? "", ctaLabel: val(calls[0]!, "label"), ctaHref: val(calls[0]!, "href") || "#" };
     } else if (!media.length && suggested === "logos" && headings.length <= 1 && calls.length === 0 && body.length >= 2) {
