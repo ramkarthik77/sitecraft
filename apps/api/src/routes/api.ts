@@ -29,6 +29,7 @@ import { folderFor, folderRoutes } from "./folders.js";
 import { importWebsite, opsForImport } from "../importer.js";
 import { semanticOps, claudeSectionHints } from "../semantic-import.js";
 import { ingestImportedImages } from "../import-assets.js";
+import { importFileRoutes } from "./import-file.js";
 import type { AppContext } from "../server.js";
 
 type Params = { siteId: string; branch: string; id: string };
@@ -67,6 +68,9 @@ export async function apiRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!canAccessSite(req.actor, site.id)) throw new HttpError(403, "This token can't access that site.");
     }
   });
+
+  // File imports share the same authenticated API scope and role checks.
+  importFileRoutes(app, ctx);
 
   const checkDisciplines = (v: unknown): string[] => {
     if (v === undefined || v === null) return [];
