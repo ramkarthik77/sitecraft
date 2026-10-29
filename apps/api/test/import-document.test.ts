@@ -72,7 +72,7 @@ describe("multi-source document importer", () => {
     const before = await app.inject({ method: "GET", url: "/api/sites", headers: auth(EDITOR) });
     const count = JSON.parse(before.body).length;
     const res = await app.inject({
-      method: "POST", url: "/api/imports/file?filename=services.docx&ai=0",
+      method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=services.docx&ai=0",
       headers: { ...auth(EDITOR), "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
       payload: wordFile(),
     });
@@ -91,7 +91,7 @@ describe("multi-source document importer", () => {
 
   it("stores embedded DOCX images as draft library assets", async () => {
     const upload = await app.inject({
-      method: "POST", url: "/api/imports/file?filename=illustrated.docx",
+      method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=illustrated.docx",
       headers: { ...auth(EDITOR), "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
       payload: wordFile(true),
     });
@@ -109,7 +109,7 @@ describe("multi-source document importer", () => {
     const extracted = await extractPdf(pdf, "product-guide.pdf");
     expect(JSON.stringify(extracted.pages)).toContain("Hello Sitecraft PDF import");
     const res = await app.inject({
-      method: "POST", url: "/api/imports/file?filename=product-guide.pdf&mode=single",
+      method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=product-guide.pdf&mode=single",
       headers: { ...auth(EDITOR), "content-type": "application/pdf" }, payload: pdf,
     });
     expect(res.statusCode, res.body).toBe(201);
@@ -121,13 +121,13 @@ describe("multi-source document importer", () => {
 
   it("can import pages into an existing site without replacing main", async () => {
     const first = await app.inject({
-      method: "POST", url: "/api/imports/file?filename=first.docx",
+      method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=first.docx",
       headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: wordFile(),
     });
     expect(first.statusCode).toBe(201);
     const siteId = JSON.parse(first.body).site.id;
     const followup = await app.inject({
-      method: "POST", url: `/api/imports/file?filename=other.docx&siteId=${siteId}`,
+      method: "POST", url: `/api/imports/file?rightsConfirmed=1&filename=other.docx&siteId=${siteId}`,
       headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: wordFile(),
     });
     expect(followup.statusCode, followup.body).toBe(201);
@@ -138,11 +138,21 @@ describe("multi-source document importer", () => {
     expect(main.document.pages.some((p: { path: string }) => p.path === "/import-other")).toBe(false);
   });
 
+  it("requires reuse permission before accepting file bytes", async () => {
+    const response = await app.inject({
+      method: "POST", url: "/api/imports/file?filename=unapproved.docx",
+      headers: { ...auth(EDITOR), "content-type": "application/octet-stream" },
+      payload: wordFile(),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toContain("permission");
+  });
+
   it("rejects mislabelled files and unsupported Word formats", async () => {
     const pdf = pdfFile();
-    const wrong = await app.inject({ method: "POST", url: "/api/imports/file?filename=wrong.docx", headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: pdf });
+    const wrong = await app.inject({ method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=wrong.docx", headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: pdf });
     expect(wrong.statusCode).toBe(415);
-    const doc = await app.inject({ method: "POST", url: "/api/imports/file?filename=old.doc", headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: wordFile() });
+    const doc = await app.inject({ method: "POST", url: "/api/imports/file?rightsConfirmed=1&filename=old.doc", headers: { ...auth(EDITOR), "content-type": "application/octet-stream" }, payload: wordFile() });
     expect(doc.statusCode).toBe(400);
   });
 });
