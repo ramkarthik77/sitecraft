@@ -177,6 +177,7 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
               <span className="small">{done.report.preservedSections} faithful editable sections</span>
               <span className="small">{done.report.sharedComponents} shared components</span>
               <span className="small">{done.report.importedAssets} draft images copied</span>
+              {!!done.report.lowConfidenceSections && <span className="small" role="status">{done.report.lowConfidenceSections} sections need additional review</span>}
               {done.report.retainedRemoteAssets > 0 && <span className="small">{done.report.retainedRemoteAssets} source images need replacement</span>}
               <p className="muted small" style={{ width: "100%", margin: 0 }}>{done.branch ? `Imported into review branch ${done.branch}. Review and request approval before merging.` : "Compare the imported layout with the original before approving or publishing."}</p>
             </div>
