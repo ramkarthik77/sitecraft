@@ -22,6 +22,7 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | Guide | For |
 |---|---|
 | [Local setup](docs/LOCAL_SETUP.md) | Running Sitecraft on your computer, with or without Docker; tokens; tests; every setting |
+| [Website, PDF and Word imports](docs/IMPORT_SOURCES.md) | Multi-source import, draft assets, review branches, upload API and limitations |
 | [Demo runbook](docs/DEMO_RUNBOOK.md) | New users: a complete fictional pharmaceutical author → MLR → merge → publish walkthrough, demo setup and recorded browser test |
 | [Approvals explained](docs/APPROVALS_EXPLAINED.md) | Authors and reviewers: who signs what, changes requested, stale signatures, merge and publishing gates |
 | [Feature verification](docs/FEATURE_VERIFICATION.md) | Evidence-based coverage matrix, known limitations and an enterprise demo checklist |
