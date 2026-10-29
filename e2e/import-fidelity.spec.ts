@@ -77,6 +77,17 @@ test("JavaScript site: rendered DOM, split hero, local draft assets, cards and s
   expect(content).toContain("Two-column layout");
   expect(content).toContain("Design");
   expect(content).toContain("Launch");
+  const cardCopy: Record<string, string> = {};
+  const readCards = (node: { name?: string; type: string; props: Record<string, unknown>; children?: any[] }) => {
+    if (node.name === "Card") {
+      const title = node.children?.find((n) => n.type === "heading")?.props.text;
+      const body = node.children?.find((n) => n.type === "text")?.props.text;
+      if (typeof title === "string" && typeof body === "string") cardCopy[title] = body;
+    }
+    for (const c of node.children ?? []) readCards(c);
+  };
+  readCards(doc.pages[0].root);
+  expect(cardCopy).toMatchObject({ Design: "Simple design", Build: "Flexible build", Launch: "Ready to ship" });
   expect(content).toContain("/media/library/");
   expect(content).not.toContain(`${origin}/photo.png`);
   // Source code never becomes executable user-authored JS.
