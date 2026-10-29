@@ -453,7 +453,7 @@ export function themeFrom(css: string, html: string): ImportResult["theme"] {
 // ── The whole import ────────────────────────────────────────────────────
 
 export async function importWebsite(start: string, opts: { maxPages?: number; fetch?: SafeFetchOptions; render?: "auto" | "off" } = {}): Promise<ImportResult> {
-  const max = Math.max(1, Math.min(10, opts.maxPages ?? 1));
+  const max = Math.max(1, Math.min(25, opts.maxPages ?? 1));
   const f = { accept: /text\/html|application\/xhtml/i, ...opts.fetch };
   const warnings: string[] = [];
   const first = await safeFetch(start, f);
@@ -479,7 +479,23 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
       /* not a link */
     }
   };
-  for (const a of [...homeDoc.querySelectorAll("nav a, header a"), ...homeDoc.querySelectorAll("a")]) want(a.getAttribute("href"));
+  for (const a of [...homeDoc.querySelectorAll("nav a, header a"), ...homeDoc.querySelectorAll("a")].slice(0, 200)) want(a.getAttribute("href"));
+
+  // Bounded, navigation-first breadth-first discovery: an inner page may link
+  // to the rest of a site even when the homepage doesn't. Each result is
+  // downloaded through safeFetch; no cross-domain navigation is followed.
+  const htmlCache = new Map<string, string>([[first.url, first.body]]);
+  for (let i = 1; i < pageUrls.length && pageUrls.length < max; i++) {
+    const u = pageUrls[i]!;
+    try {
+      const child = await safeFetch(u, f);
+      htmlCache.set(u, child.body);
+      const parsed = parse(child.body);
+      for (const a of [...parsed.querySelectorAll("nav a, header a"), ...parsed.querySelectorAll("main a")].slice(0, 150)) want(a.getAttribute("href"));
+    } catch (e) {
+      warnings.push(`Could not crawl links in ${new URL(u).pathname}: ${(e as Error).message.slice(0, 100)}`);
+    }
+  }
 
   const pagePaths = new Map<string, string>();
   for (const u of pageUrls) {
@@ -510,7 +526,7 @@ export async function importWebsite(start: string, opts: { maxPages?: number; fe
   const captures = new Map<string, RenderedCapture>();
   for (const u of pageUrls) {
     try {
-      let html = u === first.url ? first.body : (await safeFetch(u, f)).body;
+      let html = htmlCache.get(u) ?? (await safeFetch(u, f)).body;
       const path = pagePaths.get(new URL(u).origin + new URL(u).pathname.replace(/\/$/, "")) ?? "/";
       if (opts.render !== "off") {
         try {
