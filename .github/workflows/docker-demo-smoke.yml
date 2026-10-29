@@ -61,9 +61,13 @@ jobs:
           echo "PASS: seed-once guard blocked a duplicate demo workspace"
       - name: Smoke PDF/DOCX uploads, draft images, branches and auth
         run: |
-          docker compose exec -T -e SITECRAFT_DEMO_SMOKE=1             -e SITECRAFT_URL=http://localhost:4000             -e SITECRAFT_TOKEN=dev-admin-token             app node scripts/demo-import-smoke.mjs
-          docker compose cp app:/tmp/sitecraft-smoke.pdf ./sitecraft-smoke.pdf
-          docker compose cp app:/tmp/sitecraft-smoke.docx ./sitecraft-smoke.docx
+          docker compose exec -T -e SITECRAFT_DEMO_SMOKE=1             -e SITECRAFT_URL=http://localhost:4000             -e SITECRAFT_TOKEN=dev-admin-token             app node scripts/demo-import-smoke.mjs | tee /tmp/sitecraft-smoke-log.txt
+          pdf_path=$(sed -n 's/^FIXTURE_PDF_PATH=//p' /tmp/sitecraft-smoke-log.txt | tail -1)
+          docx_path=$(sed -n 's/^FIXTURE_DOCX_PATH=//p' /tmp/sitecraft-smoke-log.txt | tail -1)
+          [[ "$pdf_path" == /tmp/sitecraft-smoke-*/sitecraft-smoke.pdf ]] || exit 1
+          [[ "$docx_path" == /tmp/sitecraft-smoke-*/sitecraft-smoke.docx ]] || exit 1
+          docker compose cp "app:$pdf_path" ./sitecraft-smoke.pdf
+          docker compose cp "app:$docx_path" ./sitecraft-smoke.docx
           test -s sitecraft-smoke.pdf
           test -s sitecraft-smoke.docx
       - name: QA summary
