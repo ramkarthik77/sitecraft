@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Imports, Templates, type ImportResult } from "../api";
+import { Imports, Sites, Templates, type ImportResult, type SiteSummary } from "../api";
 import { navigate } from "../router";
 import { refreshShared } from "../store";
 import { useToast } from "../Toasts";
@@ -14,13 +14,21 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
   const toast = useToast();
   const { folders } = useFolders("site");
   const [url, setUrl] = useState("");
+  const [sourceKind, setSourceKind] = useState<"url" | "file">("url");
+  const [file, setFile] = useState<File | null>(null);
+  const [destination, setDestination] = useState("");
+  const [availableSites, setAvailableSites] = useState<SiteSummary[]>([]);
+  const [fileMode, setFileMode] = useState<"pages" | "single">("pages");
   const [name, setName] = useState("");
   const [pages, setPages] = useState(5);
   const [folder, setFolder] = useState<string | null>(folderId);
   const [template, setTemplate] = useState(asTemplate);
   const [rights, setRights] = useState(false);
+  const [render, setRender] = useState(true);
+  const [ai, setAi] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<ImportResult | null>(null);
+  useEffect(() => { void Sites.list().then(setAvailableSites).catch(() => setAvailableSites([])); }, []);
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && !busy && onClose();
     addEventListener("keydown", k);
@@ -31,8 +39,10 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await Imports.run({ url: url.trim(), name: name.trim() || undefined, maxPages: pages, folderId: folder });
-      if (template) await Templates.create({ siteId: r.site.id, name: name.trim() || r.site.name }).catch((err) => toast({ text: `Imported, but the template wasn't saved: ${(err as Error).message}`, tone: "error" }));
+      const r = sourceKind === "file" && file
+        ? await Imports.runFile(file, { name: name.trim() || undefined, mode: fileMode, siteId: destination || undefined, ai })
+        : await Imports.run({ url: url.trim(), name: name.trim() || undefined, maxPages: pages, folderId: folder, render, ai, rightsConfirmed: rights });
+      if (template && sourceKind === "url") await Templates.create({ siteId: r.site.id, name: name.trim() || r.site.name }).catch((err) => toast({ text: `Imported, but the template wasn't saved: ${(err as Error).message}`, tone: "error" }));
       void refreshShared();
       setDone(r);
     } catch (err) {
@@ -53,46 +63,86 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
             </button>
           </header>
           <p className="muted small" style={{ margin: 0 }}>
-            Sitecraft reads the site's pages and rebuilds them as sections you can edit: headings, text, images, buttons and links, in the site's main colour and fonts. It's a starting point, not a pixel copy. Scripts, forms and embeds are left out.
+            Bring an existing website or document into Sitecraft as editable pages. Recognized sections use Sitecraft blocks; complex content remains editable but may need review. Nothing is published automatically.
           </p>
-          <label className="field-stack">
-            <span className="small muted">Website address</span>
-            <input className="input" autoFocus required type="text" inputMode="url" placeholder="https://www.example.com" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Website address" />
-          </label>
+          <div className="row2" role="group" aria-label="Import source">
+            <button type="button" className={`btn ${sourceKind === "url" ? "primary" : "ghost"}`} onClick={() => setSourceKind("url")}>Website URL</button>
+            <button type="button" className={`btn ${sourceKind === "file" ? "primary" : "ghost"}`} onClick={() => setSourceKind("file")}>PDF / Word file</button>
+          </div>
+          {sourceKind === "url" ? (
+            <label className="field-stack">
+              <span className="small muted">Website address</span>
+              <input className="input" autoFocus required type="text" inputMode="url" placeholder="https://www.example.com" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Website address" />
+            </label>
+          ) : (
+            <label className="field-stack">
+              <span className="small muted">Select a PDF or DOCX file (up to 12 MB)</span>
+              <input className="input" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} required aria-label="PDF or Word file" />
+            </label>
+          )}
           <div className="row2">
             <label className="field-stack">
               <span className="small muted">Name (optional)</span>
               <input className="input" placeholder="Taken from the site" value={name} onChange={(e) => setName(e.target.value)} />
             </label>
+            {sourceKind === "url" ? (
+              <label className="field-stack">
+                <span className="small muted">Pages to bring</span>
+                <select className="select" value={pages} onChange={(e) => setPages(Number(e.target.value))} aria-label="Pages to bring">
+                  {[1, 3, 5, 10, 25].map((n) => <option key={n} value={n}>{n === 1 ? "Just this page" : `Up to ${n} pages`}</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="field-stack">
+                <span className="small muted">Document layout</span>
+                <select className="select" aria-label="Document layout" value={fileMode} onChange={(e) => setFileMode(e.target.value as "pages" | "single")}>
+                  <option value="pages">Separate PDF pages</option>
+                  <option value="single">One long editable page</option>
+                </select>
+              </label>
+            )}
+          </div>
+          {sourceKind === "url" ? (
             <label className="field-stack">
-              <span className="small muted">Pages to bring</span>
-              <select className="select" value={pages} onChange={(e) => setPages(Number(e.target.value))} aria-label="Pages to bring">
-                {[1, 3, 5, 10].map((n) => (
-                  <option key={n} value={n}>
-                    {n === 1 ? "Just this page" : `Up to ${n} pages`}
-                  </option>
-                ))}
+              <span className="small muted">Folder</span>
+              <FolderSelect folders={folders ?? []} value={folder} onChange={setFolder} label="Folder" />
+            </label>
+          ) : (
+            <label className="field-stack">
+              <span className="small muted">Destination</span>
+              <select className="select" aria-label="Import destination" value={destination} onChange={(e) => setDestination(e.target.value)}>
+                <option value="">Create a new site (review branch)</option>
+                {availableSites.map((site) => <option key={site.id} value={site.id}>Add pages to {site.name} (review branch)</option>)}
               </select>
             </label>
-          </div>
-          <label className="field-stack">
-            <span className="small muted">Folder</span>
-            <FolderSelect folders={folders ?? []} value={folder} onChange={setFolder} label="Folder" />
-          </label>
+          )}
+          {sourceKind === "url" && (
+            <label className="check">
+              <input type="checkbox" checked={render} onChange={(e) => setRender(e.target.checked)} />
+              <span>Render JavaScript and capture source layout with Playwright (recommended)</span>
+            </label>
+          )}
           <label className="check">
-            <input type="checkbox" checked={template} onChange={(e) => setTemplate(e.target.checked)} />
-            <span>Also save it as a template</span>
+            <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} />
+            <span>Use Claude for optional section suggestions (shares extracted headings and content with the configured provider)</span>
           </label>
+          {sourceKind === "url" && (
+            <label className="check">
+              <input type="checkbox" checked={template} onChange={(e) => setTemplate(e.target.checked)} />
+              <span>Also save it as a template</span>
+            </label>
+          )}
           <label className="check">
             <input type="checkbox" checked={rights} onChange={(e) => setRights(e.target.checked)} />
-            <span>This site is ours, or we have the rights to reuse its content and design.</span>
+            <span>I have permission to reuse this source and its images. All imported files and image assets require review before publishing.</span>
           </label>
           <footer>
-            <span className="muted small grow">{busy ? "Reading the site… this can take up to a minute." : "Images keep loading from the original site until you replace them."}</span>
+            <span className="muted small grow">{busy ? "Extracting and structuring content…" : "Imports create editable drafts, not published pages. Check headings, tables, images and rights before approval."}</span>
             <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button className="btn primary" disabled={busy || !url.trim() || !rights}>
+            <button className="btn primary" disabled={busy || (sourceKind === "url" ? !url.trim() : !file || file.size > 12_000_000) || !rights}>
               {busy ? "Importing…" : "Import"}
             </button>
           </footer>
@@ -119,6 +169,19 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
               </li>
             ))}
           </ul>
+          {done.report && (
+            <div className="card" style={{ padding: "14px 16px", display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center" }} aria-label="Import quality report">
+              <strong>Import report</strong>
+              <span className="small">{done.report.renderedPages} rendered pages</span>
+              <span className="small">{done.report.mappedBlocks} Section blocks</span>
+              <span className="small">{done.report.preservedSections} faithful editable sections</span>
+              <span className="small">{done.report.sharedComponents} shared components</span>
+              <span className="small">{done.report.importedAssets} draft images copied</span>
+              {!!done.report.lowConfidenceSections && <span className="small" role="status">{done.report.lowConfidenceSections} sections need additional review</span>}
+              {done.report.retainedRemoteAssets > 0 && <span className="small">{done.report.retainedRemoteAssets} source images need replacement</span>}
+              <p className="muted small" style={{ width: "100%", margin: 0 }}>{done.branch ? `Imported into review branch ${done.branch}. Review and request approval before merging.` : "Compare the imported layout with the original before approving or publishing."}</p>
+            </div>
+          )}
           {(done.theme.colors.primary || done.theme.fonts.heading) && (
             <p className="small im-theme">
               {done.theme.colors.primary && (
@@ -143,7 +206,7 @@ export function ImportDialog({ onClose, asTemplate = false, folderId = null }: {
             <button className="btn" onClick={() => (onClose(), navigate(`/sites/${done.site.id}/overview`))}>
               Open overview
             </button>
-            <button className="btn primary" onClick={() => (onClose(), navigate(`/sites/${done.site.id}`))}>
+            <button className="btn primary" onClick={() => (onClose(), navigate(`/sites/${done.site.id}${done.branch ? `?branch=${encodeURIComponent(done.branch)}` : ""}`))}>
               Open in editor
             </button>
           </footer>

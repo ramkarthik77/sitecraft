@@ -105,6 +105,36 @@ describe("importing a website", () => {
     expect((await post(app, { url: origin + "/" }, AGENT)).statusCode).toBe(201);
   });
 
+  it("preserves responsive two-column hero groups without flattening text and media", () => {
+    const html = `<html><body><main><section class="hero split"><div class="copy"><h1>Better care</h1><p>Fictional care information that you can edit.</p><a href="/about" class="btn">Explore</a></div><div class="visual"><img src="/hero.jpg" alt="A clinic lobby" width="1200"></div></section></main></body></html>`;
+    const data = convertPage(html, { base: new URL("https://design.test/"), pagePaths: new Map() }, "Demo", true);
+    const json = JSON.stringify(data.sections);
+    expect(json).toContain("Two-column layout");
+    expect(json).toContain('"flexDirection":"row"');
+    expect(json).toContain('"flexDirection":"column"');
+    expect(json).toContain("Better care");
+    expect(json).toContain("A clinic lobby");
+    expect(json).toContain("Explore");
+  });
+
+  it("preserves a responsive three-card grid in editable nodes", () => {
+    const html = `<html><body><main><section><h2>Our services</h2><div class="services-grid"><article><h3>First</h3><p>One</p></article><article><h3>Second</h3><p>Two</p></article><article><h3>Third</h3><p>Three</p></article></div></section></main></body></html>`;
+    const data = convertPage(html, { base: new URL("https://design.test/"), pagePaths: new Map() }, "Demo", true);
+    const json = JSON.stringify(data.sections);
+    expect(json).toContain('"name":"Cards"');
+    expect(json).toContain("repeat(3, minmax(0, 1fr))");
+    expect(json).toContain("repeat(2, minmax(0, 1fr))");
+    expect(json).toContain("minmax(0, 1fr)");
+    for (const t of ["First", "Second", "Third"]) expect(json).toContain(t);
+  });
+
+  it("does not misclassify generic nested wrappers as a grid", () => {
+    const html = `<body><main><section><h1>Headline</h1><div><p>Normal text</p></div><div><p>More text</p></div></section></main></body>`;
+    const data = convertPage(html, { base: new URL("https://design.test/"), pagePaths: new Map() }, "Demo", true);
+    expect(JSON.stringify(data.sections)).not.toContain('"name":"Cards"');
+    expect(JSON.stringify(data.sections)).toContain("More text");
+  });
+
   it("maps addresses to page paths and reads plain HTML", () => {
     expect(toPath(new URL("https://x.com/About_Us/Team.html"))).toBe("/about-us/team");
     expect(toPath(new URL("https://x.com/index.php"))).toBe("/");

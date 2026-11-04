@@ -112,6 +112,30 @@ function getOnce(url: URL, ip: string, family: 4 | 6, opts: Required<Pick<SafeFe
   });
 }
 
+/** Binary variant for media and browser subresources.
+ * All DNS, redirect, port, size and timeout protections are identical to
+ * safeFetch. Browser code must never use route.continue() for untrusted URLs.
+ */
+export async function safeFetchBytes(raw: string, opts: SafeFetchOptions = {}): Promise<{
+  url: string; status: number; contentType: string; body: Buffer;
+}> {
+  const o = { maxBytes: Math.min(opts.maxBytes ?? 3_000_000, 5_000_000), timeoutMs: Math.min(opts.timeoutMs ?? 10_000, 15_000) };
+  let current = raw;
+  for (let hop = 0; hop < 5; hop++) {
+    const { url, ip, family } = await checkUrl(current, opts);
+    const res = await getOnce(url, ip, family, o);
+    if (res.status >= 300 && res.status < 400 && res.headers.location) {
+      current = new URL(res.headers.location, url).toString();
+      continue;
+    }
+    if (res.status >= 400) throw new HttpError(400, `The site answered ${res.status} for ${url.pathname}.`);
+    const contentType = String(res.headers["content-type"] ?? "").split(";")[0]!.toLowerCase();
+    if (opts.accept && !opts.accept.test(contentType)) throw new HttpError(400, `Unexpected content type: ${contentType || "unknown"}.`);
+    return { url: url.toString(), status: res.status, contentType, body: res.body };
+  }
+  throw new HttpError(400, "That address redirects too many times.");
+}
+
 export async function safeFetch(raw: string, opts: SafeFetchOptions = {}): Promise<Fetched> {
   const o = { maxBytes: opts.maxBytes ?? 3_000_000, timeoutMs: opts.timeoutMs ?? 10_000 };
   let current = raw;

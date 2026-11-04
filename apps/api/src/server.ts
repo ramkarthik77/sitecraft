@@ -44,6 +44,8 @@ export async function buildServer(cfg: Config, opts: { logger?: boolean } = {}):
     done(null, Object.fromEntries(new URLSearchParams(body as string)));
   });
   app.addContentTypeParser(/^image\/(png|jpeg|gif|webp)$/, { parseAs: "buffer", bodyLimit: 10 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+  // File imports are bounded raw streams, never arbitrary multipart form bodies.
+  app.addContentTypeParser(/^(application\/pdf|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document|application\/octet-stream)$/, { parseAs: "buffer", bodyLimit: 12_000_000 }, (_req, body, done) => done(null, body));
 
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || cfg.corsOrigins.includes("*") || cfg.corsOrigins.includes(origin)),

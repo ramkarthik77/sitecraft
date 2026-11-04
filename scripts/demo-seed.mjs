@@ -24,6 +24,13 @@ async function call(method, path, body, token = admin, raw) {
 
 const me = await call("GET", "/me");
 if (me.role !== "admin") throw new Error("Use an admin token (or the local app).");
+// An interrupted or repeated seed must never silently create duplicate demo
+// organizations, sites, reviews or short-lived identity tokens.
+const existing = await call("GET", "/sites");
+if (!Array.isArray(existing)) throw new Error("Could not verify that the demo workspace is empty.");
+if (existing.length) {
+  throw new Error(`Demo seed refused: this workspace already contains ${existing.length} site(s). Never re-seed an existing workspace. To start fresh, use docker compose down -v ONLY on a disposable demo stack, then restart.`);
+}
 const local = !!me.local;
 
 // People. On the local app there's one owner, so reviewers only exist in the cloud.

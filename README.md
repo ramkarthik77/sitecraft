@@ -22,6 +22,10 @@ Designers work on a canvas in the browser. Claude Code works through an MCP serv
 | Guide | For |
 |---|---|
 | [Local setup](docs/LOCAL_SETUP.md) | Running Sitecraft on your computer, with or without Docker; tokens; tests; every setting |
+| [Website, PDF and Word imports](docs/IMPORT_SOURCES.md) | Multi-source import, draft assets, review branches, upload API and limitations |
+| [Demo runbook](docs/DEMO_RUNBOOK.md) | New users: a complete fictional pharmaceutical author → MLR → merge → publish walkthrough, demo setup and recorded browser test |
+| [Approvals explained](docs/APPROVALS_EXPLAINED.md) | Authors and reviewers: who signs what, changes requested, stale signatures, merge and publishing gates |
+| [Feature verification](docs/FEATURE_VERIFICATION.md) | Evidence-based coverage matrix, known limitations and an enterprise demo checklist |
 | [CMS](docs/CMS.md) | Collections, item pages, lists, drafts |
 | [Authoring](docs/AUTHORING.md) | Templates, brand kits and locking, the image library, comments and approvals, scheduled publishing |
 | [New sections and components](docs/EXTENDING.md) | Authors: build, reuse and share sections without code. Developers: add blocks, new elements, ops and site behavior |
@@ -61,6 +65,12 @@ For a shared server with sign-in for a team, see [Local setup](docs/LOCAL_SETUP.
 
 - **Cloudflare** (Containers, R2, edge cache, and Postgres created from the Cloudflare dashboard), at `https://sitecraft.guduriphaniram1988.workers.dev`: [docs/CLOUDFLARE.md](docs/CLOUDFLARE.md). Same GitHub Actions setup as pagefold; after adding the secrets, every push to `main` that passes CI deploys automatically.
 - **Anywhere else** that runs containers: [docs/DEPLOY.md](docs/DEPLOY.md).
+
+## Guided demo and recording
+
+For a realistic new-user demo, follow [the demo runbook](docs/DEMO_RUNBOOK.md) with an **isolated team-server workspace** and fictional brands. The existing local single-user mode cannot demonstrate independent MLR reviewer identities. [The approvals guide](docs/APPROVALS_EXPLAINED.md) explains why requesting review, signing, merging and publishing are separate steps. See the [feature verification matrix](docs/FEATURE_VERIFICATION.md) for what is automated versus what still requires manual or production validation.
+
+A separate GitHub Actions workflow, **Record Sitecraft demo**, runs a real Chromium walkthrough of three-discipline MLR review against a throwaway test database and uploads `sitecraft-browser-demo` (`video.webm`) for the run. The recording is not narrated, and a test failure is not a passing demo.
 
 ## Tests
 
